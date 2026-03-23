@@ -1,0 +1,41 @@
+{
+  "name": "wellapath-backend",
+  "version": "1.0.0",
+  "description": "For the Fastify Node/TypeScript backend.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"No tests yet\"",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Wellapath-org/wellapath-backend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Wellapath-org/wellapath-backend/issues"
+  },
+  "homepage": "https://github.com/Wellapath-org/wellapath-backend#readme",
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.57.1",
+    "@typescript-eslint/parser": "^8.57.1",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.1"
+  },
+  "lint-staged": {
+    "*.ts": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  }
+}
