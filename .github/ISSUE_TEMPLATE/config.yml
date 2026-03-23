@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Engineering Backlog
+    url: https://github.com/Wellapath-org/wellapath-docs
+    about: Check the engineering backlog before opening an issue
