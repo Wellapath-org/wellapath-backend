@@ -9,37 +9,33 @@
 ## Current Status
 
 **Phase:** E1 — System Spine
-**Sprint:** E1.4 (Security Baseline) — **STARTING**
-**Stage:** E1.3 complete and merged. Ready to begin E1.4.
+**Sprint:** E1 — **ALL CODE TASKS COMPLETE**
+**Stage:** E1.5 complete and merged. All backend code for E1 is done.
 
 **Completed:**
 
 - PR #2 merged → `develop` (E1.1 backend init + E1.2 core endpoints)
 - PR #3 merged → `develop` (Dockerfile fix: copy node_modules from builder, remove npm ci from production stage)
 - PR #4 merged → `develop` (E1.3 database foundation)
+- PR #5 merged → `develop` (E1.4 security baseline)
+- PR #6 merged → `develop` (E1.5 artifact distribution skeleton)
 
 **Known issue:**
 GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
 
-**Next immediate action:** Create branch `feature/e1-security-baseline` off `develop` and begin E1.4.
+**Next immediate action:** Founder decision — proceed to ECS deployment (complete E1 exit criteria) OR begin E2 Data Structure Lock.
 
 ---
 
 ## Branches
 
-| Branch                              | Status                     | PR       |
-| ----------------------------------- | -------------------------- | -------- |
-| `feature/e1-backend-init`           | Merged → `develop`         | PR #2 ✅ |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`         | PR #3 ✅ |
-| `feature/e1-database-foundation`    | Merged → `develop`         | PR #4 ✅ |
-| `feature/e1-security-baseline`      | **Next — not yet created** | —        |
-
-**Next branch to create:**
-
-```bash
-git checkout develop && git pull origin develop
-git checkout -b feature/e1-security-baseline
-```
+| Branch                              | Status             | PR       |
+| ----------------------------------- | ------------------ | -------- |
+| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅ |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅ |
+| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅ |
+| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅ |
+| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅ |
 
 ---
 
@@ -88,6 +84,23 @@ git checkout -b feature/e1-security-baseline
 - [x] `npm run migrate` confirmed working against AWS RDS staging DB
 - [x] DB credentials in `.env` restored to AWS RDS values after local testing
 
+### E1.4 — Security Baseline
+
+- [x] `src/plugins/error-handler.ts` — global error handler plugin, registered on Fastify instance
+- [x] `setErrorHandler` — catches all thrown errors, logs server-side, returns `{ error: { statusCode, message } }` envelope; 5xx messages sanitized to generic string
+- [x] `setNotFoundHandler` — returns consistent `{ error: { statusCode: 404, message: 'Route not found' } }` envelope matching global format
+- [x] CORS tightened — origin allowlist (`wellapath.org`, `api-staging.wellapath.org`) in production; methods restricted to `GET` only
+- [x] Rate limit error response shaped to match error envelope: `{ error: { statusCode: 429, message: '...' } }`
+- [x] All error paths (`404`, `429`, `4xx`, `5xx`) return consistent `{ error: { statusCode, message } }` format
+
+### E1.5 — Artifact Distribution Skeleton
+
+- [x] `src/artifacts/kb.ng.v1.0.json` — placeholder knowledge base artifact (`version: 1.0.0, status: placeholder, data: []`)
+- [x] `src/artifacts/rules.ng.v1.0.json` — placeholder rules artifact
+- [x] `src/artifacts/facilities.ng.v1.0.json` — placeholder facilities artifact
+- [x] All three artifacts uploaded to S3 (`wellapath-artifacts-staging`) and verified via CloudFront (`https://d179u2ex0g66o3.cloudfront.net`)
+- [x] `GET /config` returns correct CloudFront URLs pointing to verified artifacts
+
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
@@ -118,17 +131,26 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                         | Branch                                          | Status    |
-| --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
+| PR  | Title                                                                          | Branch                                          | Status    |
+| --- | ------------------------------------------------------------------------------ | ----------------------------------------------- | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`          | `feature/e1-backend-init` → `develop`           | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production  | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`  | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`     | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`        | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
 
 ---
 
-## E1 Exit Criteria (Not Yet Done)
+## E1 Exit Criteria
 
-These require AWS deployment — coming after the PR is merged to develop:
+### Code tasks ✅ complete
+
+- [x] `/health`, `/version`, `/config` endpoints implemented and verified
+- [x] Database connected, migration script verified against RDS staging
+- [x] Security baseline in place (CORS, rate limiting, error envelope)
+- [x] Placeholder artifacts in S3, verified via CloudFront
+
+### Deployment tasks — pending founder decision
 
 - [ ] Backend deployed to ECS staging with all three endpoints live
 - [ ] HTTPS working on `api-staging.wellapath.org`
@@ -154,23 +176,18 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ## What Comes Next
 
-**E1.3 — Database Foundation** ✅ complete (PR #4)
+**E1 — System Spine** ✅ all code tasks complete (PRs #2–#6)
 
-**E1.4 — Security Baseline** ← current
+**Next:** Founder decision required —
 
-- Branch: `feature/e1-security-baseline` off `develop`
-- Review CORS config
-- Verify rate limiting is tuned
-- Add global error handler
-- Confirm no plaintext secrets anywhere in repo
-- Configure HTTPS for staging
+- **Option A: ECS Deployment** — deploy to staging, verify HTTPS, complete E1 exit criteria, then start E2
+- **Option B: Begin E2 Data Structure Lock** — proceed with E2 in parallel if deployment is blocked
 
-**E1.5 — Artifact Distribution Skeleton**
+**E2 — Data Structure Lock** (after E1 exit criteria met)
 
-- Define artifact versioning structure in DB
-- Make `/config` pull versions from DB instead of hardcoded values
-- Upload placeholder artifact JSON to S3
-- Verify backend returns correct artifact URLs
+- Lock artifact JSON schemas (KB, rules, facilities)
+- Define versioning contract between backend and mobile
+- Wire `/config` to pull live artifact versions from `artifact_versions` table
 
 ---
 
@@ -183,4 +200,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — E1.3 complete and merged (PR #4), migration verified, health endpoint includes DB check, ready to begin E1.4_
+_Last updated: 2026-03-24 — E1.5 complete and merged (PR #6), placeholder artifacts verified via CloudFront, all E1 code tasks done, awaiting founder decision on ECS deployment vs E2 start_
