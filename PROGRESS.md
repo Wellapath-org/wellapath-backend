@@ -9,18 +9,19 @@
 ## Current Status
 
 **Phase:** E1 — System Spine
-**Sprint:** E1.3 (Database Foundation) — **STARTING**
-**Stage:** E1.1 + E1.2 complete and merged. Dockerfile fix merged. Ready to begin E1.3.
+**Sprint:** E1.4 (Security Baseline) — **STARTING**
+**Stage:** E1.3 complete and merged. Ready to begin E1.4.
 
 **Completed:**
 
 - PR #2 merged → `develop` (E1.1 backend init + E1.2 core endpoints)
 - PR #3 merged → `develop` (Dockerfile fix: copy node_modules from builder, remove npm ci from production stage)
+- PR #4 merged → `develop` (E1.3 database foundation)
 
 **Known issue:**
 GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
 
-**Next immediate action:** Create branch `feature/e1-database-foundation` off `develop` and begin E1.3.
+**Next immediate action:** Create branch `feature/e1-security-baseline` off `develop` and begin E1.4.
 
 ---
 
@@ -30,13 +31,14 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 | ----------------------------------- | -------------------------- | -------- |
 | `feature/e1-backend-init`           | Merged → `develop`         | PR #2 ✅ |
 | `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`         | PR #3 ✅ |
-| `feature/e1-database-foundation`    | **Next — not yet created** | —        |
+| `feature/e1-database-foundation`    | Merged → `develop`         | PR #4 ✅ |
+| `feature/e1-security-baseline`      | **Next — not yet created** | —        |
 
 **Next branch to create:**
 
 ```bash
 git checkout develop && git pull origin develop
-git checkout -b feature/e1-database-foundation
+git checkout -b feature/e1-security-baseline
 ```
 
 ---
@@ -69,16 +71,28 @@ git checkout -b feature/e1-database-foundation
 
 ### E1.2 — Core Endpoints
 
-- [x] `src/routes/health.ts` — GET /health
+- [x] `src/routes/health.ts` — GET /health (updated in E1.3 to include DB check)
 - [x] `src/routes/version.ts` — GET /version
 - [x] `src/routes/config.ts` — GET /config
 - [x] `src/routes/index.ts` — registers all three routes
+
+### E1.3 — Database Foundation
+
+- [x] `src/plugins/db.ts` — pg Pool plugin, registered on Fastify instance as `server.db`, graceful shutdown via `onClose` hook
+- [x] `src/db/migrate.ts` — idempotent migration script (`CREATE TABLE IF NOT EXISTS`), single transaction, run with `npm run migrate`
+- [x] Tables created and verified locally:
+  - `artifact_versions` — tracks versioned artifact releases, `UNIQUE (artifact, version)` enforces no-overwrite rule
+  - `metrics_agg` — aggregated anonymized usage metrics, no PHI
+  - `audit_logs` — system audit trail, no PHI
+- [x] `GET /health` updated — includes DB connectivity check via `SELECT 1`, returns `checks.database: ok|error`
+- [x] `npm run migrate` confirmed working against AWS RDS staging DB
+- [x] DB credentials in `.env` restored to AWS RDS values after local testing
 
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
 | ------------ | ------ | --------------------------------------------------------------- |
-| GET /health  | 200    | `{"status":"ok","timestamp":"..."}`                             |
+| GET /health  | 200    | `{"status":"ok","timestamp":"...","checks":{"database":"ok"}}`  |
 | GET /version | 200    | `{"version":"0.1.0","environment":"development"}`               |
 | GET /config  | 200    | Full artifact payload with CloudFront URLs + placeholder hashes |
 
@@ -108,6 +122,7 @@ CORS headers confirmed active (`vary: Origin`).
 | --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
 | #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
 | #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
 
 ---
 
@@ -139,16 +154,11 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ## What Comes Next
 
-**E1.3 — Database Foundation** ← current
+**E1.3 — Database Foundation** ✅ complete (PR #4)
 
-- Branch: `feature/e1-database-foundation` off `develop`
-- Connect PostgreSQL to the backend
-- Create core tables: `artifact_versions`, `metrics_agg`, `audit_logs`
-- Test DB migration/init flow
-- Add DB connectivity health check to `/health`
+**E1.4 — Security Baseline** ← current
 
-**E1.4 — Security Baseline**
-
+- Branch: `feature/e1-security-baseline` off `develop`
 - Review CORS config
 - Verify rate limiting is tuned
 - Add global error handler
@@ -173,4 +183,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — E1.1 + E1.2 merged (PR #2), Dockerfile fix merged (PR #3), ready to begin E1.3_
+_Last updated: 2026-03-24 — E1.3 complete and merged (PR #4), migration verified, health endpoint includes DB check, ready to begin E1.4_
