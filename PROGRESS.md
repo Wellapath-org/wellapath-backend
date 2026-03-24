@@ -9,19 +9,20 @@
 ## Current Status
 
 **Phase:** E1 — System Spine
-**Sprint:** E1.4 (Security Baseline) — **STARTING**
-**Stage:** E1.3 complete and merged. Ready to begin E1.4.
+**Sprint:** E1.5 (Artifact Distribution Skeleton) — **STARTING**
+**Stage:** E1.4 complete and merged. Ready to begin E1.5.
 
 **Completed:**
 
 - PR #2 merged → `develop` (E1.1 backend init + E1.2 core endpoints)
 - PR #3 merged → `develop` (Dockerfile fix: copy node_modules from builder, remove npm ci from production stage)
 - PR #4 merged → `develop` (E1.3 database foundation)
+- PR #5 merged → `develop` (E1.4 security baseline)
 
 **Known issue:**
 GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
 
-**Next immediate action:** Create branch `feature/e1-security-baseline` off `develop` and begin E1.4.
+**Next immediate action:** Create branch `feature/e1-artifact-skeleton` off `develop` and begin E1.5.
 
 ---
 
@@ -32,13 +33,14 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 | `feature/e1-backend-init`           | Merged → `develop`         | PR #2 ✅ |
 | `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`         | PR #3 ✅ |
 | `feature/e1-database-foundation`    | Merged → `develop`         | PR #4 ✅ |
-| `feature/e1-security-baseline`      | **Next — not yet created** | —        |
+| `feature/e1-security-baseline`      | Merged → `develop`         | PR #5 ✅ |
+| `feature/e1-artifact-skeleton`      | **Next — not yet created** | —        |
 
 **Next branch to create:**
 
 ```bash
 git checkout develop && git pull origin develop
-git checkout -b feature/e1-security-baseline
+git checkout -b feature/e1-artifact-skeleton
 ```
 
 ---
@@ -75,6 +77,15 @@ git checkout -b feature/e1-security-baseline
 - [x] `src/routes/version.ts` — GET /version
 - [x] `src/routes/config.ts` — GET /config
 - [x] `src/routes/index.ts` — registers all three routes
+
+### E1.4 — Security Baseline
+
+- [x] `src/plugins/error-handler.ts` — global error handler plugin, registered on Fastify instance
+- [x] `setErrorHandler` — catches all thrown errors, logs server-side, returns `{ error: { statusCode, message } }` envelope; 5xx messages sanitized to generic string
+- [x] `setNotFoundHandler` — returns consistent `{ error: { statusCode: 404, message: 'Route not found' } }` envelope matching global format
+- [x] CORS tightened — origin allowlist (`wellapath.org`, `api-staging.wellapath.org`) in production; methods restricted to `GET` only
+- [x] Rate limit error response shaped to match error envelope: `{ error: { statusCode: 429, message: '...' } }`
+- [x] All error paths (`404`, `429`, `4xx`, `5xx`) return consistent `{ error: { statusCode, message } }` format
 
 ### E1.3 — Database Foundation
 
@@ -123,6 +134,7 @@ CORS headers confirmed active (`vary: Origin`).
 | #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
 | #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
 | #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`    | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
 
 ---
 
@@ -156,17 +168,11 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 **E1.3 — Database Foundation** ✅ complete (PR #4)
 
-**E1.4 — Security Baseline** ← current
+**E1.4 — Security Baseline** ✅ complete (PR #5)
 
-- Branch: `feature/e1-security-baseline` off `develop`
-- Review CORS config
-- Verify rate limiting is tuned
-- Add global error handler
-- Confirm no plaintext secrets anywhere in repo
-- Configure HTTPS for staging
+**E1.5 — Artifact Distribution Skeleton** ← current
 
-**E1.5 — Artifact Distribution Skeleton**
-
+- Branch: `feature/e1-artifact-skeleton` off `develop`
 - Define artifact versioning structure in DB
 - Make `/config` pull versions from DB instead of hardcoded values
 - Upload placeholder artifact JSON to S3
@@ -183,4 +189,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — E1.3 complete and merged (PR #4), migration verified, health endpoint includes DB check, ready to begin E1.4_
+_Last updated: 2026-03-24 — E1.4 complete and merged (PR #5), security baseline in place, consistent error envelope across all error paths, ready to begin E1.5_
