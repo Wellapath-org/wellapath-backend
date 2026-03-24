@@ -131,11 +131,11 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                          | Branch                                          | Status    |
-| --- | ------------------------------------------------------------------------------ | ----------------------------------------------- | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`          | `feature/e1-backend-init` → `develop`           | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production  | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`  | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
+| PR  | Title                                                                         | Branch                                          | Status    |
+| --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
 | #5  | `feat(security): add security baseline — cors, rate limit, error handler`     | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
 | #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`        | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
 
