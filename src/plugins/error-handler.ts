@@ -2,6 +2,24 @@ import { FastifyInstance, FastifyError, FastifyRequest, FastifyReply } from 'fas
 import fp from 'fastify-plugin';
 
 async function errorHandlerPlugin(server: FastifyInstance): Promise<void> {
+  server.setNotFoundHandler((request: FastifyRequest, reply: FastifyReply): void => {
+    server.log.warn(
+      {
+        requestId: request.id,
+        method: request.method,
+        url: request.url,
+      },
+      'Route not found',
+    );
+
+    reply.status(404).send({
+      error: {
+        statusCode: 404,
+        message: 'Route not found',
+      },
+    });
+  });
+
   server.setErrorHandler(
     (error: FastifyError, request: FastifyRequest, reply: FastifyReply): void => {
       const statusCode = error.statusCode ?? 500;
