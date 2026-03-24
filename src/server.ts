@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
+import dbPlugin from './plugins/db';
 import { registerRoutes } from './routes';
 
 const server = Fastify({
@@ -18,6 +19,7 @@ const server = Fastify({
 const start = async (): Promise<void> => {
   await server.register(cors, { origin: true });
   await server.register(rateLimit, { max: 100, timeWindow: '1 minute' });
+  await server.register(dbPlugin);
 
   registerRoutes(server);
 

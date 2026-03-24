@@ -9,24 +9,35 @@
 ## Current Status
 
 **Phase:** E1 — System Spine
-**Sprint:** E1.1 (Backend Init) + E1.2 (Core Endpoints)
-**Stage:** Lint + format check passed. Files staged. Ready to commit → push → open PR.
+**Sprint:** E1.3 (Database Foundation) — **STARTING**
+**Stage:** E1.1 + E1.2 complete and merged. Dockerfile fix merged. Ready to begin E1.3.
 
-**Next immediate action:**
+**Completed:**
 
-1. Make the two commits (see Pending Before PR section below)
-2. Push branch: `git push origin feature/e1-backend-init`
-3. Open PR on GitHub: `feature/e1-backend-init` → `develop`
+- PR #2 merged → `develop` (E1.1 backend init + E1.2 core endpoints)
+- PR #3 merged → `develop` (Dockerfile fix: copy node_modules from builder, remove npm ci from production stage)
+
+**Known issue:**
+GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
+
+**Next immediate action:** Create branch `feature/e1-database-foundation` off `develop` and begin E1.3.
 
 ---
 
-## Branch
+## Branches
 
-```
-feature/e1-backend-init
-```
+| Branch                              | Status                     | PR       |
+| ----------------------------------- | -------------------------- | -------- |
+| `feature/e1-backend-init`           | Merged → `develop`         | PR #2 ✅ |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`         | PR #3 ✅ |
+| `feature/e1-database-foundation`    | **Next — not yet created** | —        |
 
-Branched off: `develop`
+**Next branch to create:**
+
+```bash
+git checkout develop && git pull origin develop
+git checkout -b feature/e1-database-foundation
+```
 
 ---
 
@@ -54,7 +65,7 @@ Branched off: `develop`
 - [x] `src/utils/logger.ts` — Pino structured logger, redacts auth headers, pino-pretty in dev
 - [x] `src/config/env.ts` — centralized env config with `requireEnv()` validation
 - [x] `src/server.ts` — Fastify entry point, `host: '0.0.0.0'`, port 3000, CORS + rate limit registered
-- [x] `Dockerfile` — multi-stage build, node:20-alpine, exposes port 3000
+- [x] `Dockerfile` — multi-stage build, node:20-alpine, exposes port 3000, copies node_modules from builder (PR #3)
 
 ### E1.2 — Core Endpoints
 
@@ -91,16 +102,12 @@ CORS headers confirmed active (`vary: Origin`).
 
 ---
 
-## Pending Before PR
+## Merged PRs
 
-- [x] `npm run lint` — passed clean
-- [x] `npm run format:check` — passed clean
-- [x] All files staged (21 files — `.env`, `node_modules/`, `dist/` confirmed NOT staged)
-- [ ] Commit 1: `feat(init): initialize fastify typescript project with core structure`
-- [ ] Commit 2: `feat(endpoints): implement GET /health, /version, and /config endpoints`
-- [ ] Push branch: `git push origin feature/e1-backend-init`
-- [ ] Open PR on GitHub: `feature/e1-backend-init` → `develop`
-- [ ] PR title: `feat(e1): initialize fastify typescript backend with core endpoints`
+| PR  | Title                                                                         | Branch                                          | Status    |
+| --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
 
 ---
 
@@ -130,10 +137,11 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-## What Comes Next (After E1 PR is Merged)
+## What Comes Next
 
-**E1.3 — Database Foundation**
+**E1.3 — Database Foundation** ← current
 
+- Branch: `feature/e1-database-foundation` off `develop`
 - Connect PostgreSQL to the backend
 - Create core tables: `artifact_versions`, `metrics_agg`, `audit_logs`
 - Test DB migration/init flow
@@ -154,8 +162,6 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 - Upload placeholder artifact JSON to S3
 - Verify backend returns correct artifact URLs
 
-> Note: E1.3, E1.4, E1.5 will be detailed in PROGRESS.md once E1.1/E1.2 PR is merged.
-
 ---
 
 ## Session Notes
@@ -167,4 +173,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — lint + format check passed, files staged, ready to commit_
+_Last updated: 2026-03-24 — E1.1 + E1.2 merged (PR #2), Dockerfile fix merged (PR #3), ready to begin E1.3_
