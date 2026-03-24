@@ -1,24 +1,16 @@
-const tseslint = require('@typescript-eslint/eslint-plugin');
-const tsparser = require('@typescript-eslint/parser');
+// eslint.config.js
+const tsPlugin = require('@typescript-eslint/eslint-plugin');
+const tsParser = require('@typescript-eslint/parser');
 
 module.exports = [
   {
-    files: ['**/*.ts'],
-    languageOptions: {
-      parser: tsparser,
-      ecmaVersion: 2022,
-      sourceType: 'module',
-    },
-    plugins: {
-      '@typescript-eslint': tseslint,
-    },
+    files: ['src/**/*.ts'],
+    languageOptions: { parser: tsParser },
+    plugins: { '@typescript-eslint': tsPlugin },
     rules: {
-      '@typescript-eslint/no-unused-vars': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-explicit-any': 'warn',
-      'no-console': 'warn',
+      'no-console': 'error',
     },
-  },
-  {
-    ignores: ['node_modules/**', 'dist/**', 'build/**'],
   },
 ];
