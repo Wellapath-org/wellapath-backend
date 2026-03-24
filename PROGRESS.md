@@ -13,6 +13,7 @@
 **Stage:** E1.1 + E1.2 complete and merged. Dockerfile fix merged. Ready to begin E1.3.
 
 **Completed:**
+
 - PR #2 merged → `develop` (E1.1 backend init + E1.2 core endpoints)
 - PR #3 merged → `develop` (Dockerfile fix: copy node_modules from builder, remove npm ci from production stage)
 
@@ -25,13 +26,14 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 
 ## Branches
 
-| Branch | Status | PR |
-| ------ | ------ | -- |
-| `feature/e1-backend-init` | Merged → `develop` | PR #2 ✅ |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅ |
-| `feature/e1-database-foundation` | **Next — not yet created** | — |
+| Branch                              | Status                     | PR       |
+| ----------------------------------- | -------------------------- | -------- |
+| `feature/e1-backend-init`           | Merged → `develop`         | PR #2 ✅ |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`         | PR #3 ✅ |
+| `feature/e1-database-foundation`    | **Next — not yet created** | —        |
 
 **Next branch to create:**
+
 ```bash
 git checkout develop && git pull origin develop
 git checkout -b feature/e1-database-foundation
@@ -102,10 +104,10 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR | Title | Branch | Status |
-| -- | ----- | ------ | ------ |
-| #2 | `feat(e1): initialize fastify typescript backend with core endpoints` | `feature/e1-backend-init` → `develop` | Merged ✅ |
-| #3 | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
+| PR  | Title                                                                         | Branch                                          | Status    |
+| --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
 
 ---
 
