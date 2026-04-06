@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Phase:** E1 — System Spine
-**Sprint:** E1 — **ALL CODE TASKS COMPLETE**
-**Stage:** E1.5 complete and merged. All backend code for E1 is done.
+**Phase:** E2 — Data Structure Lock
+**Sprint:** E2.5 — **COMPLETE, PR OPEN FOR REVIEW**
+**Stage:** `/config` endpoint updated with real E2.5 artifact metadata. PR #11 open on `feature/e2-config-real-artifacts`.
 
 **Completed:**
 
@@ -19,23 +19,35 @@
 - PR #4 merged → `develop` (E1.3 database foundation)
 - PR #5 merged → `develop` (E1.4 security baseline)
 - PR #6 merged → `develop` (E1.5 artifact distribution skeleton)
+- PR #11 open → `develop` (E2.5: real artifact metadata wired into `/config`)
+
+**E2.5 changes in PR #11:**
+
+- `/config` response now returns real sha256 hashes, real versions (`1.0`), and real CloudFront URLs from data engineer
+- `token_dictionary` artifact added to response
+- `facilities` artifact removed (not part of E2.5 contract)
+- `featureFlags` block removed (not in locked engineering contract)
+- Top-level `version` and `country` fields added to response shape
+- All artifact objects now include `release_date` and `country` fields
+- Response shape now matches the locked contract from the data engineer
 
 **Known issue:**
 GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
 
-**Next immediate action:** Founder decision — proceed to ECS deployment (complete E1 exit criteria) OR begin E2 Data Structure Lock.
+**Next immediate action:** Waiting for PR #11 to merge. Backend is now fully aligned with E2.5 artifact structure.
 
 ---
 
 ## Branches
 
-| Branch                              | Status             | PR       |
-| ----------------------------------- | ------------------ | -------- |
-| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅ |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅ |
-| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅ |
-| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅ |
-| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅ |
+| Branch                              | Status             | PR        |
+| ----------------------------------- | ------------------ | --------- |
+| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅  |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅  |
+| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅  |
+| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅  |
+| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅  |
+| `feature/e2-config-real-artifacts`  | Open → `develop`   | PR #11 🔄 |
 
 ---
 
@@ -69,7 +81,7 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 
 - [x] `src/routes/health.ts` — GET /health (updated in E1.3 to include DB check)
 - [x] `src/routes/version.ts` — GET /version
-- [x] `src/routes/config.ts` — GET /config
+- [x] `src/routes/config.ts` — GET /config (updated in E2.5 — see below)
 - [x] `src/routes/index.ts` — registers all three routes
 
 ### E1.3 — Database Foundation
@@ -101,13 +113,24 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 - [x] All three artifacts uploaded to S3 (`wellapath-artifacts-staging`) and verified via CloudFront (`https://d179u2ex0g66o3.cloudfront.net`)
 - [x] `GET /config` returns correct CloudFront URLs pointing to verified artifacts
 
+### E2.5 — Real Artifact Metadata (PR #11 — pending merge)
+
+- [x] `src/routes/config.ts` updated — real sha256 hashes and versions from data engineer
+- [x] `token_dictionary` artifact added (`token_dictionary.ng.v1.0.json`)
+- [x] `facilities` artifact removed from `/config` response
+- [x] `featureFlags` block removed from `/config` response
+- [x] Top-level `version: "1.0"` and `country: "ng"` fields added
+- [x] Each artifact now includes `release_date` and `country` fields
+- [x] Response shape matches locked engineering contract from data engineer
+- [x] `config.artifactBaseUrl` still drives all URLs — no hardcoded CloudFront domain
+
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
 | ------------ | ------ | --------------------------------------------------------------- |
 | GET /health  | 200    | `{"status":"ok","timestamp":"...","checks":{"database":"ok"}}`  |
 | GET /version | 200    | `{"version":"0.1.0","environment":"development"}`               |
-| GET /config  | 200    | Full artifact payload with CloudFront URLs + placeholder hashes |
+| GET /config  | 200    | Full artifact payload with real CloudFront URLs + real sha256 hashes (E2.5) |
 
 Rate limiting headers confirmed active (`x-ratelimit-limit: 100`).
 CORS headers confirmed active (`vary: Origin`).
@@ -131,13 +154,14 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                         | Branch                                          | Status    |
-| --- | ----------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`         | `feature/e1-backend-init` → `develop`           | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`     | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`        | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
+| PR   | Title                                                                                  | Branch                                          | Status     |
+| ---- | -------------------------------------------------------------------------------------- | ----------------------------------------------- | ---------- |
+| #2   | `feat(e1): initialize fastify typescript backend with core endpoints`                  | `feature/e1-backend-init` → `develop`           | Merged ✅  |
+| #3   | Dockerfile fix: copy node_modules from builder, remove npm ci from production          | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅  |
+| #4   | `feat(db): add postgresql connection pool, migration script, db health check`          | `feature/e1-database-foundation` → `develop`    | Merged ✅  |
+| #5   | `feat(security): add security baseline — cors, rate limit, error handler`              | `feature/e1-security-baseline` → `develop`      | Merged ✅  |
+| #6   | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                 | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅  |
+| #11  | `feat(config): update /config to return real artifact versions — e2.5 complete`        | `feature/e2-config-real-artifacts` → `develop`  | Open 🔄    |
 
 ---
 
@@ -178,16 +202,13 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 **E1 — System Spine** ✅ all code tasks complete (PRs #2–#6)
 
-**Next:** Founder decision required —
+**E2 — Data Structure Lock** — E2.5 complete, PR #11 open
 
-- **Option A: ECS Deployment** — deploy to staging, verify HTTPS, complete E1 exit criteria, then start E2
-- **Option B: Begin E2 Data Structure Lock** — proceed with E2 in parallel if deployment is blocked
-
-**E2 — Data Structure Lock** (after E1 exit criteria met)
-
-- Lock artifact JSON schemas (KB, rules, facilities)
-- Define versioning contract between backend and mobile
-- Wire `/config` to pull live artifact versions from `artifact_versions` table
+- [x] Real artifact metadata wired into `/config` — sha256 hashes, versions, CloudFront URLs
+- [x] `token_dictionary` added, `facilities` and `featureFlags` removed
+- [x] Response shape matches locked engineering contract from data engineer
+- [ ] PR #11 merge pending
+- [ ] Wire `/config` to pull live artifact versions from `artifact_versions` table (post-merge)
 
 ---
 
@@ -200,4 +221,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — E1.5 complete and merged (PR #6), placeholder artifacts verified via CloudFront, all E1 code tasks done, awaiting founder decision on ECS deployment vs E2 start_
+_Last updated: 2026-04-06 — E2.5 complete, PR #11 open. `/config` updated with real artifact metadata from data engineer. Backend fully aligned with E2.5 artifact structure. Waiting for PR #11 to merge._
