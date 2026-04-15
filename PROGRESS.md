@@ -149,6 +149,7 @@ CORS headers confirmed active (`vary: Origin`).
 | `npm run lint` used ESLint v8-style `--ext .ts` flag | v9 flat config does not use `--ext`. Updated scripts to `eslint .` and `eslint . --fix`.                                                                                                                                                             |
 | `CLAUDE.md` failed `format:check`                    | Prettier reformatted whitespace and table alignment. Fixed by running `prettier --write CLAUDE.md`.                                                                                                                                                  |
 | Dockerfile was single-stage                          | Existing file used a single `FROM node:20-alpine` with no build step and wrong `CMD ["node", "index.js"]`. Replaced with spec multi-stage build.                                                                                                     |
+| Commitlint blocked `E2.5` in commit subject          | The `subject-case` rule requires fully lowercase subjects — uppercase identifiers like `E2.5` are rejected. Always write phase identifiers as `e2.5`, `e1`, etc. in commit messages.                                                                 |
 
 ---
 
@@ -221,4 +222,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-04-06 — E2.5 complete, PR #11 open. `/config` updated with real artifact metadata from data engineer. Backend fully aligned with E2.5 artifact structure. Waiting for PR #11 to merge._
+_Last updated: 2026-04-15 — E2.5 complete, PR #11 open. `/config` updated with real artifact metadata from data engineer. Backend fully aligned with E2.5 artifact structure. Waiting for PR #11 to merge. CLAUDE.md updated to reflect E2.5 locked /config contract._

@@ -90,7 +90,7 @@ git checkout -b feature/e1-core-endpoints # for E1.2
 type(scope): short description in lowercase
 ```
 
-- Lowercase only
+- Lowercase only — this includes phase identifiers: write `e2.5`, `e1`, not `E2.5`, `E1`
 - Under 100 characters
 - No full stop at the end
 - Commitlint will **block** non-compliant commits automatically
@@ -454,35 +454,40 @@ export const versionRoutes = (server: FastifyInstance): void => {
 **Purpose:** Returns versioned artifact metadata so the mobile app knows what to download.
 The mobile app boots by calling this endpoint first.
 
-Response shape (locked contract with mobile team):
+Response shape (locked contract — updated E2.5, confirmed by data engineer 2026-04-06):
 
 ```json
 {
+  "version": "1.0",
+  "country": "ng",
   "artifacts": {
-    "knowledgeBase": {
-      "version": "1.0.0",
+    "token_dictionary": {
+      "version": "1.0",
+      "url": "https://d179u2ex0g66o3.cloudfront.net/token_dictionary.ng.v1.0.json",
+      "hash": "sha256:773006dee306a3b03312315134fe62d7abf1aa29baa1903a388854f34f24b76d",
+      "release_date": "2026-04-06",
+      "country": "ng"
+    },
+    "knowledge_base": {
+      "version": "1.0",
       "url": "https://d179u2ex0g66o3.cloudfront.net/kb.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
+      "hash": "sha256:931049ed47200fa78d4bc44fcd9f4e544795a4901df6b16f7b491811b30d1699",
+      "release_date": "2026-04-06",
+      "country": "ng"
     },
     "rules": {
-      "version": "1.0.0",
+      "version": "1.0",
       "url": "https://d179u2ex0g66o3.cloudfront.net/rules.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
-    },
-    "facilities": {
-      "version": "1.0.0",
-      "url": "https://d179u2ex0g66o3.cloudfront.net/facilities.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
+      "hash": "sha256:1ae5f58308866b65fea137755454fc1a2aae07e1f7aff1ed730ad9dfb0941f8c",
+      "release_date": "2026-04-06",
+      "country": "ng"
     }
-  },
-  "featureFlags": {
-    "offlineModeEnabled": true
   }
 }
 ```
 
-> Note: In E1, artifact URLs and hashes are **placeholders**. Real artifacts are wired up in E2.
 > The mobile app must always consume URLs from this response — never construct CloudFront URLs directly.
+> URLs are driven by `config.artifactBaseUrl` from env — never hardcoded.
 
 File: `src/routes/config.ts`
 
@@ -493,25 +498,30 @@ import { config } from '../config/env';
 export const configRoutes = (server: FastifyInstance): void => {
   server.get('/config', async (_request, reply) => {
     return reply.status(200).send({
+      version: '1.0',
+      country: 'ng',
       artifacts: {
-        knowledgeBase: {
-          version: '1.0.0',
+        token_dictionary: {
+          version: '1.0',
+          url: `${config.artifactBaseUrl}/token_dictionary.ng.v1.0.json`,
+          hash: 'sha256:773006dee306a3b03312315134fe62d7abf1aa29baa1903a388854f34f24b76d',
+          release_date: '2026-04-06',
+          country: 'ng',
+        },
+        knowledge_base: {
+          version: '1.0',
           url: `${config.artifactBaseUrl}/kb.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
+          hash: 'sha256:931049ed47200fa78d4bc44fcd9f4e544795a4901df6b16f7b491811b30d1699',
+          release_date: '2026-04-06',
+          country: 'ng',
         },
         rules: {
-          version: '1.0.0',
+          version: '1.0',
           url: `${config.artifactBaseUrl}/rules.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
+          hash: 'sha256:1ae5f58308866b65fea137755454fc1a2aae07e1f7aff1ed730ad9dfb0941f8c',
+          release_date: '2026-04-06',
+          country: 'ng',
         },
-        facilities: {
-          version: '1.0.0',
-          url: `${config.artifactBaseUrl}/facilities.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
-        },
-      },
-      featureFlags: {
-        offlineModeEnabled: true,
       },
     });
   });
