@@ -16,6 +16,7 @@ async function dbPlugin(server: FastifyInstance): Promise<void> {
     database: config.db.name,
     user: config.db.user,
     password: config.db.password,
+    ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,

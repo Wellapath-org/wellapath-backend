@@ -8,8 +8,9 @@ export const healthRoutes = (server: FastifyInstance): void => {
       const client = await server.db.connect();
       await client.query('SELECT 1');
       client.release();
-    } catch (_err) {
+    } catch (err) {
       dbStatus = 'error';
+      server.log.error({ err: (err as Error).message }, 'Database health check failed');
     }
 
     const status = dbStatus === 'ok' ? 'ok' : 'degraded';
