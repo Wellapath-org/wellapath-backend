@@ -10,6 +10,7 @@ interface AppConfig {
     name: string;
     user: string;
     password: string;
+    ssl: boolean;
   };
   artifactBaseUrl: string;
   appVersion: string;
@@ -31,6 +32,7 @@ export const config: AppConfig = {
     name: requireEnv('DB_NAME'),
     user: requireEnv('DB_USER'),
     password: requireEnv('DB_PASSWORD'),
+    ssl: process.env.DB_SSL === 'true',
   },
   artifactBaseUrl: requireEnv('ARTIFACT_BASE_URL'),
   appVersion: process.env.APP_VERSION ?? '0.1.0',
