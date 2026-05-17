@@ -1,3 +1,193 @@
-# wellapath-backend
+# WellaPath Backend
 
-For the Fastify Node/TypeScript backend.
+WellaPath is a Clinical Decision Support System (CDSS). It is not a diagnosis engine.
+This repository contains the Fastify + TypeScript backend that serves as the system spine —
+distributing versioned clinical artifacts to the mobile app and exposing health, version,
+and configuration endpoints.
+
+**Stack:** Fastify · TypeScript · Node.js v20 LTS · PostgreSQL (Supabase)
+
+---
+
+## Architecture
+
+- The backend distributes versioned artifacts (knowledge base, rules, facilities) via URLs
+- All scoring and triage logic executes on-device only — never on the server
+- No symptom-level PHI is stored server-side under any circumstances
+- The mobile app bootstraps by calling `GET /config` to retrieve artifact metadata
+
+---
+
+## Live Endpoints (Staging)
+
+Base URL: `https://wellapath-backend-staging.onrender.com`
+
+| Method | Path       | Description                                              |
+| ------ | ---------- | -------------------------------------------------------- |
+| GET    | `/health`  | Returns server status and database connectivity          |
+| GET    | `/version` | Returns app version and current environment              |
+| GET    | `/config`  | Returns versioned artifact metadata for mobile bootstrap |
+
+### Example responses
+
+**GET /health**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-05-17T10:00:00.000Z",
+  "checks": { "database": "ok" }
+}
+```
+
+**GET /version**
+
+```json
+{
+  "version": "0.1.0",
+  "environment": "staging"
+}
+```
+
+**GET /config**
+
+```json
+{
+  "version": "1.0",
+  "country": "ng",
+  "artifacts": {
+    "token_dictionary": {
+      "version": "1.0",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/token_dictionary.ng.v1.0.json",
+      "hash": "sha256:773006dee306a3b03312315134fe62d7abf1aa29baa1903a388854f34f24b76d",
+      "release_date": "2026-04-06",
+      "country": "ng"
+    },
+    "knowledge_base": {
+      "version": "1.0",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/kb.ng.v1.0.json",
+      "hash": "sha256:931049ed47200fa78d4bc44fcd9f4e544795a4901df6b16f7b491811b30d1699",
+      "release_date": "2026-04-06",
+      "country": "ng"
+    },
+    "rules": {
+      "version": "1.0",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/rules.ng.v1.0.json",
+      "hash": "sha256:1ae5f58308866b65fea137755454fc1a2aae07e1f7aff1ed730ad9dfb0941f8c",
+      "release_date": "2026-04-06",
+      "country": "ng"
+    }
+  }
+}
+```
+
+---
+
+## Local Development
+
+### Prerequisites
+
+- Node.js v20 LTS
+- Git
+- Git Bash (Windows — always use Git Bash, never PowerShell or CMD for git commands)
+
+### Setup
+
+```bash
+# Clone and switch to develop
+git clone https://github.com/Wellapath-org/wellapath-backend.git
+cd wellapath-backend
+git checkout develop
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Fill in DB_USER, DB_PASSWORD in .env — get values from team lead
+
+# Start development server (port 3000)
+npm run dev
+
+# Run database migrations
+npm run migrate
+```
+
+---
+
+## npm Scripts
+
+| Script                 | Description                                   |
+| ---------------------- | --------------------------------------------- |
+| `npm run dev`          | Start server with hot reload (ts-node)        |
+| `npm run build`        | Compile TypeScript to dist/                   |
+| `npm start`            | Run compiled output from dist/                |
+| `npm run lint`         | Run ESLint                                    |
+| `npm run lint:fix`     | Run ESLint with auto-fix                      |
+| `npm run format`       | Format all files with Prettier                |
+| `npm run format:check` | Check formatting without writing              |
+| `npm test`             | Run test suite                                |
+| `npm run migrate`      | Run database migrations against configured DB |
+
+---
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill in the required values. Never commit `.env`.
+
+See `.env.example` for the full variable reference. Required variables include database
+credentials (Supabase), artifact base URL (Cloudflare R2), and app version.
+
+---
+
+## Branch Strategy
+
+| Branch      | Purpose                                     |
+| ----------- | ------------------------------------------- |
+| `main`      | Production — protected, PRs only            |
+| `develop`   | Integration branch — always branch off here |
+| `feature/*` | New features                                |
+| `fix/*`     | Bug fixes                                   |
+| `chore/*`   | Maintenance, config, dependency updates     |
+
+**Never push directly to `main` or `develop`.** All changes go through pull requests.
+
+```bash
+git checkout develop
+git pull origin develop
+git checkout -b feature/your-feature-name
+```
+
+---
+
+## Commit Convention
+
+Commits are enforced by commitlint against the Conventional Commits spec.
+
+```
+type(scope): short description in lowercase
+```
+
+Valid types: `feat` `fix` `chore` `docs` `refactor` `test` `perf` `ci` `style` `revert`
+
+Examples:
+
+```
+feat(health): add database connectivity check to health endpoint
+fix(db): enable ssl for supabase connection
+chore(infra): update env example after migration to supabase and r2
+```
+
+Rules: lowercase only · under 100 characters · no trailing full stop
+
+---
+
+## Non-Negotiables
+
+These rules are absolute and enforced on every PR:
+
+- **No PHI server-side — ever.** No symptom data, no patient identifiers, nothing.
+- **No server-side scoring.** All triage and scoring logic runs on-device only.
+- **No secrets in code.** All credentials via `.env` locally, Secrets Manager in production.
+- **No direct pushes to `main` or `develop`.** Every change goes through a PR.
+- **No feature additions outside locked MVP scope** without founder + engineering lead sign-off.
