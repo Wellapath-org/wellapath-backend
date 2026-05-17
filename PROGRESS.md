@@ -46,7 +46,7 @@
 | `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅  |
 | `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅  |
 | `feature/e2-config-real-artifacts`  | Merged → `develop` | PR #11 ✅ |
-| `fix/db-ssl-health-logging`         | Pushed, open       | —         |
+| `fix/db-ssl-health-logging`         | Pushed, open       | 3 commits |
 
 ---
 
@@ -147,4 +147,4 @@ DB secret:           via .env locally / Secrets Manager in production
 
 ---
 
-_Last updated: 2026-05-17 — E2.5 complete, infrastructure migrated to Supabase + R2 + Render, staging verified, mobile team unblocked, README updated_
+_Last updated: 2026-05-18 — E2.5 complete, infrastructure migrated to Supabase + R2 + Render, staging verified, mobile team unblocked, README updated, fix/db-ssl-health-logging pushed (3 commits: SSL support + health logging, infra env cleanup, README + PROGRESS docs)_
