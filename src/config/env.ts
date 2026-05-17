@@ -14,7 +14,6 @@ interface AppConfig {
   };
   artifactBaseUrl: string;
   appVersion: string;
-  awsRegion: string;
 }
 
 function requireEnv(key: string): string {
@@ -36,5 +35,4 @@ export const config: AppConfig = {
   },
   artifactBaseUrl: requireEnv('ARTIFACT_BASE_URL'),
   appVersion: process.env.APP_VERSION ?? '0.1.0',
-  awsRegion: process.env.AWS_REGION ?? 'us-east-1',
 };
