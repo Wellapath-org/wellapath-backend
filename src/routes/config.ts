@@ -28,6 +28,13 @@ export const configRoutes = (server: FastifyInstance): void => {
           release_date: '2026-04-06',
           country: 'ng',
         },
+        facilities: {
+          version: '1.0',
+          url: `${config.artifactBaseUrl}/facilities.ng.v1.0.json`,
+          hash: 'sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e',
+          release_date: '2026-07-06',
+          country: 'ng',
+        },
       },
     });
   });
