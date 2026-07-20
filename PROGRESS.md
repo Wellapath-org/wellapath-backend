@@ -8,9 +8,11 @@
 
 ## Current Status
 
-**Phase:** E1 — System Spine
-**Sprint:** E1 — **ALL CODE TASKS COMPLETE**
-**Stage:** E1.5 complete and merged. All backend code for E1 is done.
+**Phase:** E5 — Facilities Integration
+**Sprint:** E5 — **BACKEND COMPLETE**
+**Stage:** Facilities artifact wired into `/config`. E5 backend work is done; E6 Locator Integration is unblocked.
+
+> **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
 **Completed:**
 
@@ -19,23 +21,27 @@
 - PR #4 merged → `develop` (E1.3 database foundation)
 - PR #5 merged → `develop` (E1.4 security baseline)
 - PR #6 merged → `develop` (E1.5 artifact distribution skeleton)
+- PR #11 merged → `develop` (E2.5 — `/config` updated to return real artifact versions)
+- PR #12–#14 merged → `develop` (DB SSL fix, infra migration from AWS to Supabase/R2)
+- **PR #15 merged → `develop`** — E5: facilities artifact added to `/config` response
+- Staging verified: `/config` returns all 4 artifacts correctly (`token_dictionary`, `knowledge_base`, `rules`, `facilities`)
+- Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
+- `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Known issue:**
-GitHub Actions Docker Build Check is failing due to a stale buildx cache still showing the old `npm ci --omit=dev` error. The actual Dockerfile on `develop` is correct. This will be resolved at the ECS deployment stage.
-
-**Next immediate action:** Founder decision — proceed to ECS deployment (complete E1 exit criteria) OR begin E2 Data Structure Lock.
+**Next immediate action:** Support E6 Locator Integration — no backend action needed yet; be ready for `/config` or artifact-response changes if the facilities data shape needs adjustment for the locator.
 
 ---
 
 ## Branches
 
-| Branch                              | Status             | PR       |
-| ----------------------------------- | ------------------ | -------- |
-| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅ |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅ |
-| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅ |
-| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅ |
-| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅ |
+| Branch                              | Status             | PR        |
+| ----------------------------------- | ------------------ | --------- |
+| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅  |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅  |
+| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅  |
+| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅  |
+| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅  |
+| `feature/e5-facilities-config`      | Merged → `develop` | PR #15 ✅ |
 
 ---
 
@@ -101,6 +107,13 @@ GitHub Actions Docker Build Check is failing due to a stale buildx cache still s
 - [x] All three artifacts uploaded to S3 (`wellapath-artifacts-staging`) and verified via CloudFront (`https://d179u2ex0g66o3.cloudfront.net`)
 - [x] `GET /config` returns correct CloudFront URLs pointing to verified artifacts
 
+### E5 — Facilities Integration
+
+- [x] `src/routes/config.ts` — added `facilities` entry to `/config` artifacts payload (version `1.0`, R2 URL, sha256 hash, `release_date: 2026-07-06`, `country: ng`), matching the shape of `token_dictionary`, `knowledge_base`, and `rules`
+- [x] `/config` verified locally returning all 4 artifacts with correct URLs pointing to the R2 bucket (`pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev`)
+- [x] Staging verified: all 4 artifacts returned correctly from `/config`
+- [x] PR #15 merged → `develop`
+
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
@@ -116,16 +129,19 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Fixes Applied During This Session
 
-| Issue                                                | Fix Applied                                                                                                                                                                                                                                          |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EADDRINUSE: address already in use 0.0.0.0:3000`    | Killed existing process on port 3000 using `netstat -ano \| grep :3000` then `taskkill //PID <pid> //F` (note: Git Bash requires `//PID` not `/PID`)                                                                                                 |
-| `FST_ERR_LOG_INVALID_LOGGER_CONFIG` on server start  | Fastify v5 no longer accepts a pino instance via the `logger` option. Replaced `loggerInstance: logger` with an inline pino config object on `Fastify({ logger: { level, transport, redact } })`. Standalone `logger.ts` kept for service-level use. |
-| `.env.example` had leaked markdown content           | File was corrupted with markdown prose and extra vars not in spec. Replaced with exact spec content from CLAUDE.md Section 6 Step 9.                                                                                                                 |
-| `.gitignore` missing entries                         | Was missing `*.env.local`, `.DS_Store`, and trailing slashes on directory entries. Updated to match CLAUDE.md Section 9 exactly.                                                                                                                     |
-| `eslint.config.js` had wrong rules and file glob     | Existing file used `files: ['**/*.ts']`, `no-console: 'warn'`, and lacked `explicit-function-return-type`. Replaced with spec-exact config: `files: ['src/**/*.ts']`, `no-console: 'error'`, `explicit-function-return-type: 'error'`.               |
-| `npm run lint` used ESLint v8-style `--ext .ts` flag | v9 flat config does not use `--ext`. Updated scripts to `eslint .` and `eslint . --fix`.                                                                                                                                                             |
-| `CLAUDE.md` failed `format:check`                    | Prettier reformatted whitespace and table alignment. Fixed by running `prettier --write CLAUDE.md`.                                                                                                                                                  |
-| Dockerfile was single-stage                          | Existing file used a single `FROM node:20-alpine` with no build step and wrong `CMD ["node", "index.js"]`. Replaced with spec multi-stage build.                                                                                                     |
+| Issue                                                                      | Fix Applied                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EADDRINUSE: address already in use 0.0.0.0:3000`                          | Killed existing process on port 3000 using `netstat -ano \| grep :3000` then `taskkill //PID <pid> //F` (note: Git Bash requires `//PID` not `/PID`)                                                                                                                                                                  |
+| `FST_ERR_LOG_INVALID_LOGGER_CONFIG` on server start                        | Fastify v5 no longer accepts a pino instance via the `logger` option. Replaced `loggerInstance: logger` with an inline pino config object on `Fastify({ logger: { level, transport, redact } })`. Standalone `logger.ts` kept for service-level use.                                                                  |
+| `.env.example` had leaked markdown content                                 | File was corrupted with markdown prose and extra vars not in spec. Replaced with exact spec content from CLAUDE.md Section 6 Step 9.                                                                                                                                                                                  |
+| `.gitignore` missing entries                                               | Was missing `*.env.local`, `.DS_Store`, and trailing slashes on directory entries. Updated to match CLAUDE.md Section 9 exactly.                                                                                                                                                                                      |
+| `eslint.config.js` had wrong rules and file glob                           | Existing file used `files: ['**/*.ts']`, `no-console: 'warn'`, and lacked `explicit-function-return-type`. Replaced with spec-exact config: `files: ['src/**/*.ts']`, `no-console: 'error'`, `explicit-function-return-type: 'error'`.                                                                                |
+| `npm run lint` used ESLint v8-style `--ext .ts` flag                       | v9 flat config does not use `--ext`. Updated scripts to `eslint .` and `eslint . --fix`.                                                                                                                                                                                                                              |
+| `CLAUDE.md` failed `format:check`                                          | Prettier reformatted whitespace and table alignment. Fixed by running `prettier --write CLAUDE.md`.                                                                                                                                                                                                                   |
+| Dockerfile was single-stage                                                | Existing file used a single `FROM node:20-alpine` with no build step and wrong `CMD ["node", "index.js"]`. Replaced with spec multi-stage build.                                                                                                                                                                      |
+| `node_modules` scripts failed with `Permission denied` / `bad interpreter` | `node_modules` carried a macOS `com.apple.quarantine` flag tagged `WhatsApp` on ~9,410 files — the folder had been transferred as a file rather than installed via npm. Fixed with `rm -rf node_modules && npm ci`.                                                                                                   |
+| Husky hooks silently not running (commitlint/lint-staged bypassed)         | `.husky/pre-commit` and `.husky/commit-msg` were tracked in the git index as `100644` (non-executable), and this repo has `core.filemode=false` so a plain local `chmod +x` never registers as a change. Fixed with `git update-index --chmod=+x .husky/pre-commit .husky/commit-msg`, committed and pushed (PR #15). |
+| `EADDRINUSE: address already in use 0.0.0.0:3000` (unrelated process)      | An unrelated long-running `next-server` process from another project was already bound to port 3000. Ran the dev server on `PORT=3001` for local verification instead of killing the other process.                                                                                                                   |
 
 ---
 
@@ -138,6 +154,9 @@ CORS headers confirmed active (`vary: Origin`).
 | #4  | `feat(db): add postgresql connection pool, migration script, db health check` | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
 | #5  | `feat(security): add security baseline — cors, rate limit, error handler`     | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
 | #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`        | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`     | `feature/e5-facilities-config` → `develop`      | Merged ✅ |
+
+> PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
 ---
 
@@ -177,17 +196,12 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 ## What Comes Next
 
 **E1 — System Spine** ✅ all code tasks complete (PRs #2–#6)
+**E2–E4** — real artifact wiring, DB SSL fix, and Supabase/R2 infra migration complete on `develop` (PRs #7–#14; not individually logged here — see doc gap notice above)
+**E5 — Facilities Integration** ✅ backend complete (PR #15) — facilities artifact live in `/config`, verified on staging
 
-**Next:** Founder decision required —
+**Current status:** E5 backend complete. E6 Locator Integration unblocked.
 
-- **Option A: ECS Deployment** — deploy to staging, verify HTTPS, complete E1 exit criteria, then start E2
-- **Option B: Begin E2 Data Structure Lock** — proceed with E2 in parallel if deployment is blocked
-
-**E2 — Data Structure Lock** (after E1 exit criteria met)
-
-- Lock artifact JSON schemas (KB, rules, facilities)
-- Define versioning contract between backend and mobile
-- Wire `/config` to pull live artifact versions from `artifact_versions` table
+**Next backend action:** Support E6 if any `/config` or artifact changes are needed — no active backend work otherwise.
 
 ---
 
@@ -200,4 +214,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-03-24 — E1.5 complete and merged (PR #6), placeholder artifacts verified via CloudFront, all E1 code tasks done, awaiting founder decision on ECS deployment vs E2 start_
+_Last updated: 2026-07-20 — E5 complete and merged (PR #15), facilities artifact added to `/config`, verified on staging (all 4 artifacts returned correctly), Husky hooks and node_modules permission issues fixed, E6 Locator Integration unblocked_
