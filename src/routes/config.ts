@@ -15,10 +15,10 @@ export const configRoutes = (server: FastifyInstance): void => {
           country: 'ng',
         },
         knowledge_base: {
-          version: '2.1',
-          url: `${config.artifactBaseUrl}/kb.ng.v2.1.json`,
-          hash: 'sha256:e5d9fd82669b0ac52b5ed0626b4f94ebd043c520c1d4601e42bf2926e0abc515',
-          release_date: '2026-07-21',
+          version: '2.2',
+          url: `${config.artifactBaseUrl}/kb.ng.v2.2.json`,
+          hash: 'sha256:80c39e7e5187932a808e472db7c0a629b6feb73e0f7576bfc51685581d79b4e5',
+          release_date: '2026-07-22',
           country: 'ng',
         },
         rules: {
