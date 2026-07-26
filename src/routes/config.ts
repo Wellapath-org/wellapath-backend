@@ -22,10 +22,10 @@ export const configRoutes = (server: FastifyInstance): void => {
           country: 'ng',
         },
         rules: {
-          version: '2.1',
-          url: `${config.artifactBaseUrl}/rules.ng.v2.1.json`,
-          hash: 'sha256:57da3ff543c0e2e948c196930de75b40f70edf7d40b6ef4e90b8ccbe10481b79',
-          release_date: '2026-07-21',
+          version: '2.2',
+          url: `${config.artifactBaseUrl}/rules.ng.v2.2.json`,
+          hash: 'sha256:1d27e854cba95b179577a88f92445400f494a7fe8e6a53a60fcaa98b3870d1c4',
+          release_date: '2026-07-26',
           country: 'ng',
         },
         facilities: {
