@@ -36,7 +36,7 @@
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** None outstanding. All four artifacts current and verified on staging. Awaiting the next artifact release or E8 calibration task from the engineering lead.
+**Next immediate action:** No artifact work outstanding — all four artifacts current and verified on staging. Docs PR #21 (this progress log) is open and needs review/merge so the log lands on `develop` rather than being stranded on a branch. Otherwise awaiting the next artifact release or E8 calibration task from the engineering lead.
 
 ---
 
