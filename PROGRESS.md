@@ -9,8 +9,8 @@
 ## Current Status
 
 **Phase:** E8 — Validation & Calibration (in progress)
-**Sprint:** E7 complete; facilities v1.1 update **PENDING MERGE**
-**Stage:** `token_dictionary` at v1.1; `rules` at v2.1; `knowledge_base` at v2.3 on `develop` and staging. `facilities` v1.1 (45 Lagos facility phone numbers) verified against R2 and PR #20 opened, but **not yet merged or deployed** — staging still returns `facilities` v1.0 as of this writing.
+**Sprint:** E7 complete; facilities v1.1 update **MERGED AND VERIFIED ON STAGING**
+**Stage:** `token_dictionary` at v1.1; `rules` at v2.1; `knowledge_base` at v2.3; `facilities` at v1.1 — all four artifacts on `develop` and verified live on staging. No outstanding PRs.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -31,29 +31,29 @@
 - **Out-of-scope request correctly declined** — a Case 04 policy instruction (founder decision: Option B, children_under_5 + rainy_season → URGENT not EMERGENCY) arrived addressed to "Mobile Engineer + Data Engineer" asking this backend session to edit `urgency_determiner.dart` (Flutter mobile engine) and regenerate KB source content — neither exists in this repo (Fastify/TypeScript only, no `.dart` files, no KB-generation pipeline). Flagged and held rather than fabricating Dart code or a KB hash; engineering lead confirmed the message was misdirected and that this backend's role was unchanged (wire `/config` once the real data engineer delivers the hash)
 - **PR #19 merged → `develop`** — `knowledge_base` updated to v2.3 reflecting the malaria `explanation_template` Case 04 policy fix; before wiring it in, independently fetched `kb.ng.v2.3.json` from R2 and recomputed its SHA256 — confirmed exact match with the hash provided (`cb0e43fc...4e9f8`) before writing it to `config.ts`
 - Staging verified: all 4 artifacts returning correct versions and hashes from `/config`, `knowledge_base` v2.3 confirmed
-- **PR #20 opened → `develop` (not yet merged)** — `facilities` update to v1.1, new filename `facilities.ng.v1.1.json`, new hash, adds 45 Lagos facility phone numbers; before committing, independently fetched the file from R2 and recomputed its SHA256 — confirmed exact match — and confirmed `facilities.ng.v1.0.json` still returns 200 on R2 (untouched, no overwrite)
+- **PR #20 merged → `develop`** — `facilities` update to v1.1, new filename `facilities.ng.v1.1.json`, new hash, adds 45 Lagos facility phone numbers; before committing, independently fetched the file from R2 and recomputed its SHA256 — confirmed exact match — and confirmed `facilities.ng.v1.0.json` still returns 200 on R2 (untouched, no overwrite). Hash re-verified against R2 a second time immediately before merge. Staging verified post-deploy: `facilities` v1.1 live with matching hash
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** Merge and deploy PR #20 (`facilities` v1.1), then re-verify `https://wellapath-backend-staging.onrender.com/config` returns `facilities` v1.1 with the matching hash before confirming back to the engineering lead.
+**Next immediate action:** None outstanding. All four artifacts current and verified on staging. Awaiting the next artifact release or E8 calibration task from the engineering lead.
 
 ---
 
 ## Branches
 
-| Branch                              | Status               | PR        |
-| ----------------------------------- | -------------------- | --------- |
-| `feature/e1-backend-init`           | Merged → `develop`   | PR #2 ✅  |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop`   | PR #3 ✅  |
-| `feature/e1-database-foundation`    | Merged → `develop`   | PR #4 ✅  |
-| `feature/e1-security-baseline`      | Merged → `develop`   | PR #5 ✅  |
-| `feature/e1-artifact-skeleton`      | Merged → `develop`   | PR #6 ✅  |
-| `feature/e5-facilities-config`      | Merged → `develop`   | PR #15 ✅ |
-| `feature/e7-kb-rules-v2`            | Merged → `develop`   | PR #16 ✅ |
-| `feature/e7-medical-review-fixes`   | Merged → `develop`   | PR #17 ✅ |
-| `feature/kb-v2.2-update`            | Merged → `develop`   | PR #18 ✅ |
-| `feat/kb-v2.3-malaria-explanation`  | Merged → `develop`   | PR #19 ✅ |
-| `feat/facilities-v1.1-lagos-phones` | **Open, not merged** | PR #20 ⏳ |
+| Branch                              | Status             | PR        |
+| ----------------------------------- | ------------------ | --------- |
+| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅  |
+| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅  |
+| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅  |
+| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅  |
+| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅  |
+| `feature/e5-facilities-config`      | Merged → `develop` | PR #15 ✅ |
+| `feature/e7-kb-rules-v2`            | Merged → `develop` | PR #16 ✅ |
+| `feature/e7-medical-review-fixes`   | Merged → `develop` | PR #17 ✅ |
+| `feature/kb-v2.2-update`            | Merged → `develop` | PR #18 ✅ |
+| `feat/kb-v2.3-malaria-explanation`  | Merged → `develop` | PR #19 ✅ |
+| `feat/facilities-v1.1-lagos-phones` | Merged → `develop` | PR #20 ✅ |
 
 ---
 
@@ -155,14 +155,14 @@
 - [x] Staging verified post-deploy: `https://wellapath-backend-staging.onrender.com/config` returns `knowledge_base` v2.3 with matching hash
 - [x] PR #19 merged → `develop`
 
-### Facilities v1.1 (45 Lagos facility phone numbers) — PENDING MERGE
+### Facilities v1.1 (45 Lagos facility phone numbers) — COMPLETE
 
-- [x] Verified `facilities.ng.v1.1.json` live on R2 (HTTP 200) and independently recomputed its SHA256 — exact match with the hash provided
+- [x] Verified `facilities.ng.v1.1.json` live on R2 (HTTP 200, 1,695,844 bytes) and independently recomputed its SHA256 — exact match with the hash provided (`25684c71...982398`)
 - [x] Confirmed `facilities.ng.v1.0.json` still returns 200 on R2 — untouched, new version released cleanly (no overwrite)
 - [x] `src/routes/config.ts` — `facilities` updated to `version: 1.1`, new URL (`facilities.ng.v1.1.json`), verified hash, `release_date: 2026-07-26`; `token_dictionary`, `knowledge_base`, `rules` left untouched
 - [x] PR #20 opened → `develop`
-- [ ] **Not yet merged or deployed** — staging still returns `facilities` v1.0 as of last check
-- [ ] Post-merge: re-verify staging `/config` returns `facilities` v1.1 with matching hash, then confirm to engineering lead
+- [x] CI green (Lint & Build Check, Docker Build), merge state clean; PR #20 merged → `develop` 2026-07-26
+- [x] Staging verified post-deploy: `/config` returns `facilities` v1.1 with matching hash; other three artifacts unchanged at v1.1 / v2.3 / v2.1
 
 ### Smoke Test Results (verified locally ✅)
 
@@ -197,19 +197,19 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                              | Branch                                          | Status                       |
-| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------- | ---------------------------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`              | `feature/e1-backend-init` → `develop`           | Merged ✅                    |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production      | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅                    |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`      | `feature/e1-database-foundation` → `develop`    | Merged ✅                    |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`          | `feature/e1-security-baseline` → `develop`      | Merged ✅                    |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`             | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅                    |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`          | `feature/e5-facilities-config` → `develop`      | Merged ✅                    |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                | `feature/e7-kb-rules-v2` → `develop`            | Merged ✅                    |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`             | `feature/e7-medical-review-fixes` → `develop`   | Merged ✅                    |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`            | `feature/kb-v2.2-update` → `develop`            | Merged ✅                    |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix` | `feat/kb-v2.3-malaria-explanation` → `develop`  | Merged ✅                    |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`  | `feat/facilities-v1.1-lagos-phones` → `develop` | **Open ⏳ — not yet merged** |
+| PR  | Title                                                                              | Branch                                          | Status    |
+| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`              | `feature/e1-backend-init` → `develop`           | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production      | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`      | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`          | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`             | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`          | `feature/e5-facilities-config` → `develop`      | Merged ✅ |
+| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                | `feature/e7-kb-rules-v2` → `develop`            | Merged ✅ |
+| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`             | `feature/e7-medical-review-fixes` → `develop`   | Merged ✅ |
+| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`            | `feature/kb-v2.2-update` → `develop`            | Merged ✅ |
+| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix` | `feat/kb-v2.3-malaria-explanation` → `develop`  | Merged ✅ |
+| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`  | `feat/facilities-v1.1-lagos-phones` → `develop` | Merged ✅ |
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -254,11 +254,11 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **E2–E4** — real artifact wiring, DB SSL fix, and Supabase/R2 infra migration complete on `develop` (PRs #7–#14; not individually logged here — see doc gap notice above)
 **E5 — Facilities Integration** ✅ backend complete (PR #15) — facilities artifact live in `/config`, verified on staging
 **E7 — Knowledge Base & Rules** ✅ complete (PR #16, corrected by #17, updated by #18, updated by #19) — `token_dictionary` at v1.1, `rules` at v2.1, `knowledge_base` at v2.3 (Case 04 clinical policy fix) in `/config`, verified on staging
-**Facilities v1.1** ⏳ PR #20 opened, hash verified against R2, **not yet merged** — 45 Lagos facility phone numbers pending deploy
+**Facilities v1.1** ✅ complete (PR #20) — 45 Lagos facility phone numbers, hash verified against R2, merged and verified live on staging
 
-**Current status:** One PR outstanding (#20, facilities v1.1). Everything else up to date.
+**Current status:** No PRs outstanding. All four artifacts current and verified on staging.
 
-**Next backend action:** Merge and deploy PR #20, then re-verify staging shows `facilities` v1.1 with matching hash and confirm to engineering lead.
+**Next backend action:** Awaiting the next artifact release or E8 calibration task from the engineering lead.
 
 ---
 
@@ -271,4 +271,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-07-26 — `facilities` v1.1 (45 Lagos facility phone numbers) hash independently verified against R2, `config.ts` updated and PR #20 opened → `develop`, but **not yet merged or deployed** — staging still returns `facilities` v1.0. Everything else (`token_dictionary` v1.1, `knowledge_base` v2.3, `rules` v2.1) remains up to date and verified on staging._
+_Last updated: 2026-07-26 — `facilities` v1.1 (45 Lagos facility phone numbers) hash independently verified against R2, PR #20 merged → `develop` and deployed; staging `/config` verified returning `facilities` v1.1 with matching hash. All four artifacts (`token_dictionary` v1.1, `knowledge_base` v2.3, `rules` v2.1, `facilities` v1.1) up to date and verified on staging. No PRs outstanding._
