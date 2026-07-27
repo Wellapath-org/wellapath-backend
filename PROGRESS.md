@@ -9,8 +9,8 @@
 ## Current Status
 
 **Phase:** E8 — Validation & Calibration (in progress)
-**Sprint:** E7 complete; facilities v1.1 and rules v2.2 **MERGED AND VERIFIED ON STAGING**
-**Stage:** `token_dictionary` at v1.1; `knowledge_base` at v2.3; `rules` at v2.2; `facilities` at v1.1 — all four artifacts on `develop` and verified live on staging.
+**Sprint:** E8.2 calibration in progress; facilities v1.1, rules v2.2, and knowledge_base v2.4 **MERGED AND VERIFIED ON STAGING**
+**Stage:** `token_dictionary` at v1.1; `knowledge_base` at v2.4; `rules` at v2.2; `facilities` at v1.1 — all four artifacts on `develop` and verified live on staging.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -33,6 +33,7 @@
 - Staging verified: all 4 artifacts returning correct versions and hashes from `/config`, `knowledge_base` v2.3 confirmed
 - **PR #20 merged → `develop`** — `facilities` update to v1.1, new filename `facilities.ng.v1.1.json`, new hash, adds 45 Lagos facility phone numbers; before committing, independently fetched the file from R2 and recomputed its SHA256 — confirmed exact match — and confirmed `facilities.ng.v1.0.json` still returns 200 on R2 (untouched, no overwrite). Hash re-verified against R2 a second time immediately before merge. Staging verified post-deploy: `facilities` v1.1 live with matching hash
 - **PR #22 merged → `develop`** — `rules` updated to v2.2, new filename `rules.ng.v2.2.json`, new hash, removes dead rule `rf_147` (76 → 75 rules); hash independently verified against R2 before committing, `rules.ng.v2.1.json` confirmed still 200 and unchanged. Full content diff run: exactly one rule removed, all 75 survivors byte-identical, metadata counts internally consistent (13 global + 62 condition-specific = 75). Red-flag safety independently checked — see the rules v2.2 section below. Staging verified post-deploy
+- **PR #23 merged → `develop`** — `knowledge_base` updated to v2.4 (E8.2 calibration: literal `headache` token added to `headache` condition at weight 6, Issue #8 Option A); hash independently verified against R2, all prior KB versions (v2.3/v2.2/v2.1) confirmed still 200 and unchanged. Content diff: exactly one condition changed, one symptom token added, other 49 conditions byte-identical. Every KB symptom token validated against live `token_dictionary` v1.1 — zero missing. Staging verified post-deploy
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
@@ -42,20 +43,21 @@
 
 ## Branches
 
-| Branch                              | Status             | PR        |
-| ----------------------------------- | ------------------ | --------- |
-| `feature/e1-backend-init`           | Merged → `develop` | PR #2 ✅  |
-| `fix/dockerfile-remove-prod-npm-ci` | Merged → `develop` | PR #3 ✅  |
-| `feature/e1-database-foundation`    | Merged → `develop` | PR #4 ✅  |
-| `feature/e1-security-baseline`      | Merged → `develop` | PR #5 ✅  |
-| `feature/e1-artifact-skeleton`      | Merged → `develop` | PR #6 ✅  |
-| `feature/e5-facilities-config`      | Merged → `develop` | PR #15 ✅ |
-| `feature/e7-kb-rules-v2`            | Merged → `develop` | PR #16 ✅ |
-| `feature/e7-medical-review-fixes`   | Merged → `develop` | PR #17 ✅ |
-| `feature/kb-v2.2-update`            | Merged → `develop` | PR #18 ✅ |
-| `feat/kb-v2.3-malaria-explanation`  | Merged → `develop` | PR #19 ✅ |
-| `feat/facilities-v1.1-lagos-phones` | Merged → `develop` | PR #20 ✅ |
-| `fix/rules-v2.2-remove-dead-rule`   | Merged → `develop` | PR #22 ✅ |
+| Branch                               | Status             | PR        |
+| ------------------------------------ | ------------------ | --------- |
+| `feature/e1-backend-init`            | Merged → `develop` | PR #2 ✅  |
+| `fix/dockerfile-remove-prod-npm-ci`  | Merged → `develop` | PR #3 ✅  |
+| `feature/e1-database-foundation`     | Merged → `develop` | PR #4 ✅  |
+| `feature/e1-security-baseline`       | Merged → `develop` | PR #5 ✅  |
+| `feature/e1-artifact-skeleton`       | Merged → `develop` | PR #6 ✅  |
+| `feature/e5-facilities-config`       | Merged → `develop` | PR #15 ✅ |
+| `feature/e7-kb-rules-v2`             | Merged → `develop` | PR #16 ✅ |
+| `feature/e7-medical-review-fixes`    | Merged → `develop` | PR #17 ✅ |
+| `feature/kb-v2.2-update`             | Merged → `develop` | PR #18 ✅ |
+| `feat/kb-v2.3-malaria-explanation`   | Merged → `develop` | PR #19 ✅ |
+| `feat/facilities-v1.1-lagos-phones`  | Merged → `develop` | PR #20 ✅ |
+| `fix/rules-v2.2-remove-dead-rule`    | Merged → `develop` | PR #22 ✅ |
+| `feat/kb-v2.4-headache-reachability` | Merged → `develop` | PR #23 ✅ |
 
 ---
 
@@ -177,6 +179,18 @@
 - [x] Lint, format:check, and build all clean; CI green (Lint & Build, Docker Build); PR #22 merged → `develop` 2026-07-26
 - [x] Staging verified post-deploy: `/config` returns `rules` v2.2 with matching hash
 
+### Knowledge Base v2.4 (E8.2 calibration — headache token reachability) — COMPLETE
+
+- [x] Fetched `kb.ng.v2.4.json` from R2 (HTTP 200, 102,118 bytes) and independently recomputed SHA256 — exact match with the hash provided (`6c00d825...cec2b`)
+- [x] Confirmed `kb.ng.v2.3.json` still returns 200 with its original hash, and v2.2 / v2.1 also still 200 — all prior versions untouched, no overwrite
+- [x] **Content diff verified v2.3 → v2.4**: `conditions[]` 50 → 50, none added or removed; exactly one condition changed (`headache`), whose `symptoms[]` went 4 → 5 with the sole addition `{token: headache, weight: 6}`; all 49 other conditions byte-identical
+- [x] `_metadata`: `version` 2.3→2.4, `release_date` → 2026-07-27, patch note added; `token_dictionary_version` 1.0 → 1.1, aligning the KB's declared dependency with the `token_dictionary` v1.1 that `/config` has served since PR #17 (consistency fix, not a behaviour change)
+- [x] **Token validity check** (precedent: `rf_004` was removed for referencing a token absent from the dictionary): `headache` confirmed present in `symptom_tokens` of the live `token_dictionary.ng.v1.1.json`; across all 50 conditions, zero symptom tokens missing from the dictionary. Reachability framing confirmed — `headache` was already referenced in `severity_levels` but absent from `symptoms[]`, so it carried no weight
+- [x] **Observation raised to calibration owners (non-blocking)**: the `headache` condition now carries both `head_pain` (weight 6) and `headache` (weight 6). If the on-device tokenizer maps one user report of "headache" to both tokens, the condition scores 12 from clinically one symptom on top of `base_weight: 5`. May be intended under Option A; scoring is on-device and out of scope for this repo, so flagged rather than blocked
+- [x] `src/routes/config.ts` — `knowledge_base` updated to `version: 2.4`, new URL, verified hash, `release_date: 2026-07-27`; other three artifacts left untouched
+- [x] Lint, format:check, and build all clean; CI green; PR #23 merged → `develop` 2026-07-27
+- [x] Staging verified post-deploy: `/config` returns `knowledge_base` v2.4 with matching hash
+
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
@@ -210,20 +224,21 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                              | Branch                                          | Status    |
-| --- | ---------------------------------------------------------------------------------- | ----------------------------------------------- | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`              | `feature/e1-backend-init` → `develop`           | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production      | `fix/dockerfile-remove-prod-npm-ci` → `develop` | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`      | `feature/e1-database-foundation` → `develop`    | Merged ✅ |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`          | `feature/e1-security-baseline` → `develop`      | Merged ✅ |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`             | `feature/e1-artifact-skeleton` → `develop`      | Merged ✅ |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`          | `feature/e5-facilities-config` → `develop`      | Merged ✅ |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                | `feature/e7-kb-rules-v2` → `develop`            | Merged ✅ |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`             | `feature/e7-medical-review-fixes` → `develop`   | Merged ✅ |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`            | `feature/kb-v2.2-update` → `develop`            | Merged ✅ |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix` | `feat/kb-v2.3-malaria-explanation` → `develop`  | Merged ✅ |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`  | `feat/facilities-v1.1-lagos-phones` → `develop` | Merged ✅ |
-| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                      | `fix/rules-v2.2-remove-dead-rule` → `develop`   | Merged ✅ |
+| PR  | Title                                                                                            | Branch                                           | Status    |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------ | --------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`            | Merged ✅ |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`  | Merged ✅ |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`     | Merged ✅ |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`       | Merged ✅ |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`       | Merged ✅ |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`       | Merged ✅ |
+| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`             | Merged ✅ |
+| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`    | Merged ✅ |
+| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`             | Merged ✅ |
+| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`   | Merged ✅ |
+| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`  | Merged ✅ |
+| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`    | Merged ✅ |
+| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop` | Merged ✅ |
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -271,6 +286,8 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **Facilities v1.1** ✅ complete (PR #20) — 45 Lagos facility phone numbers, hash verified against R2, merged and verified live on staging
 **Rules v2.2** ✅ complete (PR #22) — dead rule `rf_147` removed (76 → 75), hash and full content diff verified against R2, red flag safety independently confirmed, merged and verified live on staging
 
+**Knowledge Base v2.4** ✅ complete (PR #23) — E8.2 calibration, `headache` token added at weight 6 for reachability; hash, full content diff, and token-dictionary validity all verified against R2, merged and verified live on staging
+
 **Current status:** All four artifacts current and verified on staging. One docs PR (#21, this progress log) open and awaiting review.
 
 **Next backend action:** Awaiting the next artifact release or E8 calibration task from the engineering lead.
@@ -286,4 +303,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-07-26 — two artifact updates shipped: `facilities` v1.1 (45 Lagos facility phone numbers, PR #20) and `rules` v2.2 (dead rule `rf_147` removed, 76 → 75, PR #22). Both hashes independently recomputed against R2 before wiring, both prior versions confirmed untouched on R2, both merged → `develop`, deployed, and verified on staging. All four artifacts (`token_dictionary` v1.1, `knowledge_base` v2.3, `rules` v2.2, `facilities` v1.1) up to date and verified on staging. Docs PR #21 (this log) open and awaiting review._
+_Last updated: 2026-07-27 — three artifact updates shipped: `facilities` v1.1 (45 Lagos facility phone numbers, PR #20), `rules` v2.2 (dead rule `rf_147` removed, 76 → 75, PR #22), and `knowledge_base` v2.4 (E8.2 calibration, `headache` token added at weight 6, PR #23). Every hash independently recomputed against R2 before wiring, every prior version confirmed untouched on R2, full content diffs run on the rules and KB updates, all merged → `develop`, deployed, and verified on staging. All four artifacts (`token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1) up to date and verified on staging. Docs PR #21 (this log) open and awaiting review._
