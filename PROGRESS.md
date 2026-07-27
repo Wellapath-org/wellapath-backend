@@ -8,9 +8,9 @@
 
 ## Current Status
 
-**Phase:** E8 — Validation & Calibration (in progress)
-**Sprint:** E8.2 calibration in progress; facilities v1.1, rules v2.2, and knowledge_base v2.4 **MERGED AND VERIFIED ON STAGING**
-**Stage:** `token_dictionary` at v1.1; `knowledge_base` at v2.4; `rules` at v2.2; `facilities` at v1.1 — all four artifacts on `develop` and verified live on staging.
+**Phase:** E9 — Internal Beta Readiness (in progress)
+**Sprint:** E8 complete. E9.2 backend documentation **DELIVERED AND MERGED**; CI type-check enforcement fixed
+**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -34,10 +34,14 @@
 - **PR #20 merged → `develop`** — `facilities` update to v1.1, new filename `facilities.ng.v1.1.json`, new hash, adds 45 Lagos facility phone numbers; before committing, independently fetched the file from R2 and recomputed its SHA256 — confirmed exact match — and confirmed `facilities.ng.v1.0.json` still returns 200 on R2 (untouched, no overwrite). Hash re-verified against R2 a second time immediately before merge. Staging verified post-deploy: `facilities` v1.1 live with matching hash
 - **PR #22 merged → `develop`** — `rules` updated to v2.2, new filename `rules.ng.v2.2.json`, new hash, removes dead rule `rf_147` (76 → 75 rules); hash independently verified against R2 before committing, `rules.ng.v2.1.json` confirmed still 200 and unchanged. Full content diff run: exactly one rule removed, all 75 survivors byte-identical, metadata counts internally consistent (13 global + 62 condition-specific = 75). Red-flag safety independently checked — see the rules v2.2 section below. Staging verified post-deploy
 - **PR #23 merged → `develop`** — `knowledge_base` updated to v2.4 (E8.2 calibration: literal `headache` token added to `headache` condition at weight 6, Issue #8 Option A); hash independently verified against R2, all prior KB versions (v2.3/v2.2/v2.1) confirmed still 200 and unchanged. Content diff: exactly one condition changed, one symptom token added, other 49 conditions byte-identical. Every KB symptom token validated against live `token_dictionary` v1.1 — zero missing. Staging verified post-deploy
+- **PR #24 merged → `develop`** — E9.2 backend documentation: `docs/DEPLOYMENT.md`, `docs/ARTIFACT_RELEASE_PROCESS.md`, `docs/DECISION_LOG.md`, `docs/SECURITY_CHECKLIST.md`, plus a README refresh (its `/config` example was stale — showed v1.0 artifacts and omitted `facilities`)
+- **PR #25 merged → `develop`** — CI fix: removed `|| true` from the `tsc --noEmit` step in `.github/workflows/ci.yml`. Type errors previously could not fail CI, so a green "Lint & Build Check" did not prove the project type-checked. Verified `tsc --noEmit --skipLibCheck` exits 0 on `develop` before removing the suppression, and the PR's own green CI run exercised the enforced check
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** No artifact work outstanding — all four artifacts current and verified on staging. Docs PR #21 (this progress log) is open and needs review/merge so the log lands on `develop` rather than being stranded on a branch. Otherwise awaiting the next artifact release or E8 calibration task from the engineering lead.
+**Next immediate action:** All three assigned E9 backend items are complete (CI fix PR #25, E9.2 docs PR #24, this progress log PR #21). No backend work outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence — the remaining steps are mobile, data-engineering, and founder items.
+
+**Open, owned by others (backend cannot action):** SAM/MAM clinical rationale for `DECISION_LOG.md` D1 (data engineer); approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner).
 
 ---
 
@@ -58,6 +62,8 @@
 | `feat/facilities-v1.1-lagos-phones`  | Merged → `develop` | PR #20 ✅ |
 | `fix/rules-v2.2-remove-dead-rule`    | Merged → `develop` | PR #22 ✅ |
 | `feat/kb-v2.4-headache-reachability` | Merged → `develop` | PR #23 ✅ |
+| `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
+| `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
 
 ---
 
@@ -191,6 +197,32 @@
 - [x] Lint, format:check, and build all clean; CI green; PR #23 merged → `develop` 2026-07-27
 - [x] Staging verified post-deploy: `/config` returns `knowledge_base` v2.4 with matching hash
 
+### E9.2 — Backend Documentation (Internal Beta Readiness) — COMPLETE
+
+Delivered in PR #24. Written from what was verified against the repo and live staging on 2026-07-27; anything relayed by the engineering lead rather than confirmed here is marked as such in the documents.
+
+- [x] **E9.2.1 `docs/DEPLOYMENT.md`** — current stack (Render · Supabase PostgreSQL · Cloudflare R2 storage + CDN), endpoints, env vars, DB schema and pool settings, CI, local setup. Includes the **rollback plan**: backend via revert PR or Render previous-deploy rollback; artifact rollback as a `/config`-only change (no re-upload, no mobile release) with available rollback targets listed and confirmed HTTP 200 on R2
+- [x] **E9.2.2 `docs/ARTIFACT_RELEASE_PROCESS.md`** — the versioning checklist as actually practised, split by role, with the backend's independent-verification step; each check tied to the incident that motivated it (PR #16 overwrite catch, `rules` v2.2 size anomaly, `rf_004` dead-token rule). Runnable verification commands, scope boundary, full release history
+- [x] **E9.2.3 `docs/DECISION_LOG.md`** — all five requested E7–E8 decisions, each marked 🔍 verified-against-artifact or 📩 relayed-from-lead. `increase_urgency` no-op **scope quantified**: of 30 conditions carrying that modifier, **19 already default to urgent/emergency so the modifier is inert**, 11 can still escalate. Cannot cause under-triage
+- [x] **E9.2.4 `docs/SECURITY_CHECKLIST.md`** — backend posture verified directly; E8.3 mobile findings recorded as relayed, not independently verified. Key finding is stronger than "no PHI in logs": the backend has **no PHI intake surface at all** — three `GET` routes, zero reads of `request.body`/`params`/`query`, and the only runtime DB query in the app is `SELECT 1`. Also verified: no PHI columns in schema, header redaction, `no-console` CI-enforced, no secrets in source, `.env` never committed in any branch's history. Certificate pinning documented as deferred to production — accepted
+- [x] **README refreshed** — its `/config` example was stale (v1.0 artifacts, `facilities` missing entirely); updated to the frozen beta payload, plus a documentation index and a pointer to the superseded-infrastructure note
+
+**Issues found while writing, documented rather than silently fixed:**
+
+- [x] **CI type check could not fail** — fixed separately in PR #25 (see below)
+- [ ] `CLAUDE.md` §1 still documents decommissioned AWS infrastructure (ECS/RDS/S3/CloudFront/Secrets Manager, with account IDs and ARNs). Corrected in `DEPLOYMENT.md` §2 rather than edited in place — `CLAUDE.md` is locked build law and needs **founder + engineering lead approval** to change
+- [ ] DB TLS uses `rejectUnauthorized: false` — encrypted but chain unverified. Fine for staging; **production gate** alongside certificate pinning
+- [ ] CORS production allowlist still references `api-staging.wellapath.org`, a superseded domain. Not the active branch today; correct before production
+- [ ] `.gitignore` byte defect — `.claude/` appended in UTF-16LE with no preceding newline. Git still parses it correctly (`git check-ignore` confirms `coverage/`, `.claude/`, and `.env` all ignored), so no exposure — housekeeping only
+- [ ] **SAM/MAM clinical rationale still missing** — `DECISION_LOG.md` D1 records the observable mechanism (two demographic tokens, not two conditions) but the clinical reasoning and thresholds are not recorded anywhere in this repo. Data engineer owns this; see note below
+
+### E9.2 — CI Type Check Enforcement (PR #25)
+
+- [x] `.github/workflows/ci.yml` ran `npx tsc --noEmit --skipLibCheck || true` — the trailing `|| true` swallowed the exit code, so **type errors could not fail CI**. A green "Lint & Build Check" did not prove the project type-checked
+- [x] Verified `npx tsc --noEmit --skipLibCheck` exits **0** against `develop` before removing the suppression, so the change would not turn CI red on merge
+- [x] `|| true` removed; the PR's own green CI run exercised the now-enforced check
+- [x] Merged → `develop` 2026-07-27
+
 ### Smoke Test Results (verified locally ✅)
 
 | Endpoint     | Status | Response                                                        |
@@ -239,6 +271,8 @@ CORS headers confirmed active (`vary: Origin`).
 | #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`  | Merged ✅ |
 | #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`    | Merged ✅ |
 | #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop` | Merged ✅ |
+| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`           | Merged ✅ |
+| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`        | Merged ✅ |
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -288,9 +322,12 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 **Knowledge Base v2.4** ✅ complete (PR #23) — E8.2 calibration, `headache` token added at weight 6 for reachability; hash, full content diff, and token-dictionary validity all verified against R2, merged and verified live on staging
 
-**Current status:** All four artifacts current and verified on staging. One docs PR (#21, this progress log) open and awaiting review.
+**E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
+**E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
 
-**Next backend action:** Awaiting the next artifact release or E8 calibration task from the engineering lead.
+**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 backend items complete.
+
+**Next backend action:** None outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence. Standing by for the next artifact release (which now requires engineering lead approval under the E9.1 freeze) or a post-beta task.
 
 ---
 
@@ -303,4 +340,4 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-_Last updated: 2026-07-27 — three artifact updates shipped: `facilities` v1.1 (45 Lagos facility phone numbers, PR #20), `rules` v2.2 (dead rule `rf_147` removed, 76 → 75, PR #22), and `knowledge_base` v2.4 (E8.2 calibration, `headache` token added at weight 6, PR #23). Every hash independently recomputed against R2 before wiring, every prior version confirmed untouched on R2, full content diffs run on the rules and KB updates, all merged → `develop`, deployed, and verified on staging. All four artifacts (`token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1) up to date and verified on staging. Docs PR #21 (this log) open and awaiting review._
+_Last updated: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence. Outstanding items in `docs/DECISION_LOG.md` are owned by the data engineer, the founder, and the E8.2 calibration owner._
