@@ -92,6 +92,32 @@ flagged in `SECURITY_CHECKLIST.md` as a production hardening item.
 **Pool settings:** `max: 10`, `idleTimeoutMillis: 30000`, `connectionTimeoutMillis: 2000`.
 The pool is closed cleanly on the Fastify `onClose` hook.
 
+### ⚠️ Free-tier inactivity pause — pre-production item
+
+**The Supabase free tier pauses a project after 7 days of inactivity.** This is not theoretical:
+it happened on **2026-07-29** during E9 beta readiness. Symptoms were:
+
+- `GET /health` returning **503** with `{"checks":{"database":"error"}}`, persistently
+- The Supabase pooler rejecting connections with
+  `XX000 (ENOTFOUND) tenant/user postgres.<project-ref> not found` — which reads like a deleted
+  project, but was in fact a paused one
+- Resolved by manually restoring the project from the Supabase dashboard
+
+**Why it matters more in production than it did here.** `/config` and `/version` do not touch the
+database, so the mobile bootstrap path stayed up throughout. The real exposure is indirect: if the
+platform health check is pointed at `/health`, a persistent 503 can cause the service to be marked
+unhealthy and restarted or removed from routing — which _would_ take `/config` down and break
+first launch for real users.
+
+**Before production, do one of:**
+
+1. **Upgrade off the free tier** — removes the pause behaviour entirely. Preferred.
+2. **Add a weekly keep-alive ping** to the database (a scheduled job issuing `SELECT 1` more often
+   than every 7 days) so the project never idles into a pause.
+
+Option 1 is the durable fix; option 2 is a mitigation that keeps working only for as long as the
+scheduler does.
+
 ### Schema
 
 Created by `npm run migrate` (`src/db/migrate.ts`) — idempotent (`CREATE TABLE IF NOT EXISTS`),
