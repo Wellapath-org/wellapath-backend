@@ -219,17 +219,37 @@ documentation PR. **Recommend a follow-up `ci` PR before beta sign-off.**
 
 ### Accepted risks carried into beta
 
-| Item                                           | Severity | Disposition                        |
-| ---------------------------------------------- | -------- | ---------------------------------- |
-| Certificate pinning not implemented            | Medium   | Deferred to production — accepted  |
-| DB TLS `rejectUnauthorized: false`             | Medium   | Tighten before production          |
-| CI type check cannot fail (`\|\| true`)        | Low      | Recommend follow-up `ci` PR        |
-| CORS allowlist references superseded domain    | Low      | Correct before production          |
-| `.gitignore` UTF-16 byte defect                | Low      | Housekeeping — no current exposure |
-| Open `JSONB` columns could carry PHI in future | Low      | Review any PR that writes to them  |
+| Item                                           | Severity | Disposition                                     |
+| ---------------------------------------------- | -------- | ----------------------------------------------- |
+| Certificate pinning not implemented            | Medium   | Deferred to production — accepted               |
+| DB TLS `rejectUnauthorized: false`             | Medium   | Tighten before production                       |
+| **Supabase free tier pauses after 7d idle**    | Medium   | **Upgrade tier or add weekly ping before prod** |
+| CI type check cannot fail (`\|\| true`)        | Low      | ✅ Fixed — PR #25                               |
+| CORS allowlist references superseded domain    | Low      | Correct before production                       |
+| `.gitignore` UTF-16 byte defect                | Low      | Housekeeping — no current exposure              |
+| Open `JSONB` columns could carry PHI in future | Low      | Review any PR that writes to them               |
 
-**None of the above blocks internal beta.** The two medium items are both production gates and
-are already tracked as such.
+**None of the above blocks internal beta.** The remaining medium items are all production gates
+and are tracked as such.
+
+### Availability — Supabase free-tier pause (observed 2026-07-29)
+
+Not a confidentiality or integrity issue, but an **availability** one, recorded here because it
+is a production gate.
+
+The staging Supabase project paused after 7 days of inactivity, causing `GET /health` to return
+503 (`database: error`) until it was manually restored. The pooler reported
+`tenant/user ... not found`, which reads like a deleted project rather than a paused one — worth
+knowing, because the error message misdirects diagnosis.
+
+`/config` and `/version` were unaffected throughout (neither touches the database; the only
+runtime query in the app is the health check's `SELECT 1`), so no client-facing path was broken.
+**The risk to guard against in production is indirect:** if the platform health check targets
+`/health`, a sustained 503 can cause the service to be marked unhealthy and restarted or dropped
+from routing — which would take `/config` down and break first launch for real users.
+
+**Pre-production requirement:** upgrade off the free tier (durable fix) or add a weekly
+keep-alive ping (mitigation). See `DEPLOYMENT.md` §4.
 
 ---
 
