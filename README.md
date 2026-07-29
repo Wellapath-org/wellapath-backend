@@ -15,8 +15,11 @@ and configuration endpoints.
 | ---------------------------------------------------------------------- | ------------------------------------------------------------ |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                             | Current stack, environment variables, rollback procedure, CI |
 | [`docs/ARTIFACT_RELEASE_PROCESS.md`](docs/ARTIFACT_RELEASE_PROCESS.md) | Artifact versioning checklist and release history            |
-| [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md)                         | Key clinical and engineering decisions from E7–E8            |
 | [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md)             | Beta security posture, accepted risks, production gates      |
+
+**Cross-repo engineering decisions** (E7–E8 clinical and engineering decisions spanning mobile,
+knowledge-base, and backend) live in the `wellapath-docs` repository, in `decision-log.md` —
+they are not backend-specific and are kept where every engineer can find them.
 
 > ⚠️ `CLAUDE.md` Section 1 still documents the **superseded AWS infrastructure** (ECS, RDS, S3,
 > CloudFront). The live stack is Render + Supabase + Cloudflare R2 — see
