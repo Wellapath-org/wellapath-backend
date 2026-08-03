@@ -9,8 +9,18 @@
 ## Current Status
 
 **Phase:** E9 — Internal Beta Readiness (in progress)
-**Sprint:** E8 complete. E9.2 backend documentation **DELIVERED AND MERGED**; CI type-check enforcement fixed
-**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+**Sprint:** E8 complete. All assigned E9 backend items **DELIVERED AND MERGED** — E9.2 documentation, CI type-check enforcement, decision log relocation, pre-production items
+**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval. No open backend PRs.
+
+> ### ⚠️ ACTIVE ISSUE (2026-08-03): staging database paused again
+>
+> `GET /health` has been returning **503 `database: error`** since at least 2026-08-03 07:53 UTC — confirmed persistent across repeated checks. This is the **second occurrence**, after the 2026-07-29 pause that the engineering lead restored manually.
+>
+> **This one recurred within 5 days, not 7.** The stated free-tier behaviour is a pause after 7 days of inactivity; the gap between the 07-29 restore and this outage is shorter than that. Either the idle window is shorter in practice, or the clock is measured differently than assumed. Do not rely on "7 days" as the planning figure.
+>
+> `/config` (HTTP 200, all four frozen artifacts correct) and `/version` (HTTP 200) are **unaffected** — neither touches the database, and the only runtime query in the app is the health check's `SELECT 1`. The mobile bootstrap path is intact.
+>
+> **This is exactly the pre-production risk already documented** in `docs/DEPLOYMENT.md` §4. Its recurrence moves it from theoretical to demonstrated: a manual restore is not a fix, and the next occurrence will land during beta unless the tier is upgraded or a keep-alive ping is added. Needs Supabase dashboard access — the backend cannot action it.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -37,17 +47,21 @@
 - **PR #24 merged → `develop`** — E9.2 backend documentation: `docs/DEPLOYMENT.md`, `docs/ARTIFACT_RELEASE_PROCESS.md`, `docs/DECISION_LOG.md`, `docs/SECURITY_CHECKLIST.md`, plus a README refresh (its `/config` example was stale — showed v1.0 artifacts and omitted `facilities`)
 - **Decision log relocated to `wellapath-docs`** — the engineering lead determined that `DECISION_LOG.md` covers cross-repo decisions (mobile, knowledge-base, backend) and should not sit in one service repo. Created `decision-log.md` in `wellapath-docs` on `feat/e9-decision-log` with the data engineer's SAM/MAM clinical rationale added (**wellapath-docs PR #1**), and removed `docs/DECISION_LOG.md` from this repo with README references repointed. **Note:** the instruction assumed PR #24 was still open — it had already merged on 2026-07-27 at the lead's direction, so the removal was a follow-up PR against `develop` rather than an edit to #24. Lead approved both PRs; **wellapath-docs PR #1 merged → `main`**, then **PR #26 merged → `develop`** (docs first, so the decisions were never absent from both repos at once). Lead confirmed: all eight decisions kept, `main` base is correct for a docs repo, `decision-log.md` kebab-case retained
 - **Supabase free-tier pause logged as a pre-production item** — the staging DB outage on 2026-07-29 was the free tier pausing after 7 days of inactivity, not a code defect. Recorded in `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md` with the diagnosis trail (the pooler's `tenant not found` error misdirects toward "deleted project"), the indirect production risk (a sustained `/health` 503 can get the service marked unhealthy and take `/config` down with it), and the two remedies: upgrade off the free tier, or add a weekly keep-alive ping
+- **PR #27 merged → `develop`** (2026-07-29) — the pre-production item above, recorded across `docs/DEPLOYMENT.md` §4, `docs/SECURITY_CHECKLIST.md` (Medium-severity production gate plus an availability subsection), and this log. Also corrected a stale row in the security checklist: the CI type-check risk was still listed as outstanding despite being fixed in PR #25
+- **Staging database paused a second time** (2026-08-03) — see the active-issue box at the top. Recurred in ~5 days, shorter than the documented 7-day idle window
 - **PR #25 merged → `develop`** — CI fix: removed `|| true` from the `tsc --noEmit` step in `.github/workflows/ci.yml`. Type errors previously could not fail CI, so a green "Lint & Build Check" did not prove the project type-checked. Verified `tsc --noEmit --skipLibCheck` exits 0 on `develop` before removing the suppression, and the PR's own green CI run exercised the enforced check
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** All three assigned E9 backend items are complete (CI fix PR #25, E9.2 docs PR #24, this progress log PR #21). No backend work outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence — the remaining steps are mobile, data-engineering, and founder items.
+**Next immediate action:** All assigned E9 backend items are complete and merged (PRs #21, #24, #25, #26, #27, plus `wellapath-docs` PR #1). No open backend PRs and no backend work outstanding ahead of the beta tag.
+
+The one live item is **not a backend code issue**: the staging database is paused again (see the active-issue box above). It needs Supabase dashboard access. Until the tier is upgraded or a keep-alive ping is added, expect this to recur — including during beta.
 
 **Open, owned by others (backend cannot action):** approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
 **Pre-production items (before real beta users / production):**
 
-- **Supabase free-tier pause** — upgrade off the free tier, or add a weekly keep-alive ping. Free tier pauses after 7 days idle; this caused a real staging outage on 2026-07-29
+- **Supabase free-tier pause** — 🔴 **now demonstrated twice, currently active.** Outages on 2026-07-29 (manually restored) and 2026-08-03 (ongoing). The second recurred in ~5 days, shorter than the documented 7-day idle window, so treat "7 days" as an upper bound rather than a planning figure. Upgrade off the free tier (durable fix) or add a keep-alive ping (mitigation). **This should be closed before beta, not after** — a manual restore is not a fix and there is no reason to expect a third pause to wait for a convenient moment
 - **Certificate pinning** — deferred to production, accepted for internal beta
 - **DB TLS `rejectUnauthorized: false`** — encrypted but chain unverified; tighten before production
 - **CORS production allowlist** — still references the superseded `api-staging.wellapath.org`
@@ -58,23 +72,26 @@
 
 ## Branches
 
-| Branch                               | Status             | PR        |
-| ------------------------------------ | ------------------ | --------- |
-| `feature/e1-backend-init`            | Merged → `develop` | PR #2 ✅  |
-| `fix/dockerfile-remove-prod-npm-ci`  | Merged → `develop` | PR #3 ✅  |
-| `feature/e1-database-foundation`     | Merged → `develop` | PR #4 ✅  |
-| `feature/e1-security-baseline`       | Merged → `develop` | PR #5 ✅  |
-| `feature/e1-artifact-skeleton`       | Merged → `develop` | PR #6 ✅  |
-| `feature/e5-facilities-config`       | Merged → `develop` | PR #15 ✅ |
-| `feature/e7-kb-rules-v2`             | Merged → `develop` | PR #16 ✅ |
-| `feature/e7-medical-review-fixes`    | Merged → `develop` | PR #17 ✅ |
-| `feature/kb-v2.2-update`             | Merged → `develop` | PR #18 ✅ |
-| `feat/kb-v2.3-malaria-explanation`   | Merged → `develop` | PR #19 ✅ |
-| `feat/facilities-v1.1-lagos-phones`  | Merged → `develop` | PR #20 ✅ |
-| `fix/rules-v2.2-remove-dead-rule`    | Merged → `develop` | PR #22 ✅ |
-| `feat/kb-v2.4-headache-reachability` | Merged → `develop` | PR #23 ✅ |
-| `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
-| `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
+| Branch                                     | Status             | PR                      |
+| ------------------------------------------ | ------------------ | ----------------------- |
+| `feature/e1-backend-init`                  | Merged → `develop` | PR #2 ✅                |
+| `fix/dockerfile-remove-prod-npm-ci`        | Merged → `develop` | PR #3 ✅                |
+| `feature/e1-database-foundation`           | Merged → `develop` | PR #4 ✅                |
+| `feature/e1-security-baseline`             | Merged → `develop` | PR #5 ✅                |
+| `feature/e1-artifact-skeleton`             | Merged → `develop` | PR #6 ✅                |
+| `feature/e5-facilities-config`             | Merged → `develop` | PR #15 ✅               |
+| `feature/e7-kb-rules-v2`                   | Merged → `develop` | PR #16 ✅               |
+| `feature/e7-medical-review-fixes`          | Merged → `develop` | PR #17 ✅               |
+| `feature/kb-v2.2-update`                   | Merged → `develop` | PR #18 ✅               |
+| `feat/kb-v2.3-malaria-explanation`         | Merged → `develop` | PR #19 ✅               |
+| `feat/facilities-v1.1-lagos-phones`        | Merged → `develop` | PR #20 ✅               |
+| `fix/rules-v2.2-remove-dead-rule`          | Merged → `develop` | PR #22 ✅               |
+| `feat/kb-v2.4-headache-reachability`       | Merged → `develop` | PR #23 ✅               |
+| `docs/e9.2-beta-readiness`                 | Merged → `develop` | PR #24 ✅               |
+| `ci/enforce-typescript-check`              | Merged → `develop` | PR #25 ✅               |
+| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop` | PR #26 ✅               |
+| `docs/pre-production-items`                | Merged → `develop` | PR #27 ✅               |
+| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`    | wellapath-docs PR #1 ✅ |
 
 ---
 
@@ -267,23 +284,26 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                                            | Branch                                           | Status    |
-| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------ | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`            | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`  | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`     | Merged ✅ |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`       | Merged ✅ |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`       | Merged ✅ |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`       | Merged ✅ |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`             | Merged ✅ |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`    | Merged ✅ |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`             | Merged ✅ |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`   | Merged ✅ |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`  | Merged ✅ |
-| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`    | Merged ✅ |
-| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop` | Merged ✅ |
-| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`           | Merged ✅ |
-| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`        | Merged ✅ |
+| PR                  | Title                                                                                            | Branch                                                 | Status    |
+| ------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | --------- |
+| #2                  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`                  | Merged ✅ |
+| #3                  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`        | Merged ✅ |
+| #4                  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`           | Merged ✅ |
+| #5                  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`             | Merged ✅ |
+| #6                  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`             | Merged ✅ |
+| #15                 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`             | Merged ✅ |
+| #16                 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`                   | Merged ✅ |
+| #17                 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`          | Merged ✅ |
+| #18                 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`                   | Merged ✅ |
+| #19                 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`         | Merged ✅ |
+| #20                 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`        | Merged ✅ |
+| #22                 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`          | Merged ✅ |
+| #23                 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop`       | Merged ✅ |
+| #24                 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`                 | Merged ✅ |
+| #25                 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`              | Merged ✅ |
+| #26                 | `docs(structure): move decision log to wellapath-docs repo`                                      | `docs/move-decision-log-to-wellapath-docs` → `develop` | Merged ✅ |
+| #27                 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅ |
+| `wellapath-docs` #1 | `feat(docs): add cross-repo engineering decision log for e7-e8`                                  | `feat/e9-decision-log` → `main`                        | Merged ✅ |
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -335,10 +355,14 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 **E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
 **E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
+**E9.2 — Decision log relocation** ✅ complete (PR #26 + `wellapath-docs` PR #1) — cross-repo decisions moved to `wellapath-docs` → `decision-log.md`, SAM/MAM rationale added and its implementation verified against the frozen artifacts
+**E9.2 — Pre-production items** ✅ complete (PR #27) — Supabase free-tier pause recorded with diagnosis trail, production risk, and remedies
 
-**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 backend items complete.
+**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 backend items complete and merged. No open backend PRs.
 
-**Next backend action:** None outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence. Standing by for the next artifact release (which now requires engineering lead approval under the E9.1 freeze) or a post-beta task.
+**Next backend action:** No backend code work outstanding. Standing by for the next artifact release (which now requires engineering lead approval under the E9.1 freeze) or a post-beta task.
+
+**Blocking-adjacent, not backend-actionable:** the staging database is paused for the second time (2026-08-03, ongoing). `/config` and `/version` are unaffected so beta bootstrap works, but the recurrence shows the free-tier pause is not a one-off. Recommend closing it before the beta tag rather than after.
 
 ---
 
@@ -353,6 +377,13 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 \_Last updated: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
 
-2026-07-29 — decision log relocated out of this repo to `wellapath-docs` (`decision-log.md`, PR #1 there) per the engineering lead, with the data engineer's SAM/MAM clinical rationale added and its implementation verified against the frozen artifacts. `docs/DECISION_LOG.md` removed here and references repointed. Remaining open decisions are owned by the founder and the E8.2 calibration owner and are tracked in `wellapath-docs`.
+2026-07-29 — decision log relocated out of this repo to `wellapath-docs` (`decision-log.md`, PR #1 there) per the engineering lead, with the data engineer's SAM/MAM clinical rationale added and its implementation verified against the frozen artifacts. `docs/DECISION_LOG.md` removed here and references repointed (PR #26). Pre-production items recorded (PR #27). Remaining open decisions are owned by the founder and the E8.2 calibration owner and are tracked in `wellapath-docs`.
 
-**Staging incident (2026-07-29) — RESOLVED:** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which read like a deleted project but was the **free tier pausing after 7 days of inactivity**. Engineering lead restored it manually; `/health` now returns 200 with `database: ok`. `/config` and `/version` were unaffected throughout, so the mobile bootstrap path never broke. **Logged as a pre-production item** — upgrade off the free tier or add a weekly keep-alive ping before real beta users; see `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.\_
+2026-08-03 — status check. All assigned E9 backend items merged; no open backend PRs; artifacts still frozen and serving correctly from staging. **The staging database has paused a second time** — see the active-issue box at the top of this file. Backend cannot action it.
+
+**Staging database — two pauses to date:**
+
+- **2026-07-29 — resolved.** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which reads like a deleted project but was the free tier pausing on inactivity. Engineering lead restored it manually. Logged as a pre-production item (PR #27).
+- **2026-08-03 — active.** Same failure, ~5 days after the restore — shorter than the documented 7-day idle window. Confirmed persistent across repeated checks.
+
+In both cases `/config` and `/version` stayed at HTTP 200 with all four frozen artifacts correct, because neither touches the database; the only runtime query in the app is the health check's `SELECT 1`. The mobile bootstrap path has never broken. The risk is indirect: if the platform health check targets `/health`, a sustained 503 can get the service marked unhealthy and take `/config` down with it. Remedies and diagnosis trail in `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.\_
