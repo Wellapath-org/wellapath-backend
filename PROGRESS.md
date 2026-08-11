@@ -8,9 +8,53 @@
 
 ## Current Status
 
-**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics (E9 backend items all complete)
-**Sprint:** E8 complete. E9.2 backend documentation **DELIVERED AND MERGED**; CI type-check enforcement fixed
+**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **I1 is OPEN.** The backend staging-enablement gate has passed; the phase has not.
+**Sprint:** E8/E9 complete. I1/W1 backend contract merged (PR #29) and **staging-enablement gate PASSED 2026-08-11**
 **Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+
+> ### ✅ I1 / W1 backend staging-enablement gate — PASSED (2026-08-11)
+>
+> Telemetry contract **v1.0** is live on staging and verified. Recorded in full in
+> `docs/TELEMETRY_OPERATIONS.md` §9.
+>
+> | Field                     | Value                                                              |
+> | ------------------------- | ------------------------------------------------------------------ |
+> | Deployed backend commit   | **`5e13379`** (`5e13379f19c53ec90cee7958dc029d908c342dcd`, PR #29) |
+> | Service                   | `wellapath-backend-staging`                                        |
+> | `TELEMETRY_ENABLED`       | **`true`** (staging only)                                          |
+> | `TELEMETRY_SINK`          | **`log`** — no vendor, no database                                 |
+> | Functional checks         | **25 / 25 passed, 0 failed**                                       |
+> | Privacy-log marker search | **PASSED — zero results**                                          |
+> | Staging log retention     | **7 days** (Render Free plan)                                      |
+> | Production telemetry      | **Remains disabled.** Not touched                                  |
+>
+> **Privacy verification passed.** A distinctive marker submitted inside a rejected payload
+> returned **zero results** across the staging log stream, while accepted `telemetry_event` sink
+> entries were present and free of any marker or payload text — confirmed by the engineering
+> lead in Render. The pipeline records what it should and does not record what it must not.
+>
+> Valid three-event batch → `202 accepted: 3`. Prohibited field → rejected per contract.
+> Rate limiting → `429`. `/health` `200` with `database: ok`. `/config` frozen artifacts
+> unchanged. Core routes stayed `200` throughout.
+>
+> **Rollback is unchanged: `TELEMETRY_ENABLED=false` plus restart.**
+>
+> ### ⚠️ Mobile PR #61 is unblocked — but I1 is NOT complete
+>
+> **Mobile PR #61 is running its final live integration tests** against contract v1.0. No
+> contract change is required or pending, and **staging telemetry must not be disabled while
+> those tests run.**
+>
+> **I1 remains open.** The backend gate is one gate, not the phase. Still outstanding:
+>
+> - the **Mobile integration gate** (PR #61 in final validation);
+> - the **low-end Android gate**;
+> - a **crash-monitoring provider or approved alternative**, which is in I1 scope and unresolved;
+> - the operational and security backlog in `docs/TELEMETRY_OPERATIONS.md` §7 — notably
+>   protecting or disabling the unauthenticated `/internal/metrics` before external beta, and
+>   analytics consent before external beta.
+>
+> Do not record I1 as complete until those close.
 
 > ### ✅ I1 / W1 Step 1 delivered (2026-08-11): telemetry contract v1.0
 >

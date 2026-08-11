@@ -42,11 +42,16 @@ Out-of-range or unparseable numeric values fall back to the default rather than 
 | Environment       | `TELEMETRY_ENABLED`                          | `TELEMETRY_SINK` | Rationale                                                                                                                   |
 | ----------------- | -------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Local development | `false` unless testing                       | `log`            | Off by default.                                                                                                             |
-| **Staging**       | **`true`**                                   | `log`            | Where the contract is exercised during internal beta.                                                                       |
+| **Staging**       | **`true` — enabled 2026-08-11**              | `log`            | Enabled at the I1/W1 staging gate (§9) so Mobile can run live integration tests.                                            |
 | **Production**    | **`false`** — must be turned on deliberately | to be decided    | No production environment exists yet. Enabling it there is a separate decision, and a provider choice is an open item (§7). |
 
 **The default is disabled everywhere.** Telemetry has to be switched on for an environment; it
 is never on because someone forgot to turn it off.
+
+**Current live state (2026-08-11):** staging telemetry is **enabled** on service
+`wellapath-backend-staging`, running backend commit
+`5e13379f19c53ec90cee7958dc029d908c342dcd`, sink `log`. **Production telemetry remains
+disabled** and was not touched.
 
 ---
 
@@ -73,12 +78,49 @@ change.**
   untouched, and nothing writes to them. The only runtime database query in the service remains
   the health check's `SELECT 1`.
 - **Raw request bodies are never persisted or logged**, accepted or rejected.
-- With `TELEMETRY_SINK=log`, retained telemetry is exactly the Render platform log retention for
-  the service — no separate store, no separate lifecycle. **Confirm the current Render log
-  retention window before beta** and record it here; it is the de facto retention period.
+- With `TELEMETRY_SINK=log`, **the effective telemetry retention period is the Render log
+  retention window** — there is no separate store and no separate lifecycle. Telemetry lives
+  and expires with the platform logs.
+- **Confirmed 2026-08-11: the Render workspace is on the Free plan, so staging log retention is
+  7 days.** Telemetry emitted to the log sink is therefore retained for **7 days and no longer**.
+
+  > ### ⚠️ The 7-day rolling window limits baseline and trend analysis
+  >
+  > This is a real constraint on what W1 can answer, not a formality. Staging telemetry is a
+  > **rolling 7-day window**: a metric read on day 10 cannot look back to day 1, because that
+  > data no longer exists anywhere. There is no historical store behind the log sink.
+  >
+  > Consequences to plan around:
+  >
+  > - Week-over-week comparison, retention curves, cohort analysis and any trend longer than a
+  >   week are **not possible** with the current setup.
+  > - Anything worth keeping beyond 7 days must be **exported or summarised before it ages out**.
+  > - A question asked after the fact ("what did drop-off look like last month?") cannot be
+  >   answered retrospectively.
+  >
+  > This is acceptable for I1, whose goal is a safe observability _baseline_ during internal
+  > beta. If longer trends are required, that needs an analytics provider or export path and a
+  > deliberate retention decision — tracked in §7.
+
 - Operational metrics are **in-memory and per-instance**. They reset on deploy or restart and are
-  not durable. They are a live signal, not an analytics history.
+  not durable — a shorter horizon still than the logs. They are a live signal, not an analytics
+  history.
 - Event IDs held for de-duplication are in-memory, TTL-bounded (1 h) and count-bounded (20 000).
+
+### Access to telemetry output
+
+Two different surfaces with two different postures — worth keeping distinct:
+
+| Surface                   | Contents                                          | Access                                                                           |
+| ------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Render staging log stream | `telemetry_event` records (validated events only) | **Authenticated** — Render workspace members only. Accepted for internal staging |
+| `GET /internal/metrics`   | Counters and latency histograms only              | **Unauthenticated and publicly reachable** — see §7, open item                   |
+
+The log stream carries the actual (validated, allowlisted) event data and is behind Render
+workspace authentication. The metrics endpoint carries no event data at all — only counts, with
+label sets fixed at construction so no event, session, facility, article, IP or user-agent value
+can appear — but it is reachable by anyone with the URL. **These are not the same posture and
+should not be described as if they were.**
 
 ---
 
@@ -173,16 +215,49 @@ question, results or facility artifact was touched by this work, so artifact rol
 
 ---
 
-## 7. Unresolved before external beta
+## 7. Unresolved — open operational and security backlog
 
-| Item                                                      | Owner                          | Note                                                                                                                                                                                                                                                                   |
-| --------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Provider selection**                                    | Engineering lead + founder     | The `log` sink is sufficient for internal beta. A real provider is a vendor and data-processing decision, not a code decision. Nothing is sent externally until one is approved and configured.                                                                        |
-| **Log retention window**                                  | Engineering lead               | With the `log` sink, Render's log retention _is_ the telemetry retention period. Confirm and record it above.                                                                                                                                                          |
-| **Production enablement**                                 | Founder + engineering lead     | Currently `false`. Turning it on in production is a separate decision.                                                                                                                                                                                                 |
-| **`urgency_category`, `question_id`, free-text feedback** | See `TELEMETRY_CONTRACT.md` §8 | Excluded from v1.0. Each needs a named decision before any future version.                                                                                                                                                                                             |
-| **`admin_area_code` mapping**                             | Facilities artifact owner      | Field is allowlisted; the client-side mapping from the facilities artifact is unconfirmed. Omit the field until confirmed.                                                                                                                                             |
-| **Unauthenticated `/internal/metrics`**                   | Engineering lead               | The snapshot is counters only and contains no PHI or identifiers, and every other endpoint on this service is unauthenticated. Still worth a deliberate decision on whether to restrict it before production. Can be turned off with `METRICS_ENDPOINT_ENABLED=false`. |
+**None of the items below is complete.** They are recorded here so they are picked up at the
+gate named against each, and none of them is a telemetry contract failure — contract v1.0
+behaved exactly as specified throughout the staging verification in §9.
+
+### Security / access
+
+| Item                                                       | Gate                     | Owner                      | Note                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------- | ------------------------ | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Protect or disable unauthenticated `/internal/metrics`** | **Before external beta** | Engineering lead           | Confirmed reachable with no credentials. Counters only — no PHI, no identifiers, closed label sets — so there is no data exposure today, but it is an unauthenticated public surface. Restrict it, or set `METRICS_ENDPOINT_ENABLED=false`. Distinct from log access, which is authenticated. |
+| **Analytics consent**                                      | **Before external beta** | Founder + engineering lead | Internal beta is a controlled, informed audience. Collecting product telemetry from external users raises a consent question that has not been answered. Must be resolved before anyone outside the team is measured.                                                                         |
+
+### Observability accuracy
+
+| Item                                                                         | Gate                                     | Owner            | Note                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------- | ---------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Make `rate_limited` and `malformed_json` counters operationally accurate** | Later hardening                          | Backend          | Both rejections occur in Fastify hooks _before_ the telemetry service runs, so `events_rejected_total.rate_limited` and `.malformed_json` never increment and always read `0`. The events are visible only in `http.requests_total['/v1/telemetry/events\|4xx']`. An operator could wrongly read `0` as "no rate limiting occurred".                                                          |
+| **Classify `question_id` as a privacy-prohibited attempt**                   | Future **backward-compatible** hardening | Backend          | Today `question_id` is refused as `unknown_property`. The refusal is correct and fail-closed, but the field is excluded for a _privacy_ reason, so it does not trip the prohibited-attempt metric operators are told to investigate. Reclassifying is a metrics / reason-code change only — **it must not change whether the field is accepted, and must not alter contract v1.0 behaviour.** |
+| **Build-commit attestation**                                                 | **I6 / W9 release hardening**            | Backend          | `/version` returns the static `APP_VERSION`, not a git SHA, so no endpoint can attest which commit is live. Deployed-commit confirmation currently depends on reading the Render dashboard.                                                                                                                                                                                                   |
+| **Crash-monitoring provider or approved alternative**                        | **Before I1 closes**                     | Engineering lead | The service has no crash/error-reporting integration. I1 is an observability phase; this is part of its scope and is not yet resolved.                                                                                                                                                                                                                                                        |
+
+### Data, retention and provider
+
+| Item                                                       | Gate                                | Owner                      | Note                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------------------- | ----------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Provider / export and retention approach beyond 7 days** | When trends >7 days are needed      | Engineering lead + founder | **Resolved for now, not permanently:** staging retention is 7 days (§3). If any baseline or trend longer than a week is required, it needs an analytics provider or an export path plus a deliberate retention decision. Nothing is sent externally until one is approved. |
+| **Production enablement**                                  | Before production                   | Founder + engineering lead | Currently `false`. Turning it on in production is a separate decision.                                                                                                                                                                                                     |
+| **Confirm `admin_area_code` mapping**                      | Before the field is emitted         | Facility / data owner      | The field is allowlisted against the 37 ISO 3166-2:NG codes. What is unconfirmed is how the mobile client derives it from the facilities artifact. **Mobile omits the field until the owner approves the mapping.**                                                        |
+| **Supabase free-tier pause**                               | **Pre-production reliability gate** | Engineering lead           | Unrelated to telemetry, still open. Two pauses to date (2026-07-29, 2026-08-03), both manually restored. Upgrade off the free tier or add a keep-alive ping. See `DEPLOYMENT.md` §4 and `SECURITY_CHECKLIST.md`.                                                           |
+
+### Settled — do not reopen
+
+These are decided for contract v1.0 and are **not** open items:
+
+- `urgency_category` — **remains excluded** (clinical output, no approval on record).
+- `question_id` — **remains excluded** (assessment-path reconstruction risk). The backlog item
+  above concerns only how its rejection is _classified_, not whether it is accepted.
+- Free-text feedback — **remains excluded** from this endpoint entirely.
+- `admin_area_code` — allowlisted but **omitted by Mobile** pending mapping approval.
+
+See `TELEMETRY_CONTRACT.md` §8. Changing any of these requires a named decision and a contract
+version bump.
 
 ---
 
@@ -203,3 +278,58 @@ Each is covered by an automated test; see the completion report for the mapping.
   under pressure.
 - Operational metrics carry no PHI and no high-cardinality identifier.
 - The feature can be disabled by environment configuration with no deploy.
+
+---
+
+## 9. Staging-enablement gate — PASSED (2026-08-11)
+
+The I1/W1 staging-enablement gate is **closed and passed**. Recorded here so the verified state
+is durable rather than living only in a session transcript.
+
+| Field                   | Value                                                                        |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| Service                 | `wellapath-backend-staging`                                                  |
+| Deployed backend commit | **`5e13379f19c53ec90cee7958dc029d908c342dcd`** (PR #29), confirmed in Render |
+| Telemetry contract      | **v1.0** — unchanged by this gate                                            |
+| `TELEMETRY_ENABLED`     | **`true`** (staging only)                                                    |
+| `TELEMETRY_SINK`        | **`log`** — approved provider-neutral sink. No vendor, no database           |
+| Production              | **Telemetry remains disabled.** Not touched                                  |
+| Functional checks       | **25 / 25 passed, 0 failed**                                                 |
+| Staging log retention   | **7 days** (Render Free plan) — see §3                                       |
+
+### Verified behaviour
+
+| Check                                            | Result                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| Valid three-event batch                          | `202`, `accepted: 3, rejected: 0, duplicates: 0`                                                                  |
+| Prohibited clinical field (`condition`)          | Rejected, `reason: prohibited_field`                                                                              |
+| Excluded field (`question_id`)                   | Rejected, `reason: unknown_property` — see §7 classification item                                                 |
+| Envelope-level prohibited field (`patient_name`) | `400 invalid_envelope`                                                                                            |
+| Unknown event (`symptom_entered`)                | Rejected, `reason: unknown_event`                                                                                 |
+| Rate limiting                                    | `429` returned (55×`202` / 15×`429` across 70 requests), standard error envelope                                  |
+| `/health`                                        | `200`, `checks.database: "ok"`                                                                                    |
+| `/config` frozen artifacts                       | Unchanged — `token_dictionary` 1.1 · `knowledge_base` 2.4 · `rules` 2.2 · `facilities` 1.1, full hashes identical |
+| Core routes during telemetry `429`               | `/config`, `/health`, `/version` all `200`                                                                        |
+| Operational metrics                              | Counters updated correctly; label sets fixed; no session, event, facility, article, IP or user-agent label        |
+
+### Privacy verification — passed
+
+A distinctive marker was deliberately submitted **inside a rejected payload**, then searched for
+across the staging log stream:
+
+- **Sensitive-marker log search returned ZERO results.** Confirmed by the engineering lead in
+  Render.
+- **Accepted `telemetry_event` sink entries were present**, containing no sensitive marker and no
+  payload text — so the sink works _and_ the rejected content never reached it.
+- The marker was absent from every HTTP response.
+
+That combination is the point: the pipeline demonstrably records what it should and demonstrably
+does not record what it must not.
+
+### Rollback — unchanged
+
+**`TELEMETRY_ENABLED=false` plus restart** (§6, Level 1). Verified before enablement: the
+endpoint returned `503` with `reason_code: telemetry_disabled` and the payload was not parsed.
+`/health`, `/version` and `/config` are unaffected either way.
+
+> **Do not disable staging telemetry while Mobile PR #61 is running its live integration tests.**
