@@ -1,0 +1,541 @@
+{
+  "contract_version": "1.0",
+  "limits": {
+    "maxBodyBytes": 32768,
+    "maxEventsPerBatch": 20,
+    "minEventsPerBatch": 1,
+    "maxClientTimestampAgeMs": 2592000000,
+    "maxClientTimestampSkewMs": 86400000
+  },
+  "envelope": [
+    {
+      "field": "contract_version",
+      "type": "enum",
+      "required": true,
+      "privacy_class": "operational",
+      "allowed_values": [
+        "1.0"
+      ],
+      "description": "Telemetry contract version the client was built against."
+    },
+    {
+      "field": "sent_at",
+      "type": "string",
+      "required": true,
+      "privacy_class": "operational",
+      "max_length": 24,
+      "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z",
+      "description": "Client clock reading when the batch was transmitted. ISO-8601 UTC."
+    }
+  ],
+  "app_context": [
+    {
+      "field": "platform",
+      "type": "enum",
+      "required": true,
+      "privacy_class": "operational",
+      "allowed_values": [
+        "ios",
+        "android"
+      ],
+      "description": "Mobile platform."
+    },
+    {
+      "field": "app_version",
+      "type": "string",
+      "required": true,
+      "privacy_class": "operational",
+      "max_length": 24,
+      "pattern": "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(-[A-Za-z0-9.]{1,16})?",
+      "description": "Application version as released."
+    },
+    {
+      "field": "app_build",
+      "type": "string",
+      "required": true,
+      "privacy_class": "operational",
+      "max_length": 10,
+      "pattern": "\\d{1,10}",
+      "description": "Application build number."
+    },
+    {
+      "field": "os_version",
+      "type": "string",
+      "required": false,
+      "privacy_class": "operational",
+      "max_length": 8,
+      "pattern": "\\d{1,3}(\\.\\d{1,3})?",
+      "description": "OS version, major[.minor] only. Full build strings are rejected."
+    }
+  ],
+  "common_event_fields": [
+    {
+      "field": "event_name",
+      "type": "enum",
+      "required": true,
+      "privacy_class": "operational",
+      "allowed_values": [
+        "app_open",
+        "assessment_start",
+        "assessment_step_view",
+        "assessment_complete",
+        "result_view",
+        "facility_search",
+        "facility_view",
+        "facility_call",
+        "directions_open",
+        "emergency_action",
+        "library_article_view",
+        "feedback_submit"
+      ],
+      "description": "Allowlisted event name."
+    },
+    {
+      "field": "event_id",
+      "type": "string",
+      "required": true,
+      "privacy_class": "ephemeral-pseudonymous",
+      "max_length": 64,
+      "pattern": "[A-Za-z0-9_-]{8,64}",
+      "description": "Client-generated unique ID for this event. Used for de-duplication only."
+    },
+    {
+      "field": "client_ts",
+      "type": "string",
+      "required": true,
+      "privacy_class": "operational",
+      "max_length": 24,
+      "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z",
+      "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+    }
+  ],
+  "events": [
+    {
+      "event_name": "app_open",
+      "description": "The application was brought to the foreground.",
+      "privacy_note": "Lifecycle only. No user, assessment or content reference.",
+      "properties": [
+        {
+          "field": "launch_type",
+          "type": "enum",
+          "required": true,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "cold",
+            "warm"
+          ],
+          "description": "Whether the process was started fresh or resumed."
+        },
+        {
+          "field": "is_first_launch",
+          "type": "boolean",
+          "required": false,
+          "privacy_class": "operational",
+          "description": "True only on the first launch after installation."
+        }
+      ]
+    },
+    {
+      "event_name": "assessment_start",
+      "description": "The user began an assessment.",
+      "privacy_note": "Carries an opaque per-assessment ID and non-clinical flow metadata. No symptom, answer or condition data.",
+      "properties": [
+        {
+          "field": "assessment_session_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "ephemeral-pseudonymous",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_-]{16,64}",
+          "description": "Opaque, ephemeral ID for this assessment. Generated per assessment, never reused, never derived from device or account identity."
+        },
+        {
+          "field": "flow_version",
+          "type": "string",
+          "required": false,
+          "privacy_class": "operational",
+          "max_length": 12,
+          "pattern": "\\d{1,3}(\\.\\d{1,3}){0,2}",
+          "description": "Version of the assessment flow presented on-device."
+        },
+        {
+          "field": "entry_point",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "home",
+            "library",
+            "facility_locator",
+            "deep_link"
+          ],
+          "description": "Which screen the assessment was launched from."
+        }
+      ]
+    },
+    {
+      "event_name": "assessment_step_view",
+      "description": "An assessment step was displayed.",
+      "privacy_note": "Ordinal position only. Question IDs are deliberately NOT accepted in v1.0: in an adaptive flow the sequence of question IDs within a session is answer-derived, which would let the backend partially reconstruct an assessment path. Ordinal position supports the drop-off funnel without that risk.",
+      "properties": [
+        {
+          "field": "assessment_session_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "ephemeral-pseudonymous",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_-]{16,64}",
+          "description": "Opaque, ephemeral ID for the assessment this step belongs to."
+        },
+        {
+          "field": "step_index",
+          "type": "integer",
+          "required": true,
+          "privacy_class": "operational",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Zero-based ordinal position of the step within the flow."
+        },
+        {
+          "field": "step_count",
+          "type": "integer",
+          "required": false,
+          "privacy_class": "operational",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Total steps in the flow at the time of viewing, if known."
+        }
+      ]
+    },
+    {
+      "event_name": "assessment_complete",
+      "description": "An assessment reached a terminal state.",
+      "privacy_note": "Completion shape and effort measures only. `urgency_category` is NOT accepted — it is a clinical output and has no approval on record in this repository.",
+      "properties": [
+        {
+          "field": "assessment_session_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "ephemeral-pseudonymous",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_-]{16,64}",
+          "description": "Opaque, ephemeral ID for the assessment."
+        },
+        {
+          "field": "completion_status",
+          "type": "enum",
+          "required": true,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "completed",
+            "abandoned",
+            "interrupted"
+          ],
+          "description": "How the assessment ended."
+        },
+        {
+          "field": "duration_ms",
+          "type": "integer",
+          "required": false,
+          "privacy_class": "operational",
+          "minimum": 0,
+          "maximum": 7200000,
+          "description": "Wall-clock duration of the assessment in milliseconds."
+        },
+        {
+          "field": "step_count",
+          "type": "integer",
+          "required": false,
+          "privacy_class": "operational",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Number of steps the user actually reached."
+        }
+      ]
+    },
+    {
+      "event_name": "result_view",
+      "description": "The result screen was displayed.",
+      "privacy_note": "Presentation-layer version only. No condition, differential, score, explanation, urgency or narrative is accepted.",
+      "properties": [
+        {
+          "field": "assessment_session_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "ephemeral-pseudonymous",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_-]{16,64}",
+          "description": "Opaque, ephemeral ID for the assessment whose result was shown."
+        },
+        {
+          "field": "presentation_contract_version",
+          "type": "string",
+          "required": false,
+          "privacy_class": "operational",
+          "max_length": 12,
+          "pattern": "\\d{1,3}(\\.\\d{1,3}){0,2}",
+          "description": "Version of the on-device result presentation contract."
+        }
+      ]
+    },
+    {
+      "event_name": "facility_search",
+      "description": "The user ran a facility search.",
+      "privacy_note": "Search mode, outcome volume, and state-level administrative area only. No coordinates, no address text, no query text, no location history.",
+      "properties": [
+        {
+          "field": "search_mode",
+          "type": "enum",
+          "required": true,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "nearby",
+            "manual_area",
+            "name"
+          ],
+          "description": "How the search was initiated."
+        },
+        {
+          "field": "admin_area_code",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "coarse-geography",
+          "allowed_values": [
+            "NG-AB",
+            "NG-AD",
+            "NG-AK",
+            "NG-AN",
+            "NG-BA",
+            "NG-BE",
+            "NG-BO",
+            "NG-BY",
+            "NG-CR",
+            "NG-DE",
+            "NG-EB",
+            "NG-ED",
+            "NG-EK",
+            "NG-EN",
+            "NG-FC",
+            "NG-GO",
+            "NG-IM",
+            "NG-JI",
+            "NG-KD",
+            "NG-KE",
+            "NG-KN",
+            "NG-KO",
+            "NG-KT",
+            "NG-KW",
+            "NG-LA",
+            "NG-NA",
+            "NG-NI",
+            "NG-OG",
+            "NG-ON",
+            "NG-OS",
+            "NG-OY",
+            "NG-PL",
+            "NG-RI",
+            "NG-SO",
+            "NG-TA",
+            "NG-YO",
+            "NG-ZA"
+          ],
+          "description": "ISO 3166-2:NG state-level code. State level is the finest geography accepted. Omit if the client cannot map its area to a code with confidence."
+        },
+        {
+          "field": "result_count",
+          "type": "integer",
+          "required": false,
+          "privacy_class": "operational",
+          "minimum": 0,
+          "maximum": 500,
+          "description": "Number of facilities returned. Zero-result searches are a coverage signal."
+        }
+      ]
+    },
+    {
+      "event_name": "facility_view",
+      "description": "A facility detail screen was opened.",
+      "privacy_note": "Facility ID and navigation origin only. Not correlated to any assessment session.",
+      "properties": [
+        {
+          "field": "facility_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "content-reference",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_.:-]{1,64}",
+          "description": "Identifier from the facilities artifact."
+        },
+        {
+          "field": "source",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "search_results",
+            "map",
+            "saved",
+            "emergency_screen"
+          ],
+          "description": "Which surface the facility was opened from."
+        }
+      ]
+    },
+    {
+      "event_name": "facility_call",
+      "description": "The user initiated a call to a facility.",
+      "privacy_note": "Facility ID and navigation origin only. No phone number is accepted — the number is already published in the facilities artifact and echoing it back adds only risk.",
+      "properties": [
+        {
+          "field": "facility_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "content-reference",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_.:-]{1,64}",
+          "description": "Identifier from the facilities artifact."
+        },
+        {
+          "field": "source",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "search_results",
+            "facility_detail",
+            "emergency_screen"
+          ],
+          "description": "Which surface the call was initiated from."
+        }
+      ]
+    },
+    {
+      "event_name": "directions_open",
+      "description": "The user opened directions to a facility.",
+      "privacy_note": "Facility ID and handoff target only. No origin coordinates, no route data.",
+      "properties": [
+        {
+          "field": "facility_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "content-reference",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_.:-]{1,64}",
+          "description": "Identifier from the facilities artifact."
+        },
+        {
+          "field": "source",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "search_results",
+            "facility_detail",
+            "emergency_screen"
+          ],
+          "description": "Which surface directions were opened from."
+        }
+      ]
+    },
+    {
+      "event_name": "emergency_action",
+      "description": "The user took an action on an emergency surface.",
+      "privacy_note": "Allowlisted action type only. The triggering symptom, answer, red flag, rule ID and narrative are all rejected. No assessment session ID is accepted on this event — correlating an emergency action to an assessment would imply a red-flag match.",
+      "properties": [
+        {
+          "field": "action_type",
+          "type": "enum",
+          "required": true,
+          "privacy_class": "operational",
+          "allowed_values": [
+            "call_emergency_number",
+            "view_emergency_guidance",
+            "dismiss_emergency_banner",
+            "open_nearest_facility"
+          ],
+          "description": "Which emergency affordance the user used."
+        }
+      ]
+    },
+    {
+      "event_name": "library_article_view",
+      "description": "A library article was opened.",
+      "privacy_note": "Published-content reference and content version only. Not correlated to any assessment session, so an article view cannot be joined to a clinical journey.",
+      "properties": [
+        {
+          "field": "article_id",
+          "type": "string",
+          "required": true,
+          "privacy_class": "content-reference",
+          "max_length": 64,
+          "pattern": "[A-Za-z0-9_.:-]{1,64}",
+          "description": "Identifier of the published article."
+        },
+        {
+          "field": "content_version",
+          "type": "string",
+          "required": false,
+          "privacy_class": "operational",
+          "max_length": 12,
+          "pattern": "\\d{1,3}(\\.\\d{1,3}){0,2}",
+          "description": "Version of the content bundle the article was served from."
+        }
+      ]
+    },
+    {
+      "event_name": "feedback_submit",
+      "description": "The user submitted structured feedback.",
+      "privacy_note": "Rating and category only. Free text is excluded from this contract entirely and must not be routed here — see docs/TELEMETRY_CONTRACT.md.",
+      "properties": [
+        {
+          "field": "rating",
+          "type": "integer",
+          "required": true,
+          "privacy_class": "structured-feedback",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Star rating, 1 to 5."
+        },
+        {
+          "field": "category",
+          "type": "enum",
+          "required": false,
+          "privacy_class": "structured-feedback",
+          "allowed_values": [
+            "usability",
+            "performance",
+            "content",
+            "other"
+          ],
+          "description": "Bounded feedback category."
+        }
+      ]
+    }
+  ],
+  "rejection_reason_codes": [
+    "malformed_json",
+    "payload_too_large",
+    "unsupported_content_type",
+    "invalid_envelope",
+    "unsupported_contract_version",
+    "empty_batch",
+    "batch_too_large",
+    "telemetry_disabled",
+    "rate_limited",
+    "unknown_event",
+    "unknown_property",
+    "missing_required_property",
+    "invalid_type",
+    "invalid_enum_value",
+    "invalid_format",
+    "value_too_long",
+    "value_out_of_range",
+    "timestamp_out_of_range",
+    "nested_value_not_allowed",
+    "prohibited_field",
+    "prohibited_container",
+    "prohibited_value_shape",
+    "unsafe_key",
+    "payload_too_complex"
+  ]
+}

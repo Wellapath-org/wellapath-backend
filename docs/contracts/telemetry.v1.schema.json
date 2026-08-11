@@ -1,0 +1,724 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wellapath.org/schemas/telemetry/v1.0/envelope.json",
+  "title": "WellaPathTelemetryEnvelope",
+  "description": "WellaPath privacy-safe product telemetry, contract version 1.0. Every property is allowlisted. Unknown events and unknown properties are rejected.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "sent_at",
+    "app",
+    "events"
+  ],
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "enum": [
+        "1.0"
+      ],
+      "description": "Telemetry contract version the client was built against."
+    },
+    "sent_at": {
+      "type": "string",
+      "maxLength": 24,
+      "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+      "description": "Client clock reading when the batch was transmitted. ISO-8601 UTC."
+    },
+    "app": {
+      "$ref": "#/$defs/AppContext"
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 20,
+      "description": "Batch of events. Each must match exactly one allowlisted event schema.",
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/Event_app_open"
+          },
+          {
+            "$ref": "#/$defs/Event_assessment_start"
+          },
+          {
+            "$ref": "#/$defs/Event_assessment_step_view"
+          },
+          {
+            "$ref": "#/$defs/Event_assessment_complete"
+          },
+          {
+            "$ref": "#/$defs/Event_result_view"
+          },
+          {
+            "$ref": "#/$defs/Event_facility_search"
+          },
+          {
+            "$ref": "#/$defs/Event_facility_view"
+          },
+          {
+            "$ref": "#/$defs/Event_facility_call"
+          },
+          {
+            "$ref": "#/$defs/Event_directions_open"
+          },
+          {
+            "$ref": "#/$defs/Event_emergency_action"
+          },
+          {
+            "$ref": "#/$defs/Event_library_article_view"
+          },
+          {
+            "$ref": "#/$defs/Event_feedback_submit"
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "AppContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string",
+          "enum": [
+            "ios",
+            "android"
+          ],
+          "description": "Mobile platform."
+        },
+        "app_version": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}(-[A-Za-z0-9.]{1,16})?)$",
+          "description": "Application version as released."
+        },
+        "app_build": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(?:\\d{1,10})$",
+          "description": "Application build number."
+        },
+        "os_version": {
+          "type": "string",
+          "maxLength": 8,
+          "pattern": "^(?:\\d{1,3}(\\.\\d{1,3})?)$",
+          "description": "OS version, major[.minor] only. Full build strings are rejected."
+        }
+      },
+      "required": [
+        "platform",
+        "app_version",
+        "app_build"
+      ]
+    },
+    "Event_app_open": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "app_open",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "launch_type": {
+          "type": "string",
+          "enum": [
+            "cold",
+            "warm"
+          ],
+          "description": "Whether the process was started fresh or resumed."
+        },
+        "is_first_launch": {
+          "type": "boolean",
+          "description": "True only on the first launch after installation."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "launch_type"
+      ],
+      "title": "app_open",
+      "description": "The application was brought to the foreground."
+    },
+    "Event_assessment_start": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "assessment_start",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "assessment_session_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{16,64})$",
+          "description": "Opaque, ephemeral ID for this assessment. Generated per assessment, never reused, never derived from device or account identity."
+        },
+        "flow_version": {
+          "type": "string",
+          "maxLength": 12,
+          "pattern": "^(?:\\d{1,3}(\\.\\d{1,3}){0,2})$",
+          "description": "Version of the assessment flow presented on-device."
+        },
+        "entry_point": {
+          "type": "string",
+          "enum": [
+            "home",
+            "library",
+            "facility_locator",
+            "deep_link"
+          ],
+          "description": "Which screen the assessment was launched from."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "assessment_session_id"
+      ],
+      "title": "assessment_start",
+      "description": "The user began an assessment."
+    },
+    "Event_assessment_step_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "assessment_step_view",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "assessment_session_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{16,64})$",
+          "description": "Opaque, ephemeral ID for the assessment this step belongs to."
+        },
+        "step_index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Zero-based ordinal position of the step within the flow."
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Total steps in the flow at the time of viewing, if known."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "assessment_session_id",
+        "step_index"
+      ],
+      "title": "assessment_step_view",
+      "description": "An assessment step was displayed."
+    },
+    "Event_assessment_complete": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "assessment_complete",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "assessment_session_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{16,64})$",
+          "description": "Opaque, ephemeral ID for the assessment."
+        },
+        "completion_status": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "abandoned",
+            "interrupted"
+          ],
+          "description": "How the assessment ended."
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 7200000,
+          "description": "Wall-clock duration of the assessment in milliseconds."
+        },
+        "step_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Number of steps the user actually reached."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "assessment_session_id",
+        "completion_status"
+      ],
+      "title": "assessment_complete",
+      "description": "An assessment reached a terminal state."
+    },
+    "Event_result_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "result_view",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "assessment_session_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{16,64})$",
+          "description": "Opaque, ephemeral ID for the assessment whose result was shown."
+        },
+        "presentation_contract_version": {
+          "type": "string",
+          "maxLength": 12,
+          "pattern": "^(?:\\d{1,3}(\\.\\d{1,3}){0,2})$",
+          "description": "Version of the on-device result presentation contract."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "assessment_session_id"
+      ],
+      "title": "result_view",
+      "description": "The result screen was displayed."
+    },
+    "Event_facility_search": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "facility_search",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "search_mode": {
+          "type": "string",
+          "enum": [
+            "nearby",
+            "manual_area",
+            "name"
+          ],
+          "description": "How the search was initiated."
+        },
+        "admin_area_code": {
+          "type": "string",
+          "enum": [
+            "NG-AB",
+            "NG-AD",
+            "NG-AK",
+            "NG-AN",
+            "NG-BA",
+            "NG-BE",
+            "NG-BO",
+            "NG-BY",
+            "NG-CR",
+            "NG-DE",
+            "NG-EB",
+            "NG-ED",
+            "NG-EK",
+            "NG-EN",
+            "NG-FC",
+            "NG-GO",
+            "NG-IM",
+            "NG-JI",
+            "NG-KD",
+            "NG-KE",
+            "NG-KN",
+            "NG-KO",
+            "NG-KT",
+            "NG-KW",
+            "NG-LA",
+            "NG-NA",
+            "NG-NI",
+            "NG-OG",
+            "NG-ON",
+            "NG-OS",
+            "NG-OY",
+            "NG-PL",
+            "NG-RI",
+            "NG-SO",
+            "NG-TA",
+            "NG-YO",
+            "NG-ZA"
+          ],
+          "description": "ISO 3166-2:NG state-level code. State level is the finest geography accepted. Omit if the client cannot map its area to a code with confidence."
+        },
+        "result_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 500,
+          "description": "Number of facilities returned. Zero-result searches are a coverage signal."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "search_mode"
+      ],
+      "title": "facility_search",
+      "description": "The user ran a facility search."
+    },
+    "Event_facility_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "facility_view",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "facility_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_.:-]{1,64})$",
+          "description": "Identifier from the facilities artifact."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "search_results",
+            "map",
+            "saved",
+            "emergency_screen"
+          ],
+          "description": "Which surface the facility was opened from."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "facility_id"
+      ],
+      "title": "facility_view",
+      "description": "A facility detail screen was opened."
+    },
+    "Event_facility_call": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "facility_call",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "facility_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_.:-]{1,64})$",
+          "description": "Identifier from the facilities artifact."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "search_results",
+            "facility_detail",
+            "emergency_screen"
+          ],
+          "description": "Which surface the call was initiated from."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "facility_id"
+      ],
+      "title": "facility_call",
+      "description": "The user initiated a call to a facility."
+    },
+    "Event_directions_open": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "directions_open",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "facility_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_.:-]{1,64})$",
+          "description": "Identifier from the facilities artifact."
+        },
+        "source": {
+          "type": "string",
+          "enum": [
+            "search_results",
+            "facility_detail",
+            "emergency_screen"
+          ],
+          "description": "Which surface directions were opened from."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "facility_id"
+      ],
+      "title": "directions_open",
+      "description": "The user opened directions to a facility."
+    },
+    "Event_emergency_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "emergency_action",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "action_type": {
+          "type": "string",
+          "enum": [
+            "call_emergency_number",
+            "view_emergency_guidance",
+            "dismiss_emergency_banner",
+            "open_nearest_facility"
+          ],
+          "description": "Which emergency affordance the user used."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "action_type"
+      ],
+      "title": "emergency_action",
+      "description": "The user took an action on an emergency surface."
+    },
+    "Event_library_article_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "library_article_view",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "article_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_.:-]{1,64})$",
+          "description": "Identifier of the published article."
+        },
+        "content_version": {
+          "type": "string",
+          "maxLength": 12,
+          "pattern": "^(?:\\d{1,3}(\\.\\d{1,3}){0,2})$",
+          "description": "Version of the content bundle the article was served from."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "article_id"
+      ],
+      "title": "library_article_view",
+      "description": "A library article was opened."
+    },
+    "Event_feedback_submit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "event_name": {
+          "type": "string",
+          "const": "feedback_submit",
+          "description": "Allowlisted event name."
+        },
+        "event_id": {
+          "type": "string",
+          "maxLength": 64,
+          "pattern": "^(?:[A-Za-z0-9_-]{8,64})$",
+          "description": "Client-generated unique ID for this event. Used for de-duplication only."
+        },
+        "client_ts": {
+          "type": "string",
+          "maxLength": 24,
+          "pattern": "^(?:\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z)$",
+          "description": "Client clock reading when the event occurred. ISO-8601 UTC."
+        },
+        "rating": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Star rating, 1 to 5."
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "usability",
+            "performance",
+            "content",
+            "other"
+          ],
+          "description": "Bounded feedback category."
+        }
+      },
+      "required": [
+        "event_name",
+        "event_id",
+        "client_ts",
+        "rating"
+      ],
+      "title": "feedback_submit",
+      "description": "The user submitted structured feedback."
+    }
+  }
+}
