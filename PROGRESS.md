@@ -8,9 +8,53 @@
 
 ## Current Status
 
-**Phase:** E9 — Internal Beta Readiness (in progress)
+**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics (E9 backend items all complete)
 **Sprint:** E8 complete. E9.2 backend documentation **DELIVERED AND MERGED**; CI type-check enforcement fixed
 **Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+
+> ### ✅ I1 / W1 Step 1 delivered (2026-08-11): telemetry contract v1.0
+>
+> The backend-owned privacy-safe product telemetry contract is **finalized and implemented** on
+> `feat/i1-telemetry-contract`. `POST /v1/telemetry/events` (allowlist-only, 12 approved events,
+> **disabled by default**) plus `GET /internal/metrics`. Contract artifacts for Mobile Engineering
+> are generated from a single source of truth (`src/telemetry/contract.ts`) and CI-enforced
+> against drift: `docs/contracts/telemetry.v1.{schema,openapi,allowlist}.json` and `.client.ts`,
+> documented in `docs/TELEMETRY_CONTRACT.md` and `docs/TELEMETRY_OPERATIONS.md`.
+>
+> **Mobile instrumentation is unblocked.** 301 tests pass across unit, integration,
+> privacy/adversarial, regression and performance suites. **No clinical logic, artifact schema,
+> artifact version, offline behaviour or Top-50 behaviour changed** — the E9.1 frozen artifact set
+> is asserted literally by the regression suite. No database table was added; no third-party
+> analytics provider was introduced.
+>
+> Excluded and listed as unresolved rather than invented: `urgency_category` (clinical output, no
+> approval on record), `question_id` (an adaptive question sequence would let the backend
+> partially reconstruct an assessment path), and free-text feedback (prohibited from this
+> endpoint entirely). See `docs/TELEMETRY_CONTRACT.md` §8.
+>
+> **Three defects found and fixed while building it, two pre-existing on `develop`:**
+>
+> 1. **Rate limiting returned 500, not 429.** `@fastify/rate-limit` _throws_ whatever
+>    `errorResponseBuilder` returns; ours returned a plain object with no top-level `statusCode`,
+>    so the global error handler took its 500 branch. Every rate-limited request answered
+>    `500 An internal server error occurred`. Both this log and `SECURITY_CHECKLIST.md` recorded
+>    the 429 envelope as working — it never was. Now returns a real `Error` carrying `statusCode`,
+>    with a regression test.
+> 2. **Fastify's own request log line carried the full URL including query string** — a leak
+>    channel for anything appended to a URL. A custom Pino request serializer now logs the path
+>    only, and drops `remoteAddress` (an IP is a personal identifier).
+> 3. The `src/utils/logger.ts` vs server redaction drift flagged in `SECURITY_CHECKLIST.md` is
+>    **closed** — both now build from one shared list.
+>
+> Note: `jest` was declared in `package.json` but had never been installed, and the repo had no
+> tests. Test tooling (`jest`, `ts-jest`, `@types/jest`) was added and CI now runs `npm test`.
+
+> ### Staging database — status 2026-08-11
+>
+> `GET /health` returned **200** with `checks.database: "ok"` on 2026-08-11 at 09:01 UTC, so the
+> 2026-08-03 pause has cleared. **The pre-production item stands:** that is two pauses and two
+> manual restores. Upgrade off the Supabase free tier or add a keep-alive ping before beta.
+> `PROGRESS.md` on the open PR #28 branch still describes the 08-03 outage as ongoing.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 

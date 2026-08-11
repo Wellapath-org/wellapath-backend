@@ -15,22 +15,45 @@
 
 **Non-negotiable:** _"No symptom-level PHI stored server-side under any circumstances."_
 
-### 🔍 Verified — the backend has no PHI intake surface at all
+### 🔍 Verified — the intake surface is one allowlist-only endpoint
 
-This is stronger than "PHI is not logged". The backend **cannot receive PHI**, because there is
-nowhere to put it:
+> **⚠️ Updated 2026-08-11 (I1/W1).** This section previously read "the backend has no PHI intake
+> surface at all — exactly three routes, all `GET`, no request body parsed anywhere". That is no
+> longer true: `POST /v1/telemetry/events` was added for privacy-safe product telemetry. The
+> claim has been rewritten rather than left standing, because a security record that overstates
+> the posture is worse than one that describes it accurately.
 
-| Check                                        | Result                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------- |
-| Route inventory                              | Exactly three routes, all `GET`: `/health`, `/version`, `/config`               |
-| Endpoints reading `request.body`             | **None**                                                                        |
-| Endpoints reading `request.params` / `query` | **None**                                                                        |
-| Runtime database writes                      | **None** — the only runtime query in the whole app is `SELECT 1` (health check) |
-| CORS methods allowed                         | `GET` only                                                                      |
+| Check                                        | Result                                                                                             |
+| -------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Route inventory                              | `GET /health`, `GET /version`, `GET /config`, `GET /internal/metrics`, `POST /v1/telemetry/events` |
+| Endpoints reading `request.body`             | **One** — the telemetry endpoint, allowlist-validated (below)                                      |
+| Endpoints reading `request.params` / `query` | **None**                                                                                           |
+| Runtime database writes                      | **None** — the only runtime query in the whole app is still `SELECT 1` (health check)              |
+| CORS methods allowed                         | `GET`, `POST`, `OPTIONS` (`POST` required for telemetry intake; no other method permitted)         |
 
-There is no `POST`, no request body parsed anywhere, and no `INSERT` or `UPDATE` executed at
-runtime. Symptom data never reaches the server, so it cannot be stored, logged, or leaked from
-here.
+**Why the telemetry endpoint does not weaken the PHI position.** It is not a general write
+surface — it is a closed allowlist:
+
+| Control                            | State                                                                                                                                          |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Accepted events                    | 12, fixed. Unknown event names rejected                                                                                                        |
+| Accepted properties                | Explicitly declared per event. Unknown properties rejected                                                                                     |
+| Nested objects / arrays in a value | Rejected                                                                                                                                       |
+| Generic containers                 | `properties`, `metadata`, `context`, `extra`, `data` … all rejected by name                                                                    |
+| Prohibited-key defense             | Centralized list covering symptoms, answers, narratives, conditions, scores, red flags, urgency, pregnancy, identity, coordinates, credentials |
+| Prototype-pollution keys           | `__proto__`, `constructor`, `prototype` rejected                                                                                               |
+| Body size / batch size             | 32 768 bytes, 20 events                                                                                                                        |
+| Raw body persisted or logged       | **Never** — accepted or rejected                                                                                                               |
+| Storage                            | **No database table added.** Default sink is structured Pino output                                                                            |
+| Default state                      | **Disabled** (`TELEMETRY_ENABLED=false`) unless explicitly enabled per environment                                                             |
+
+No symptom, answer, assessment path, condition, score, red-flag match, urgency, precise location,
+identity value or credential can be accepted by this endpoint. See `docs/TELEMETRY_CONTRACT.md`
+for the full matrix and `tests/privacy/adversarial.test.ts` for the enforcing tests, which assert
+that prohibited payloads are rejected **and** absent from both logs and the sink.
+
+Scoring, red-flag evaluation and urgency determination remain entirely on-device. Telemetry is
+write-only and returns no clinical data.
 
 ### 🔍 Verified — schema carries no PHI columns
 
@@ -50,20 +73,29 @@ Neither table has a column that could hold a symptom, an identifier, or free tex
 
 ### 🔍 Verified — logging
 
-| Control                 | State                                                                    |
-| ----------------------- | ------------------------------------------------------------------------ |
-| Logger                  | Pino structured logging                                                  |
-| `authorization` header  | Redacted (`src/server.ts`, `src/utils/logger.ts`)                        |
-| `cookie` header         | Redacted (`src/server.ts`)                                               |
-| Log level in production | `info` (debug suppressed)                                                |
-| `console.log`           | Banned by ESLint rule `no-console: 'error'` — CI fails on any occurrence |
-| Request bodies logged   | N/A — no endpoint accepts a body                                         |
+| Control                 | State                                                                                                                                        |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Logger                  | Pino structured logging                                                                                                                      |
+| `authorization` header  | Redacted (`src/app.ts`, `src/utils/logger.ts`)                                                                                               |
+| `cookie` header         | Redacted (`src/app.ts`, `src/utils/logger.ts`)                                                                                               |
+| Log level in production | `info` (debug suppressed)                                                                                                                    |
+| `console.log`           | Banned by ESLint rule `no-console: 'error'` — CI fails on any occurrence                                                                     |
+| Request bodies logged   | **Never** — redaction covers `req.body` / `body` / `payload`, and the telemetry route parses its own body so a parse failure cannot quote it |
+| Query strings logged    | **Stripped** — a custom Pino request serializer logs the path only                                                                           |
+| IP addresses logged     | **Not logged** — `remoteAddress` removed from the request serializer                                                                         |
 
-> **Minor inconsistency (not a defect):** `src/server.ts` redacts both `authorization` and
-> `cookie`; the standalone `src/utils/logger.ts` redacts only `authorization`. The server's
-> inline config is the one that governs request logging, so request cookies are redacted in
-> practice. `logger.ts` is used only by `src/db/migrate.ts`, which logs no headers. Worth
-> aligning for consistency, but there is no live exposure.
+> **Resolved 2026-08-11:** the redaction drift noted here previously (`server.ts` redacting
+> `authorization` + `cookie` while `src/utils/logger.ts` redacted only `authorization`) is fixed.
+> Both now build their redaction list from `buildLogRedactionPaths()` in
+> `src/telemetry/prohibited.ts`, so the two cannot drift apart again.
+>
+> **Also fixed 2026-08-11 — rate limiting returned 500, not 429.** `@fastify/rate-limit` _throws_
+> whatever `errorResponseBuilder` returns. The builder returned a plain object with no top-level
+> `statusCode`, so the global error handler fell through to its 500 branch: every rate-limited
+> request answered `500 An internal server error occurred` instead of the documented 429
+> envelope. This checklist and `PROGRESS.md` both previously recorded the 429 envelope as
+> working. The builder now returns a real `Error` carrying `statusCode`; covered by a regression
+> test.
 
 ### 📩 Relayed (mobile) — E8.3 findings
 
@@ -155,14 +187,14 @@ certificate pinning. No PHI transits this connection (see §1), which limits the
 
 ## 5. Application Hardening
 
-| Control             | State                                                                                        |
-| ------------------- | -------------------------------------------------------------------------------------------- |
-| CORS                | 🔍 Origin allowlist in production (`wellapath.org`, `api-staging.wellapath.org`); `GET` only |
-| Rate limiting       | 🔍 100 requests / minute, error shaped to the standard envelope                              |
-| Error envelope      | 🔍 Consistent `{ error: { statusCode, message } }` across 404 / 429 / 4xx / 5xx              |
-| Stack trace leakage | 🔍 None — 5xx responses return a generic message; full error logged server-side only         |
-| 404 handling        | 🔍 Custom handler, same envelope — no framework default leakage                              |
-| Dependency surface  | Minimal — Fastify, cors, rate-limit, pino, pg, dotenv                                        |
+| Control             | State                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| CORS                | 🔍 Origin allowlist in production (`wellapath.org`, `api-staging.wellapath.org`); `GET`, `POST`, `OPTIONS` |
+| Rate limiting       | 🔍 100 requests / minute globally, 60 / minute on telemetry; error envelope fixed (see §1)                 |
+| Error envelope      | 🔍 Consistent `{ error: { statusCode, message } }` across 404 / 429 / 4xx / 5xx                            |
+| Stack trace leakage | 🔍 None — 5xx responses return a generic message; full error logged server-side only                       |
+| 404 handling        | 🔍 Custom handler, same envelope — no framework default leakage                                            |
+| Dependency surface  | Minimal — Fastify, cors, rate-limit, pino, pg, dotenv                                                      |
 
 > **CORS note:** the production allowlist still contains `api-staging.wellapath.org`, a domain
 > from the superseded AWS setup. The live service is on `onrender.com`, and `NODE_ENV` on

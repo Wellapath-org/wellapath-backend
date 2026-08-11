@@ -11,11 +11,14 @@ and configuration endpoints.
 
 ## Documentation
 
-| Document                                                               | Covers                                                       |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                             | Current stack, environment variables, rollback procedure, CI |
-| [`docs/ARTIFACT_RELEASE_PROCESS.md`](docs/ARTIFACT_RELEASE_PROCESS.md) | Artifact versioning checklist and release history            |
-| [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md)             | Beta security posture, accepted risks, production gates      |
+| Document                                                               | Covers                                                         |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                             | Current stack, environment variables, rollback procedure, CI   |
+| [`docs/ARTIFACT_RELEASE_PROCESS.md`](docs/ARTIFACT_RELEASE_PROCESS.md) | Artifact versioning checklist and release history              |
+| [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md)             | Beta security posture, accepted risks, production gates        |
+| [`docs/TELEMETRY_CONTRACT.md`](docs/TELEMETRY_CONTRACT.md)             | **Telemetry contract v1.0 for Mobile Engineering**             |
+| [`docs/TELEMETRY_OPERATIONS.md`](docs/TELEMETRY_OPERATIONS.md)         | Telemetry configuration, monitoring, rollback, retention       |
+| [`docs/contracts/`](docs/contracts)                                    | Generated JSON Schema, OpenAPI, allowlist matrix, client types |
 
 **Cross-repo engineering decisions** (E7–E8 clinical and engineering decisions spanning mobile,
 knowledge-base, and backend) live in the `wellapath-docs` repository, in `decision-log.md` —
@@ -33,6 +36,10 @@ they are not backend-specific and are kept where every engineer can find them.
 - All scoring and triage logic executes on-device only — never on the server
 - No symptom-level PHI is stored server-side under any circumstances
 - The mobile app bootstraps by calling `GET /config` to retrieve artifact metadata
+- Product telemetry intake is **allowlist-only** — see
+  [`docs/TELEMETRY_CONTRACT.md`](docs/TELEMETRY_CONTRACT.md). It accepts no symptom, answer,
+  clinical narrative, condition, score, red-flag, urgency, precise-location, identity or
+  credential value, and it is disabled by default
 
 ---
 
@@ -40,11 +47,13 @@ they are not backend-specific and are kept where every engineer can find them.
 
 Base URL: `https://wellapath-backend-staging.onrender.com`
 
-| Method | Path       | Description                                              |
-| ------ | ---------- | -------------------------------------------------------- |
-| GET    | `/health`  | Returns server status and database connectivity          |
-| GET    | `/version` | Returns app version and current environment              |
-| GET    | `/config`  | Returns versioned artifact metadata for mobile bootstrap |
+| Method | Path                   | Description                                                       |
+| ------ | ---------------------- | ----------------------------------------------------------------- |
+| GET    | `/health`              | Returns server status and database connectivity                   |
+| GET    | `/version`             | Returns app version and current environment                       |
+| GET    | `/config`              | Returns versioned artifact metadata for mobile bootstrap          |
+| POST   | `/v1/telemetry/events` | Privacy-safe product telemetry intake (disabled unless enabled)   |
+| GET    | `/internal/metrics`    | Operational counters and latency histograms — no PHI, no user IDs |
 
 ### Example responses
 

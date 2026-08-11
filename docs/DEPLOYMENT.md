@@ -54,11 +54,18 @@ reachable — see `src/server.ts`.
 
 ### Endpoints
 
-| Method | Path       | Purpose                                          | Auth |
-| ------ | ---------- | ------------------------------------------------ | ---- |
-| GET    | `/health`  | Liveness + database connectivity check           | None |
-| GET    | `/version` | Deployed app version and environment             | None |
-| GET    | `/config`  | Versioned artifact metadata for mobile bootstrap | None |
+| Method | Path                   | Purpose                                          | Auth |
+| ------ | ---------------------- | ------------------------------------------------ | ---- |
+| GET    | `/health`              | Liveness + database connectivity check           | None |
+| GET    | `/version`             | Deployed app version and environment             | None |
+| GET    | `/config`              | Versioned artifact metadata for mobile bootstrap | None |
+| POST   | `/v1/telemetry/events` | Privacy-safe product telemetry intake (I1/W1)    | None |
+| GET    | `/internal/metrics`    | Operational counters and latency histograms      | None |
+
+The two endpoints added in I1/W1 are documented in full in
+[`TELEMETRY_CONTRACT.md`](TELEMETRY_CONTRACT.md) (mobile-facing) and
+[`TELEMETRY_OPERATIONS.md`](TELEMETRY_OPERATIONS.md) (configuration, monitoring, rollback,
+retention). Telemetry intake is **disabled by default** and must be enabled per environment.
 
 `/config` is the mobile app's bootstrap call. **The app must always consume artifact URLs from
 this response — never construct R2 URLs directly.** This is what makes artifact rollback
@@ -180,6 +187,11 @@ See `.env.example` for the template. Never commit `.env`.
 | `DB_SSL`            | No       | `true` required for Supabase               |
 | `ARTIFACT_BASE_URL` | **Yes**  | R2 public base URL                         |
 | `APP_VERSION`       | No       | Defaults to `0.1.0`                        |
+
+Telemetry adds a further set of optional variables (`TELEMETRY_ENABLED`, `TELEMETRY_SINK`, and
+tuning knobs), all defaulting safely with intake **off**. They are documented in
+[`TELEMETRY_OPERATIONS.md`](TELEMETRY_OPERATIONS.md) §2 and templated in `.env.example`. None
+holds a secret.
 
 Secrets are set in the Render service environment. No credentials appear in source.
 

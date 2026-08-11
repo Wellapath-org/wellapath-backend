@@ -32,3 +32,9 @@ jobs:
 
       - name: Run TypeScript build check
         run: npx tsc --noEmit --skipLibCheck
+
+      - name: Verify telemetry contract artifacts are in sync
+        run: npm run telemetry:contract:check
+
+      - name: Run tests
+        run: npm test
