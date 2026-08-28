@@ -18,6 +18,7 @@
  *
  * Nothing here touches runtime. The manifest contract is not wired into any route.
  */
+import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
@@ -27,7 +28,9 @@ import {
   ArtifactDescriptor,
   CandidateManifest,
   Environment,
+  MANIFEST_CONTRACT_VERSION,
   ReasonCode,
+  SUPPORTED_MANIFEST_MAJOR,
 } from '../../src/manifest/contract';
 import { evaluateDescriptor, selectActiveDescriptor } from '../../src/manifest/eligibility';
 import { validateManifest } from '../../src/manifest/validate';
@@ -340,16 +343,38 @@ describe('missing, malformed and unknown approval scope all fail closed', () => 
     expect(reasons.map(reason => reason.code)).toContain(expected as ReasonCode);
   });
 
-  it('an approval record missing the decision_scope key entirely is rejected at validation', () => {
+  it('an absent decision_scope key on a GRANTED approval fails closed at validation', () => {
+    const mutated = clone(manifest);
+    const target = mutated.artifacts.find(
+      entry => entry.artifact_id === 'question_flow',
+    ) as ArtifactDescriptor;
+    target.approvals.product.status = 'granted';
+    target.approvals.product.decision_ref = 'some decision';
+    delete (target.approvals.product as unknown as Record<string, unknown>).decision_scope;
+
+    const result = validateManifest(mutated);
+    expect(result.valid).toBe(false);
+    expect(result.reasons.map(reason => reason.code)).toContain('APPROVAL_SCOPE_MISSING');
+  });
+
+  it('an absent decision_scope key on a NON-granted approval is legitimate, not an error', () => {
+    // The field is optional in structure on purpose: an approval that claims nothing needs no
+    // scope, and requiring one there would invalidate sound descriptors while protecting
+    // nothing. This is what keeps the 1.1.0 tightening confined to unsafe claims.
     const mutated = clone(manifest);
     const target = mutated.artifacts.find(
       entry => entry.artifact_id === 'question_flow',
     ) as ArtifactDescriptor;
     delete (target.approvals.product as unknown as Record<string, unknown>).decision_scope;
+    delete (target.approvals.clinical as unknown as Record<string, unknown>).decision_scope;
 
     const result = validateManifest(mutated);
-    expect(result.valid).toBe(false);
-    expect(result.reasons.map(reason => reason.code)).toContain('MISSING_REQUIRED_FIELD');
+    expect(result.reasons).toEqual([]);
+    expect(result.valid).toBe(true);
+
+    // ... and it still cannot become approved.
+    const { states } = evaluateDescriptor(target, context);
+    expect(states.approved).toBe(false);
   });
 
   it.each([
@@ -536,5 +561,113 @@ describe('artifact identity — "Vocabulary 2.0" resolves to the token_dictionar
     expect(finding.stable_artifact_id).toBe('token_dictionary');
     expect(finding.human_facing_label).toBe('Vocabulary 2.0');
     expect(finding.resolved_from.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('contract 1.1.0 compatibility with descriptors written against 1.0.0', () => {
+  const BASE_COMMIT = 'fc40ac3e7d59cfed8e2584b78136c9704f7ab8cd';
+
+  /** A descriptor exactly as contract 1.0.0 allowed: no decision_scope key anywhere. */
+  const legacyDescriptor = (productStatus: 'pending' | 'granted'): ArtifactDescriptor =>
+    ({
+      artifact_id: 'question_flow',
+      artifact_version: '1.1',
+      schema_version: 'wellapath.artifact/1',
+      content_type: 'application/json',
+      sha256: `sha256:${'a'.repeat(64)}`,
+      byte_count: 10,
+      object_key: 'question_flow.ng.v1.1.json',
+      release_status: 'candidate',
+      activation_status: 'inactive',
+      activation_authorized: false,
+      activation_decision_ref: null,
+      target_environments: ['staging'],
+      publication_decision_ref: null,
+      approvals: {
+        product: {
+          required: true,
+          status: productStatus,
+          decision_ref: productStatus === 'granted' ? 'a 1.0.0-era decision' : null,
+          approved_at: null,
+        },
+        clinical: { required: true, status: 'pending', decision_ref: null, approved_at: null },
+      },
+      blockers: [],
+      predecessor: null,
+      rollback_target: null,
+      created_at: '2026-08-28T00:00:00Z',
+      published_at: null,
+      deprecated: false,
+      expires_at: null,
+      country: 'ng',
+    }) as unknown as ArtifactDescriptor;
+
+  const wrap = (descriptor: ArtifactDescriptor): CandidateManifest => ({
+    manifest_version: '1.0.0',
+    generated_at: '2026-08-28T00:00:00Z',
+    artifacts: [descriptor],
+  });
+
+  it('a 1.0.0 descriptor that makes no granted-approval claim stays valid — no forced migration', () => {
+    const result = validateManifest(wrap(legacyDescriptor('pending')));
+    expect(result.reasons).toEqual([]);
+    expect(result.valid).toBe(true);
+  });
+
+  it('a 1.0.0 descriptor asserting a granted approval without scope is now rejected — the documented tightening', () => {
+    const result = validateManifest(wrap(legacyDescriptor('granted')));
+    expect(result.valid).toBe(false);
+    expect(result.reasons.map(reason => reason.code)).toEqual(['APPROVAL_SCOPE_MISSING']);
+  });
+
+  it('manifests declaring the older 1.0.0 version are still accepted: the supported major is unchanged', () => {
+    const manifestAt100 = wrap(legacyDescriptor('pending'));
+    expect(manifestAt100.manifest_version).toBe('1.0.0');
+    expect(validateManifest(manifestAt100).valid).toBe(true);
+  });
+
+  it('the real fixtures as they stood at the base commit fail ONLY on unsafe granted claims', () => {
+    // Every reason must be a scope failure on a granted approval — never a structural one.
+    // A MISSING_REQUIRED_FIELD here would mean the contract had broken sound descriptors.
+    const legacyBaseline = JSON.parse(
+      execFileSync(
+        'git',
+        ['show', `${BASE_COMMIT}:tests/fixtures/manifest/baseline.manifest.json`],
+        {
+          encoding: 'utf8',
+        },
+      ),
+    ) as CandidateManifest;
+
+    const result = validateManifest(legacyBaseline);
+    const codes = [...new Set(result.reasons.map(reason => reason.code))];
+    expect(codes).toEqual(['APPROVAL_SCOPE_MISSING']);
+    expect(result.reasons.every(reason => reason.path.endsWith('.decision_scope'))).toBe(true);
+
+    // Each one corresponds to an approval that actually claimed `granted`.
+    for (const reason of result.reasons) {
+      expect(reason.path).toMatch(/approvals\.(product|clinical)\.decision_scope$/);
+    }
+  });
+
+  it('the blocked-candidate fixture at the base commit fails only on the defect itself', () => {
+    const legacyBlocked = JSON.parse(
+      execFileSync(
+        'git',
+        ['show', `${BASE_COMMIT}:tests/fixtures/manifest/blocked-candidates.manifest.json`],
+        { encoding: 'utf8' },
+      ),
+    ) as CandidateManifest;
+
+    const result = validateManifest(legacyBlocked);
+    expect(result.valid).toBe(false);
+    // Exactly one approval claimed granted at the base commit: question_flow's product slot.
+    expect(result.reasons.map(reason => reason.code)).toEqual(['APPROVAL_SCOPE_MISSING']);
+    expect(result.reasons[0].path).toBe('artifacts[1].approvals.product.decision_scope');
+  });
+
+  it('the contract version was bumped, and the schema agrees', () => {
+    expect(MANIFEST_CONTRACT_VERSION).toBe('1.1.0');
+    expect(SUPPORTED_MANIFEST_MAJOR).toBe(1);
   });
 });

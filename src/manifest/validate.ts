@@ -17,6 +17,7 @@ import {
   OPTIONAL_DESCRIPTOR_KEYS,
   Reason,
   RELEASE_STATUSES,
+  OPTIONAL_APPROVAL_KEYS,
   REQUIRED_APPROVAL_KEYS,
   REQUIRED_DESCRIPTOR_KEYS,
   SUPPORTED_ARTIFACT_SCHEMAS,
@@ -86,10 +87,7 @@ const validateDecisionScope = (value: Record<string, unknown>, path: string): Re
   const scopePath = `${path}.decision_scope`;
   const granted = value.status === 'granted';
 
-  if (!('decision_scope' in value)) return [];
-
-  const scope = value.decision_scope;
-  if (scope === null) {
+  if (!('decision_scope' in value) || value.decision_scope === null) {
     return granted
       ? [
           {
@@ -102,6 +100,7 @@ const validateDecisionScope = (value: Record<string, unknown>, path: string): Re
       : [];
   }
 
+  const scope = value.decision_scope;
   if (!Array.isArray(scope) || scope.length === 0) {
     return [malformed(scopePath, 'must be null or a non-empty array of approval scopes')];
   }
@@ -145,13 +144,13 @@ const validateApproval = (value: unknown, path: string): Reason[] => {
   }
 
   const reasons: Reason[] = [];
-  const allowed = REQUIRED_APPROVAL_KEYS;
+  const allowed = [...REQUIRED_APPROVAL_KEYS, ...OPTIONAL_APPROVAL_KEYS];
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) {
       reasons.push({ code: 'UNKNOWN_FIELD', path: `${path}.${key}`, detail: 'unknown field' });
     }
   }
-  for (const key of allowed) {
+  for (const key of REQUIRED_APPROVAL_KEYS) {
     if (!(key in value)) reasons.push(missing(path, key));
   }
   if ('required' in value && typeof value.required !== 'boolean') {

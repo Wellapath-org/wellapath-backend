@@ -11,6 +11,7 @@ import {
   APPROVAL_STATUSES,
   ENVIRONMENTS,
   MANIFEST_CONTRACT_VERSION,
+  OPTIONAL_APPROVAL_KEYS,
   OPTIONAL_DESCRIPTOR_KEYS,
   RELEASE_STATUSES,
   REQUIRED_APPROVAL_KEYS,
@@ -77,14 +78,17 @@ describe('manifest JSON Schema stays in sync with the TypeScript contract', () =
     ).toEqual([...APPROVAL_SCOPES]);
   });
 
-  it('requires exactly the same approval-record fields, and permits nothing more', () => {
+  it('requires exactly the same approval-record fields, and permits exactly the optional ones', () => {
     expect([...schema.definitions.approval_record.required].sort()).toEqual(
       [...REQUIRED_APPROVAL_KEYS].sort(),
     );
     expect(Object.keys(schema.definitions.approval_record.properties).sort()).toEqual(
-      [...REQUIRED_APPROVAL_KEYS].sort(),
+      [...REQUIRED_APPROVAL_KEYS, ...OPTIONAL_APPROVAL_KEYS].sort(),
     );
     expect(schema.definitions.approval_record.additionalProperties).toBe(false);
+    // decision_scope is optional in structure — requiring it would invalidate sound
+    // descriptors that make no granted-approval claim, protecting nothing.
+    expect(schema.definitions.approval_record.required).not.toContain('decision_scope');
   });
 
   it('declares the manifest top level closed', () => {

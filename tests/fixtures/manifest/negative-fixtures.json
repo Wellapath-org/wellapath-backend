@@ -234,9 +234,9 @@
       }
     },
     {
-      "name": "missing decision_scope key on an approval record is rejected",
+      "name": "a granted approval whose decision_scope key is absent entirely is rejected",
       "stage": "validation",
-      "expected_code": "MISSING_REQUIRED_FIELD",
+      "expected_code": "APPROVAL_SCOPE_MISSING",
       "remove_descriptor_fields": ["approvals.product.decision_scope"]
     },
     {

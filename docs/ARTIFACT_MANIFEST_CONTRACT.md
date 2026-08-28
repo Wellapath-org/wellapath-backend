@@ -1,10 +1,13 @@
-# Artifact Manifest Contract v1.0.0 — I3 Step 1
+# Artifact Manifest Contract v1.1.0 — I3 Step 1, amended by Step 2B
 
-> **Amended by I3 Step 2B (2026-08-28)** — approval _scope_ is now a first-class part of the
-> contract (§3a), and the blocked-candidate fixtures were corrected: `question_flow` 1.1's
-> Product approval returned to `pending`, and the candidate labelled "Vocabulary 2.0" was
-> resolved to its stable artifact id `token_dictionary` (§9a). Still additive, still inactive,
-> still zero change to `/config`.
+> **Amended by I3 Step 2B (2026-08-28) — contract `1.0.0` → `1.1.0`.** Approval _scope_ is now a
+> first-class part of the contract (§3a, §3b for compatibility), and the blocked-candidate
+> fixtures were corrected: `question_flow` 1.1's Product approval returned to `pending`, and the
+> candidate labelled "Vocabulary 2.0" was resolved to its stable artifact id `token_dictionary`
+> (§9a). Still inactive, still zero change to `/config`.
+>
+> **Consumers pinning this contract must re-pin to `1.1.0`** to read manifests that use
+> `decision_scope`. The supported major is still `1`.
 
 > **Status: INACTIVE.** This contract is a repository-only foundation: schemas, fixtures,
 > validation code and tests. **No route serves it, no route consumes it, and the live
@@ -13,7 +16,7 @@
 
 | Item                | Value                                                            |
 | ------------------- | ---------------------------------------------------------------- |
-| Contract version    | `1.0.0`                                                          |
+| Contract version    | `1.1.0` (was `1.0.0` at I3 Step 1)                               |
 | Source of truth     | `src/manifest/contract.ts`                                       |
 | Published schema    | `docs/contracts/manifest.v1.schema.json` (drift-checked by test) |
 | Validation          | `src/manifest/validate.ts`                                       |
@@ -145,6 +148,35 @@ base at merge `2325e3f9e876a40d32e6e3ff0b5b77e19c7e309a`,
 > The knowledge base encodes the same distinction as a _resolved blocker_. Both encodings keep
 > `approvals.product` pending and both are ineligible everywhere, so the governance outcome is
 > identical; only the representation differs.
+
+## 3b. Compatibility of the 1.1.0 change — stated exactly
+
+`decision_scope` is **optional in structure, mandatory in effect for a `granted` approval.** It
+is deliberately _not_ a required field on every approval record: an approval that claims nothing
+needs no scope, and requiring one there would invalidate sound descriptors while protecting
+nothing.
+
+| Question                                                           | Answer                                                                                                                                                      |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Does a descriptor valid under 1.0.0 become invalid?                | **Only if it asserts a `granted` approval without a publication-scoped decision.** Descriptors making no such claim stay valid.                             |
+| Does anything keep schema validity but change eligibility?         | No. Every case that loses `approved` also fails validation, in both layers.                                                                                 |
+| Are the new reason codes externally observable contract behaviour? | **Yes** — `APPROVAL_SCOPE_MISSING`, `APPROVAL_SCOPE_UNKNOWN`, `APPROVAL_SCOPE_MISMATCH` are added to the closed `REASON_CODES` set that consumers match on. |
+| Did the published schema change?                                   | Yes — see the hashes below.                                                                                                                                 |
+| Is the supported major still `1`?                                  | Yes. Manifests declaring `manifest_version: "1.0.0"` are still accepted.                                                                                    |
+
+**Why minor and not patch:** the change _adds_ a field to a closed contract surface. Under 1.0.0
+the approval record set `additionalProperties: false` with four keys, so a manifest carrying
+`decision_scope` would have been rejected as `UNKNOWN_FIELD`. Old consumers therefore cannot read
+new manifests, which is more than a patch communicates.
+
+**Why minor and not major:** no _safe_ previously-valid descriptor is invalidated, the supported
+major gate is unchanged, and existing manifests keep validating. The only rejections added are
+approval claims that were unsafe when they were written.
+
+| Published schema    | SHA256                                                             | Bytes |
+| ------------------- | ------------------------------------------------------------------ | ----- |
+| `1.0.0` (`fc40ac3`) | `66fa3a94f17c2765eb1eca29208d2494c4c1b7be57eae61856bdb34761082ce9` | 6,375 |
+| `1.1.0` (this PR)   | `948299bc1ca87592e372d4ce889bdd2424a6cfc3d34c7660453dfe7d60d5038a` | 7,806 |
 
 ## 4. Integrity verification
 

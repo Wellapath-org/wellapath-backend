@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://wellapath.org/contracts/manifest.v1.schema.json",
   "title": "WellaPath candidate artifact manifest contract",
-  "description": "Versioned, additive contract for governed artifact delivery — I3 Step 1. INACTIVE: no route serves or consumes this contract; it exists as repository-only schema, fixtures and validation code. Source of truth is src/manifest/contract.ts; tests/unit/manifest-contract-sync.test.ts fails if this schema drifts from it. The states present, published, approved, active and eligible_for_environment are distinct and never synonyms; eligibility is fail-closed — absent, null, unknown or malformed governance data means NOT eligible.",
-  "contract_version": "1.0.0",
+  "description": "Versioned, additive contract for governed artifact delivery — I3 Step 1. INACTIVE: no route serves or consumes this contract; it exists as repository-only schema, fixtures and validation code. Source of truth is src/manifest/contract.ts; tests/unit/manifest-contract-sync.test.ts fails if this schema drifts from it. The states present, published, approved, active and eligible_for_environment are distinct and never synonyms; eligibility is fail-closed — absent, null, unknown or malformed governance data means NOT eligible. v1.1.0 (I3 Step 2B) adds the optional approval field decision_scope and tightens one previously-unsafe claim: a granted approval that declares no artifact_publication scope no longer counts. Descriptors making no granted-approval claim stay valid; supported major remains 1.",
+  "contract_version": "1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": ["manifest_version", "generated_at", "artifacts"],
@@ -31,7 +31,7 @@
     "approval_record": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["required", "status", "decision_ref", "approved_at", "decision_scope"],
+      "required": ["required", "status", "decision_ref", "approved_at"],
       "properties": {
         "required": { "type": "boolean" },
         "status": { "enum": ["granted", "denied", "pending", "not_required"] },
@@ -54,7 +54,7 @@
             },
             { "type": "null" }
           ],
-          "description": "What the cited decision actually authorized. null records that no scope was captured. A granted approval MUST declare a scope that includes artifact_publication; a decision scoped elsewhere (e.g. product_display wording and ordering) cannot occupy an artifact-publication approval slot, however complete that decision is and whichever authority took it."
+          "description": "What the cited decision actually authorized. OPTIONAL in structure, MANDATORY in effect for a granted approval: absent or null records that no scope was captured, which fails closed once status is granted. A granted approval MUST declare a scope that includes artifact_publication; a decision scoped elsewhere (e.g. product_display wording and ordering) cannot occupy an artifact-publication approval slot, however complete that decision is and whichever authority took it."
         }
       },
       "description": "Both approval slots on an artifact descriptor are artifact-publication approval slots. An approval counts ONLY when it is exactly status=granted, with a non-null decision_ref, and a decision_scope that includes artifact_publication. Unknown, missing or malformed scope fails closed."

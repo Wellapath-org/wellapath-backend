@@ -7,9 +7,14 @@
 
 ## Context
 
-- Backend manifest contract v1.0.0: `docs/contracts/manifest.v1.schema.json`
-  (source of truth `src/manifest/contract.ts`; semantics in
-  `docs/ARTIFACT_MANIFEST_CONTRACT.md`).
+- Backend manifest contract **v1.1.0** (was v1.0.0 at I3 Step 1):
+  `docs/contracts/manifest.v1.schema.json` (source of truth `src/manifest/contract.ts`;
+  semantics in `docs/ARTIFACT_MANIFEST_CONTRACT.md`).
+  **Re-pin required:** any port of the evaluator or schema taken at contract `1.0.0` must be
+  updated to `1.1.0` before it is used to reason about a manifest that declares
+  `decision_scope`. A `granted` approval must now carry `decision_scope` including
+  `artifact_publication`; approvals that are not granted are unaffected. See
+  `ARTIFACT_MANIFEST_CONTRACT.md` §3a–§3b.
 - Authoritative KB `develop` at time of writing: `c1b07944ea0b231914943ac17b2265441e53b85c`.
 - Current blocked candidates (modeled as fixtures only, never distributable as-is):
   **Vocabulary 2.0** (stable artifact id **`token_dictionary`**, resolved in I3 Step 2B — see

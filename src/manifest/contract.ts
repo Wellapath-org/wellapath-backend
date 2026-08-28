@@ -13,7 +13,15 @@
  * An artifact that merely exists in storage or in a repository is `present` and nothing more.
  */
 
-export const MANIFEST_CONTRACT_VERSION = '1.0.0';
+/**
+ * Contract version. Bumped to 1.1.0 by I3 Step 2B, which ADDS the optional approval field
+ * `decision_scope` (additive: an approval record carrying it would have been rejected as an
+ * unknown field under 1.0.0) and TIGHTENS one previously-unsafe claim — a `granted` approval
+ * that declares no publication scope no longer counts. Descriptors that make no granted-approval
+ * claim remain valid unchanged, and the supported major stays 1, so the existing major-version
+ * gate keeps working. Consumers must upgrade to read manifests that use the new field.
+ */
+export const MANIFEST_CONTRACT_VERSION = '1.1.0';
 
 /** The only manifest major version this code understands. Anything else is rejected. */
 export const SUPPORTED_MANIFEST_MAJOR = 1;
@@ -101,11 +109,15 @@ export interface ApprovalRecord {
   decision_ref: string | null;
   approved_at: string | null;
   /**
-   * What the cited decision actually authorized. `null` means no scope was recorded, which
-   * fails closed for a granted approval. Never widen this to cover a slot the decision's
-   * authority did not decide on.
+   * What the cited decision actually authorized.
+   *
+   * Optional, because an approval that is not `granted` claims nothing and so needs no scope —
+   * requiring it there would invalidate sound descriptors while protecting nothing. It is
+   * REQUIRED, and must include `ARTIFACT_APPROVAL_SLOT_SCOPE`, whenever `status` is `granted`:
+   * absent, `null`, malformed or unrecognised scope on a granted approval all fail closed.
+   * Never widen it to cover a slot the decision's authority did not decide on.
    */
-  decision_scope: ApprovalScope[] | null;
+  decision_scope?: ApprovalScope[] | null;
 }
 
 /** A safety or governance blocker. Any status other than `'resolved'` blocks eligibility. */
@@ -223,8 +235,14 @@ export const REQUIRED_APPROVAL_KEYS: readonly string[] = [
   'status',
   'decision_ref',
   'approved_at',
-  'decision_scope',
 ];
+
+/**
+ * Approval-record keys that may be present in addition to the required set. `decision_scope` is
+ * structurally optional but semantically mandatory for a `granted` approval — see
+ * `ApprovalRecord.decision_scope` and `validateDecisionScope`.
+ */
+export const OPTIONAL_APPROVAL_KEYS: readonly string[] = ['decision_scope'];
 
 /** Descriptor keys that must be present. Exported so the schema drift check can assert on it. */
 export const REQUIRED_DESCRIPTOR_KEYS: readonly string[] = [
