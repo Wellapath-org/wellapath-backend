@@ -5,9 +5,12 @@
  *
  *   present                  — the descriptor exists and is structurally sound.
  *   published                — its release status is `published`, with a publication date.
- *   approved                 — every required approval is explicitly `granted` with a decision
- *                              reference. Absent, pending, denied, unknown or malformed
- *                              approval data all mean NOT approved.
+ *   approved                 — every required approval is explicitly `granted`, with a decision
+ *                              reference AND a recorded decision scope that includes
+ *                              `artifact_publication`. Absent, pending, denied, unknown or
+ *                              malformed approval data all mean NOT approved, and so does a
+ *                              decision scoped to something other than artifact publication:
+ *                              a decision taken for another purpose is not an approval here.
  *   active                   — activation is explicitly `active` AND explicitly authorized.
  *   eligible_for_environment — everything a given environment requires holds simultaneously:
  *                              published, approved, no open blocker, activation authorized,
@@ -17,7 +20,15 @@
  * A candidate is distributable only when it is BOTH eligible for the environment AND active.
  * Existing in storage or in a repository confers `present` and nothing else.
  */
-import { ArtifactDescriptor, CandidateManifest, Environment, Reason } from './contract';
+import {
+  APPROVAL_SCOPES,
+  ARTIFACT_APPROVAL_SLOT_SCOPE,
+  ApprovalRecord,
+  ArtifactDescriptor,
+  CandidateManifest,
+  Environment,
+  Reason,
+} from './contract';
 import { SHA256_PATTERN } from './integrity';
 
 export interface EligibilityContext {
@@ -49,6 +60,60 @@ export interface SelectionResult {
 
 const descriptorPath = (descriptor: ArtifactDescriptor): string =>
   `artifact ${descriptor.artifact_id}@${descriptor.artifact_version}`;
+
+/**
+ * Decides whether a *granted* approval's cited decision was scoped to occupy an
+ * artifact-publication approval slot.
+ *
+ * This repeats the check `validateManifest` already performs, deliberately: a descriptor
+ * evaluated in isolation must still fail closed rather than inherit a guarantee from a
+ * validation pass that may never have run. An empty result means the scope is sound.
+ */
+const evaluateApprovalScope = (approval: ApprovalRecord, path: string, role: string): Reason[] => {
+  const scope = approval.decision_scope;
+  const scopePath = `${path}.decision_scope`;
+
+  if (scope === null || scope === undefined) {
+    return [
+      {
+        code: 'APPROVAL_SCOPE_MISSING',
+        path: scopePath,
+        detail: `${role} approval cites a decision with no recorded scope; an unscoped decision is not an artifact-publication approval`,
+      },
+    ];
+  }
+  if (!Array.isArray(scope) || scope.length === 0) {
+    return [
+      {
+        code: 'APPROVAL_SCOPE_MISSING',
+        path: scopePath,
+        detail: `${role} approval declares a malformed scope; treated as no scope at all`,
+      },
+    ];
+  }
+  const unknown = scope.filter(
+    entry => typeof entry !== 'string' || !(APPROVAL_SCOPES as readonly string[]).includes(entry),
+  );
+  if (unknown.length > 0) {
+    return [
+      {
+        code: 'APPROVAL_SCOPE_UNKNOWN',
+        path: scopePath,
+        detail: `${role} approval declares unrecognised scope ${unknown.map(String).join(', ')}; unknown scope is never read as authorisation`,
+      },
+    ];
+  }
+  if (!scope.includes(ARTIFACT_APPROVAL_SLOT_SCOPE)) {
+    return [
+      {
+        code: 'APPROVAL_SCOPE_MISMATCH',
+        path: scopePath,
+        detail: `${role} approval cites a decision scoped to ${scope.join(', ')}; that scope excludes ${ARTIFACT_APPROVAL_SLOT_SCOPE}, so it cannot stand as an artifact-publication approval`,
+      },
+    ];
+  }
+  return [];
+};
 
 /**
  * Evaluates one descriptor's states against an environment. Assumes the manifest already
@@ -148,6 +213,15 @@ export const evaluateDescriptor = (
           path: `${path}.approvals.${role}`,
           detail: `${role} approval is required but not explicitly granted with a decision reference`,
         });
+        continue;
+      }
+      // The approval claims to be granted. It only counts if the decision it cites was
+      // actually scoped to artifact publication — a decision taken for some other purpose,
+      // however complete and however senior its author, authorises nothing here.
+      const scopeReasons = evaluateApprovalScope(approval, `${path}.approvals.${role}`, role);
+      if (scopeReasons.length > 0) {
+        approved = false;
+        reasons.push(...scopeReasons);
       }
     }
   }

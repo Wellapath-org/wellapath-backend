@@ -13,7 +13,15 @@
  * An artifact that merely exists in storage or in a repository is `present` and nothing more.
  */
 
-export const MANIFEST_CONTRACT_VERSION = '1.0.0';
+/**
+ * Contract version. Bumped to 1.1.0 by I3 Step 2B, which ADDS the optional approval field
+ * `decision_scope` (additive: an approval record carrying it would have been rejected as an
+ * unknown field under 1.0.0) and TIGHTENS one previously-unsafe claim — a `granted` approval
+ * that declares no publication scope no longer counts. Descriptors that make no granted-approval
+ * claim remain valid unchanged, and the supported major stays 1, so the existing major-version
+ * gate keeps working. Consumers must upgrade to read manifests that use the new field.
+ */
+export const MANIFEST_CONTRACT_VERSION = '1.1.0';
 
 /** The only manifest major version this code understands. Anything else is rejected. */
 export const SUPPORTED_MANIFEST_MAJOR = 1;
@@ -57,15 +65,59 @@ export type BlockerStatus = 'open' | 'resolved';
 export const BLOCKER_STATUSES: readonly BlockerStatus[] = ['open', 'resolved'];
 
 /**
+ * The closed set of scopes a governance decision can carry.
+ *
+ * A decision's *scope* is what its deciding authority actually authorized — it is not implied
+ * by who took the decision, nor by the decision being complete. A completed Product decision
+ * about how a question is worded and ordered (`product_display`) authorizes exactly that; it
+ * does not authorize publishing an artifact, and it never did. Scope is therefore recorded
+ * explicitly and checked explicitly, so that a decision can never be substituted for a
+ * different decision that was never taken.
+ */
+export type ApprovalScope =
+  | 'artifact_publication'
+  | 'artifact_activation'
+  | 'product_display'
+  | 'clinical_content_review';
+
+export const APPROVAL_SCOPES: readonly ApprovalScope[] = [
+  'artifact_publication',
+  'artifact_activation',
+  'product_display',
+  'clinical_content_review',
+];
+
+/**
+ * The scope that BOTH approval slots on an `ArtifactDescriptor` demand.
+ *
+ * `approvals.product` and `approvals.clinical` are artifact-publication approval slots. A
+ * decision whose declared scope does not include `artifact_publication` cannot occupy either
+ * of them, whatever its status says and whichever authority took it.
+ */
+export const ARTIFACT_APPROVAL_SLOT_SCOPE: ApprovalScope = 'artifact_publication';
+
+/**
  * A recorded governance approval. `status` must be exactly `'granted'` — with a non-null
- * decision reference — for the approval to count. Absent, null, unknown or malformed approval
- * data means NOT approved.
+ * decision reference AND a `decision_scope` that includes `ARTIFACT_APPROVAL_SLOT_SCOPE` — for
+ * the approval to count. Absent, null, unknown or malformed approval data means NOT approved,
+ * and that now includes the scope: a granted approval citing a decision that was never scoped
+ * to artifact publication is a scope substitution, not an approval.
  */
 export interface ApprovalRecord {
   required: boolean;
   status: ApprovalStatus;
   decision_ref: string | null;
   approved_at: string | null;
+  /**
+   * What the cited decision actually authorized.
+   *
+   * Optional, because an approval that is not `granted` claims nothing and so needs no scope —
+   * requiring it there would invalidate sound descriptors while protecting nothing. It is
+   * REQUIRED, and must include `ARTIFACT_APPROVAL_SLOT_SCOPE`, whenever `status` is `granted`:
+   * absent, `null`, malformed or unrecognised scope on a granted approval all fail closed.
+   * Never widen it to cover a slot the decision's authority did not decide on.
+   */
+  decision_scope?: ApprovalScope[] | null;
 }
 
 /** A safety or governance blocker. Any status other than `'resolved'` blocks eligibility. */
@@ -147,6 +199,9 @@ export const REASON_CODES = [
   'RELATIONSHIP_CYCLE',
   'INVALID_ROLLBACK_TARGET',
   'APPROVAL_STATUS_UNKNOWN',
+  'APPROVAL_SCOPE_MISSING',
+  'APPROVAL_SCOPE_UNKNOWN',
+  'APPROVAL_SCOPE_MISMATCH',
   'HASH_MISMATCH',
   'BYTE_COUNT_MISMATCH',
   'NOT_PUBLISHED',
@@ -173,6 +228,21 @@ export interface Reason {
   path: string;
   detail: string;
 }
+
+/** Approval-record keys that must be present. Exported so the schema drift check asserts on it. */
+export const REQUIRED_APPROVAL_KEYS: readonly string[] = [
+  'required',
+  'status',
+  'decision_ref',
+  'approved_at',
+];
+
+/**
+ * Approval-record keys that may be present in addition to the required set. `decision_scope` is
+ * structurally optional but semantically mandatory for a `granted` approval — see
+ * `ApprovalRecord.decision_scope` and `validateDecisionScope`.
+ */
+export const OPTIONAL_APPROVAL_KEYS: readonly string[] = ['decision_scope'];
 
 /** Descriptor keys that must be present. Exported so the schema drift check can assert on it. */
 export const REQUIRED_DESCRIPTOR_KEYS: readonly string[] = [

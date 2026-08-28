@@ -43,7 +43,11 @@ const generate = (): void => {
 const check = (): void => {
   generate();
   try {
-    execFileSync('git', ['diff', '--exit-code', '--', OUTPUT_DIR], { stdio: 'pipe' });
+    // Scoped to the four files this script owns, NOT to OUTPUT_DIR as a whole: other contracts
+    // (e.g. manifest.v1.schema.json) share that directory and have their own drift checks, so a
+    // directory-wide diff would report an unrelated edit as a telemetry contract failure.
+    const owned = artifacts.map(({ file }) => resolve(OUTPUT_DIR, file));
+    execFileSync('git', ['diff', '--exit-code', '--', ...owned], { stdio: 'pipe' });
     logger.info('Telemetry contract artifacts are in sync with contract.ts');
   } catch {
     logger.error(

@@ -7,11 +7,14 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
   ACTIVATION_STATUSES,
+  APPROVAL_SCOPES,
   APPROVAL_STATUSES,
   ENVIRONMENTS,
   MANIFEST_CONTRACT_VERSION,
+  OPTIONAL_APPROVAL_KEYS,
   OPTIONAL_DESCRIPTOR_KEYS,
   RELEASE_STATUSES,
+  REQUIRED_APPROVAL_KEYS,
   REQUIRED_DESCRIPTOR_KEYS,
   SUPPORTED_ARTIFACT_SCHEMAS,
   SUPPORTED_CONTENT_TYPES,
@@ -22,7 +25,14 @@ interface SchemaDocument {
   required: string[];
   properties: Record<string, unknown>;
   definitions: {
-    approval_record: { properties: { status: { enum: string[] } } };
+    approval_record: {
+      required: string[];
+      additionalProperties: boolean;
+      properties: {
+        status: { enum: string[] };
+        decision_scope: { oneOf: [{ items: { enum: string[] } }, unknown] };
+      };
+    };
     artifact_descriptor: {
       required: string[];
       additionalProperties: boolean;
@@ -63,6 +73,22 @@ describe('manifest JSON Schema stays in sync with the TypeScript contract', () =
     expect(schema.definitions.approval_record.properties.status.enum).toEqual([
       ...APPROVAL_STATUSES,
     ]);
+    expect(
+      schema.definitions.approval_record.properties.decision_scope.oneOf[0].items.enum,
+    ).toEqual([...APPROVAL_SCOPES]);
+  });
+
+  it('requires exactly the same approval-record fields, and permits exactly the optional ones', () => {
+    expect([...schema.definitions.approval_record.required].sort()).toEqual(
+      [...REQUIRED_APPROVAL_KEYS].sort(),
+    );
+    expect(Object.keys(schema.definitions.approval_record.properties).sort()).toEqual(
+      [...REQUIRED_APPROVAL_KEYS, ...OPTIONAL_APPROVAL_KEYS].sort(),
+    );
+    expect(schema.definitions.approval_record.additionalProperties).toBe(false);
+    // decision_scope is optional in structure — requiring it would invalidate sound
+    // descriptors that make no granted-approval claim, protecting nothing.
+    expect(schema.definitions.approval_record.required).not.toContain('decision_scope');
   });
 
   it('declares the manifest top level closed', () => {
