@@ -8,9 +8,57 @@
 
 ## Current Status
 
-**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **All backend I1 work is done.** Phase closure sits with mobile PR #69, still open.
-**Sprint:** Backend contract merged (PR #29), staging gate PASSED, closure recorded (PR #30). **No backend work outstanding since 2026-08-11.**
-**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+**Phase:** I3 — Governed Artifact Delivery · **Step 1 COMPLETE (2026-08-28):** distribution baseline frozen, inactive manifest contract v1.0.0 merged (PR #32 → `develop` `fc40ac3`). I1 phase closure still sits with mobile PR #69 (not re-checked since 2026-08-14).
+**Sprint:** I3 Step 1 delivered, reviewed against pinned head, and merged. **Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started — each gated on its own authorization.**
+**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all re-verified live (hashes and byte counts recomputed from R2 on 2026-08-28). No artifact changes past this point without engineering lead approval.
+
+> ### ✅ I3 Step 1 — baseline freeze + inactive manifest contract (2026-08-28)
+>
+> **PR #32 merged → `develop`** as merge commit `fc40ac3` (parents `1c0fd16` + head `ed83cda`),
+> after independent verification from clean worktrees at both the pinned head and the post-merge
+> tip: CI green on both, 387/387 tests, format/lint/tsc/telemetry-contract-sync all clean.
+> Everything is **additive and inactive** — zero diff on `src/routes`, `src/app.ts`,
+> `src/server.ts`, `src/config`, `.env.example`, `Dockerfile`, `.github`, `package.json`.
+>
+> | Deliverable          | Where                                                                                          |
+> | -------------------- | ---------------------------------------------------------------------------------------------- |
+> | Baseline freeze      | `docs/baseline/distribution-baseline.v1.json` + `docs/DISTRIBUTION_BASELINE.md`                |
+> | CI drift check       | `tests/baseline/baseline-drift.test.ts` — fails on any `/config` field or hash drift           |
+> | Manifest contract v1 | `src/manifest/` (source of truth `contract.ts`), `docs/contracts/manifest.v1.schema.json`      |
+> | Contract docs        | `docs/ARTIFACT_MANIFEST_CONTRACT.md` (state machine, eligibility, rollback, audit, gaps)       |
+> | Blocked candidates   | `tests/fixtures/manifest/blocked-candidates.manifest.json` — **fixtures only, synthetic**      |
+> | Future handoffs      | `docs/handoffs/KB_PUBLICATION_HANDOFF.md`, `docs/handoffs/MOBILE_MANIFEST_CONSUMER_HANDOFF.md` |
+>
+> Key semantics, all test-enforced (86 new tests, incl. 34 negative fixtures each failing at its
+> declared stage with its declared reason code): five distinct states
+> (`present`/`published`/`approved`/`active`/`eligible_for_environment`), **fail-closed**
+> governance (absent/null/unknown/malformed = not eligible), candidates never selected
+> implicitly, duplicate actives select nothing, downgrades only via version+hash-bound rollback
+> targets, approved-origin/HTTPS/no-credentials/no-query transport policy, integrity verified
+> independently of transport.
+>
+> **Blocked candidates modeled, not enabled:** Vocabulary 2.0 and Question Flow 1.1 exist only
+> as fixtures with provably synthetic hashes bound to authoritative KB commit
+> `c1b07944ea0b231914943ac17b2265441e53b85c`; both `published: false`, `active: false`,
+> ineligible in every environment. Question Flow carries IM-001 product decisions complete,
+> clinical approval NOT granted, `IM001-CLIN-FLAG-001` open, `IM003-SB-001` open (IM-003
+> disabled), activation unauthorized. Mobile PR #76 remains unauthorized to merge. No clinical
+> reviewer is assigned.
+>
+> **Proof of non-change:** live staging `/config` body sha256 identical before and after merge
+> (`183a15bd…45d3b`); canonical response hash `3b2bbb1c…8578ed` recomputed from a booted app;
+> all four artifact hashes/byte counts recomputed from R2 — exact matches; no R2 write (read-only
+> GET/HEAD only), no deploy-config, env-var, secret, dependency or auth change.
+>
+> #### ⚠️ Staging database — third pause observed 2026-08-28
+>
+> `GET /health` returned **degraded / `checks.database: "error"`** on 2026-08-28 (observed
+> during baseline work and still degraded after the merge) — the predicted third Supabase
+> free-tier idle pause, now that mobile staging traffic has quietened. `/config` and `/version`
+> unaffected throughout, as designed. **Not restored under these tasks** (restoration is a
+> manual engineering-lead action). This supersedes the 2026-08-14 note below that said no third
+> pause had occurred. The standing remedy is unchanged: upgrade off the free tier or add a
+> keep-alive ping before beta.
 
 > ### Status check — 2026-08-14
 >
@@ -217,9 +265,9 @@
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action (2026-08-14):** **None outstanding for backend.** All assigned E9 and I1/W1 backend items are merged (PRs #24, #25, #26, #27, #29, #30). `develop` unchanged since 2026-08-11. Staging re-verified today: `/health` 200, telemetry accepting (`202`), production telemetry disabled.
+**Next immediate action (2026-08-28):** **None outstanding for backend.** I3 Step 1 is merged (PR #32). Next I3 steps (runtime manifest delivery, KB publication tooling, Mobile consumer) each require explicit authorization — see `docs/handoffs/`. The staging database pause needs the engineering lead's manual restore.
 
-Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure), a decision on **backend crash monitoring** (see the open question in the status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
+Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure — status not re-checked since 2026-08-14), a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
 
 **Open, owned by others (backend cannot action):** approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
@@ -254,14 +302,16 @@ Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merg
 | `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
 | `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
 
-| Branch                                     | Status                | PR                          |
-| ------------------------------------------ | --------------------- | --------------------------- |
-| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop`    | PR #26 ✅                   |
-| `docs/pre-production-items`                | Merged → `develop`    | PR #27 ✅                   |
-| `docs/progress-2026-08-03`                 | **Open, CONFLICTING** | PR #28 🧹 recommend closing |
-| `feat/i1-telemetry-contract`               | Merged → `develop`    | PR #29 ✅                   |
-| `docs/i1-telemetry-operations-closure`     | Merged → `develop`    | PR #30 ✅                   |
-| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`       | wellapath-docs PR #1 ✅     |
+| Branch                                     | Status                | PR                                               |
+| ------------------------------------------ | --------------------- | ------------------------------------------------ |
+| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop`    | PR #26 ✅                                        |
+| `docs/pre-production-items`                | Merged → `develop`    | PR #27 ✅                                        |
+| `docs/progress-2026-08-03`                 | **Open, CONFLICTING** | PR #28 🧹 recommend closing                      |
+| `feat/i1-telemetry-contract`               | Merged → `develop`    | PR #29 ✅                                        |
+| `docs/i1-telemetry-operations-closure`     | Merged → `develop`    | PR #30 ✅                                        |
+| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`       | wellapath-docs PR #1 ✅                          |
+| `docs/progress-2026-08-14`                 | Open                  | PR #31 (carried into the 2026-08-28 progress PR) |
+| `feat/i3-manifest-contract-foundation`     | Merged → `develop`    | PR #32 ✅ `fc40ac3`                              |
 
 ---
 
@@ -475,6 +525,7 @@ CORS headers confirmed active (`vary: Origin`).
 | #27 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅                       |
 | #29 | `feat(telemetry): add privacy-safe product telemetry contract v1.0 — i1/w1 step 1`               | `feat/i1-telemetry-contract` → `develop`               | Merged ✅ 2026-08-11, `5e13379` |
 | #30 | `docs(telemetry): record passed i1/w1 staging-enablement gate and 7-day retention`               | `docs/i1-telemetry-operations-closure` → `develop`     | Merged ✅ 2026-08-11, `1c0fd16` |
+| #32 | `feat(i3): freeze distribution baseline and add inactive manifest contract foundation`           | `feat/i3-manifest-contract-foundation` → `develop`     | Merged ✅ 2026-08-28, `fc40ac3` |
 
 > **PR #28 is open and CONFLICTING** — see the staging-database section above. Recommend closing
 > it unmerged; its content is stale and already superseded here.
@@ -530,11 +581,13 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
 **E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
 
-**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Phase closure itself sits with mobile PR #69, still open.
+**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Phase closure itself sits with mobile PR #69 (still open as of 2026-08-14; not re-checked since).
 
-**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 and I1/W1 backend items complete and merged.
+**I3 — Governed Artifact Delivery** ✅ **Step 1 complete** (PR #32, merged 2026-08-28 as `fc40ac3`) — distribution baseline frozen with a CI drift check, inactive candidate manifest contract v1.0.0 (fail-closed eligibility, five distinct states, version+hash-bound rollback, origin/integrity policy), blocked candidates modeled as synthetic fixtures only, KB and Mobile handoffs written. Live `/config` proven unchanged; nothing uploaded or deployed.
 
-**Next backend action:** None outstanding. Backend is not blocking I1 closure or the beta tag. Standing by for the next artifact release (which requires engineering lead approval under the E9.1 freeze), a decision on backend crash monitoring, or an I2 task.
+**Current status:** Artifacts frozen for beta and re-verified against R2 (2026-08-28). All assigned E9, I1/W1 and I3 Step 1 backend items complete and merged. Staging database paused again (third occurrence, 2026-08-28) — awaiting manual restore by the engineering lead.
+
+**Next backend action:** None outstanding. Later I3 steps (runtime manifest delivery, KB publication tooling, Mobile consumer) are each gated on explicit authorization — see `docs/handoffs/`. Also standing by for: the next artifact release (engineering lead approval required under the E9.1 freeze), a decision on backend crash monitoring, and the staging database restore.
 
 ---
 
@@ -555,4 +608,6 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 2026-08-11 — **I1/W1 telemetry contract v1.0 delivered and staging gate passed.** Backend contract merged (PR #29, `5e13379`), staging enabled (`TELEMETRY_ENABLED=true`, sink `log`), 25/25 functional checks passed, privacy-marker log search returned zero results with sink entries present, closure recorded (PR #30, `1c0fd16`). Three defects fixed en route, two pre-existing: rate limiting answered 500 instead of 429; request logs carried the full URL including query string; logger redaction drift closed. Staging log retention confirmed at **7 days** (Render Free plan).
 
-2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.\_
+2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.
+
+2026-08-28 — **I3 Step 1 delivered and merged.** Baseline frozen from `origin/develop` tip `1c0fd16` with repository/deployed/inferred/unavailable evidence kept apart and a CI drift check; inactive manifest contract v1.0.0 added (`src/manifest/`, schema drift-checked against the TS source of truth); Vocabulary 2.0 and Question Flow 1.1 modeled as synthetic, permanently ineligible fixtures bound to KB commit `c1b07944`; 86 new tests (387 total). PR #32 reviewed against pinned head `ed83cda` (clean-worktree validation, hash recomputation of the schema, handoffs, canonical `/config` and all four R2 artifacts) and merged as `fc40ac3`; post-merge CI green and staging `/config` byte-identical. **Staging DB paused for the third time** — observed degraded `/health` before and after the merge; left for the engineering lead to restore. Nothing runtime-facing changed; no upload, no deployment, no new env var or dependency.\_
