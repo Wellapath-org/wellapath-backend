@@ -1,0 +1,150 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wellapath.org/contracts/manifest.v1.schema.json",
+  "title": "WellaPath candidate artifact manifest contract",
+  "description": "Versioned, additive contract for governed artifact delivery — I3 Step 1. INACTIVE: no route serves or consumes this contract; it exists as repository-only schema, fixtures and validation code. Source of truth is src/manifest/contract.ts; tests/unit/manifest-contract-sync.test.ts fails if this schema drifts from it. The states present, published, approved, active and eligible_for_environment are distinct and never synonyms; eligibility is fail-closed — absent, null, unknown or malformed governance data means NOT eligible.",
+  "contract_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest_version", "generated_at", "artifacts"],
+  "properties": {
+    "manifest_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version of this contract. Consumers MUST reject any major version they do not support."
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "required_features": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Features a consumer must support to use this manifest. A consumer MUST reject a manifest declaring any feature it does not recognise."
+    },
+    "artifacts": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/artifact_descriptor" }
+    }
+  },
+  "definitions": {
+    "approval_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "status", "decision_ref", "approved_at"],
+      "properties": {
+        "required": { "type": "boolean" },
+        "status": { "enum": ["granted", "denied", "pending", "not_required"] },
+        "decision_ref": { "type": ["string", "null"] },
+        "approved_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "description": "Counts as approved ONLY when required approvals are exactly status=granted with a non-null decision_ref."
+    },
+    "blocker_record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["open", "resolved"] },
+        "reference": { "type": "string" }
+      }
+    },
+    "version_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_version", "sha256"],
+      "properties": {
+        "artifact_version": { "type": "string", "pattern": "^\\d+(\\.\\d+){0,3}$" },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "artifact_descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_id",
+        "artifact_version",
+        "schema_version",
+        "content_type",
+        "sha256",
+        "byte_count",
+        "object_key",
+        "release_status",
+        "activation_status",
+        "activation_authorized",
+        "activation_decision_ref",
+        "target_environments",
+        "publication_decision_ref",
+        "approvals",
+        "blockers",
+        "predecessor",
+        "rollback_target",
+        "created_at",
+        "published_at",
+        "deprecated",
+        "expires_at",
+        "country"
+      ],
+      "properties": {
+        "artifact_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,63}$" },
+        "artifact_version": { "type": "string", "pattern": "^\\d+(\\.\\d+){0,3}$" },
+        "schema_version": { "enum": ["wellapath.artifact/1"] },
+        "content_type": { "enum": ["application/json"] },
+        "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "byte_count": { "type": "integer", "minimum": 1 },
+        "object_key": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+\\.[a-z]{2}\\.v\\d+(\\.\\d+)*\\.json$",
+          "description": "Immutable object key. Never reused for changed content."
+        },
+        "url": {
+          "type": "string",
+          "description": "Optional full URL. Must be HTTPS on an approved origin, resolve to object_key exactly, and carry no credentials, query string or fragment."
+        },
+        "release_status": { "enum": ["draft", "candidate", "published", "deprecated"] },
+        "activation_status": { "enum": ["inactive", "active"] },
+        "activation_authorized": { "type": "boolean" },
+        "activation_decision_ref": { "type": ["string", "null"] },
+        "target_environments": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["development", "staging", "production"] }
+        },
+        "min_app_build": { "type": "integer", "minimum": 1 },
+        "publication_decision_ref": { "type": ["string", "null"] },
+        "approvals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["product", "clinical"],
+          "properties": {
+            "product": { "$ref": "#/definitions/approval_record" },
+            "clinical": { "$ref": "#/definitions/approval_record" }
+          }
+        },
+        "blockers": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/blocker_record" }
+        },
+        "predecessor": {
+          "oneOf": [{ "$ref": "#/definitions/version_ref" }, { "type": "null" }]
+        },
+        "rollback_target": {
+          "oneOf": [{ "$ref": "#/definitions/version_ref" }, { "type": "null" }],
+          "description": "Explicit version/hash-bound downgrade target. Downgrades are refused without one. Must resolve exactly to a descriptor in the same manifest."
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "published_at": { "type": ["string", "null"], "format": "date-time" },
+        "deprecated": { "type": "boolean" },
+        "expires_at": { "type": ["string", "null"], "format": "date-time" },
+        "country": { "type": "string", "pattern": "^[a-z]{2}$" },
+        "references": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Traceability references only. Never credentials, tokens or signed URLs."
+        }
+      }
+    }
+  }
+}
