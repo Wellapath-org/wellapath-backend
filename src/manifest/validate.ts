@@ -8,13 +8,16 @@
  */
 import {
   ACTIVATION_STATUSES,
+  APPROVAL_SCOPES,
   APPROVAL_STATUSES,
+  ARTIFACT_APPROVAL_SLOT_SCOPE,
   BLOCKER_STATUSES,
   CandidateManifest,
   ENVIRONMENTS,
   OPTIONAL_DESCRIPTOR_KEYS,
   Reason,
   RELEASE_STATUSES,
+  REQUIRED_APPROVAL_KEYS,
   REQUIRED_DESCRIPTOR_KEYS,
   SUPPORTED_ARTIFACT_SCHEMAS,
   SUPPORTED_CONTENT_TYPES,
@@ -72,13 +75,77 @@ const validateVersionRef = (value: unknown, path: string): Reason[] => {
   return reasons;
 };
 
+/**
+ * Structural and slot-compatibility checks for `decision_scope`.
+ *
+ * `null` is a legitimate recording of "no scope claimed" and is only a fault once the approval
+ * claims to be granted. Anything malformed or unrecognised fails closed rather than being
+ * ignored, so an unknown future scope name can never be silently read as authorisation.
+ */
+const validateDecisionScope = (value: Record<string, unknown>, path: string): Reason[] => {
+  const scopePath = `${path}.decision_scope`;
+  const granted = value.status === 'granted';
+
+  if (!('decision_scope' in value)) return [];
+
+  const scope = value.decision_scope;
+  if (scope === null) {
+    return granted
+      ? [
+          {
+            code: 'APPROVAL_SCOPE_MISSING',
+            path: scopePath,
+            detail:
+              'a granted approval must declare the scope of the decision it cites; an unscoped decision is not an artifact-publication approval',
+          },
+        ]
+      : [];
+  }
+
+  if (!Array.isArray(scope) || scope.length === 0) {
+    return [malformed(scopePath, 'must be null or a non-empty array of approval scopes')];
+  }
+
+  const reasons: Reason[] = [];
+  for (const entry of scope) {
+    if (typeof entry !== 'string' || !(APPROVAL_SCOPES as readonly string[]).includes(entry)) {
+      reasons.push({
+        code: 'APPROVAL_SCOPE_UNKNOWN',
+        path: scopePath,
+        detail: `approval scope ${String(entry)} is not a known scope; unknown scope is never read as authorisation`,
+      });
+    }
+  }
+  if (new Set(scope).size !== scope.length) {
+    reasons.push(malformed(scopePath, 'approval scopes must be unique'));
+  }
+  if (reasons.length > 0) return reasons;
+
+  if (granted && !scope.includes(ARTIFACT_APPROVAL_SLOT_SCOPE)) {
+    reasons.push({
+      code: 'APPROVAL_SCOPE_MISMATCH',
+      path: scopePath,
+      detail: `the cited decision is scoped to ${scope.join(', ')}, which excludes ${ARTIFACT_APPROVAL_SLOT_SCOPE}; it cannot occupy an artifact-publication approval slot`,
+    });
+  }
+  return reasons;
+};
+
+/**
+ * Validates one approval record, including the scope of the decision it cites.
+ *
+ * Scope is checked here as well as in eligibility because a scope substitution is a structural
+ * governance fault, not a matter of degree: a decision that was never scoped to artifact
+ * publication does not belong in an artifact-publication approval slot at all, so a manifest
+ * asserting it is rejected outright rather than merely evaluating to `approved: false`.
+ */
 const validateApproval = (value: unknown, path: string): Reason[] => {
   if (!isPlainObject(value)) {
     return [{ code: 'APPROVAL_MISSING', path, detail: 'approval record is absent or malformed' }];
   }
 
   const reasons: Reason[] = [];
-  const allowed = ['required', 'status', 'decision_ref', 'approved_at'];
+  const allowed = REQUIRED_APPROVAL_KEYS;
   for (const key of Object.keys(value)) {
     if (!allowed.includes(key)) {
       reasons.push({ code: 'UNKNOWN_FIELD', path: `${path}.${key}`, detail: 'unknown field' });
@@ -112,6 +179,7 @@ const validateApproval = (value: unknown, path: string): Reason[] => {
   if ('approved_at' in value && value.approved_at !== null && !isIsoDatetime(value.approved_at)) {
     reasons.push(malformed(`${path}.approved_at`, 'must be null or an ISO-8601 UTC datetime'));
   }
+  reasons.push(...validateDecisionScope(value, path));
   return reasons;
 };
 

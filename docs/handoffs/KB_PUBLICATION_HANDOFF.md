@@ -12,7 +12,8 @@
   `docs/ARTIFACT_MANIFEST_CONTRACT.md`).
 - Authoritative KB `develop` at time of writing: `c1b07944ea0b231914943ac17b2265441e53b85c`.
 - Current blocked candidates (modeled as fixtures only, never distributable as-is):
-  **Vocabulary 2.0** and **Question Flow 1.1** — both `published: false`, `active: false`,
+  **Vocabulary 2.0** (stable artifact id **`token_dictionary`**, resolved in I3 Step 2B — see
+  `ARTIFACT_MANIFEST_CONTRACT.md` §9a) and **Question Flow 1.1** — both `published: false`, `active: false`,
   `eligible_for_environment: false`. Question Flow additionally carries open blockers
   `IM001-CLIN-FLAG-001` and `IM003-SB-001`, clinical approval not granted, IM-003 disabled,
   activation unauthorized.

@@ -1,38 +1,55 @@
 {
   "description": "Negative governance fixtures. Each case mutates the valid baseline manifest fixture and declares the stage it must fail at and the exact reason code it must fail for. The runner (tests/unit/manifest-fixtures.test.ts) asserts each case fails at its declared stage with its declared code — a case failing for a different reason is itself a test failure.",
   "base": "baseline.manifest.json",
-  "target": { "artifact_id": "knowledge_base", "artifact_version": "2.4" },
-  "context": { "environment": "staging", "app_build": 100, "now": "2026-08-28T00:00:00Z" },
+  "target": {
+    "artifact_id": "knowledge_base",
+    "artifact_version": "2.4"
+  },
+  "context": {
+    "environment": "staging",
+    "app_build": 100,
+    "now": "2026-08-28T00:00:00Z"
+  },
   "cases": [
     {
       "name": "unknown manifest major version is rejected",
       "stage": "validation",
       "expected_code": "MANIFEST_VERSION_UNSUPPORTED",
-      "manifest_overrides": { "manifest_version": "2.0.0" }
+      "manifest_overrides": {
+        "manifest_version": "2.0.0"
+      }
     },
     {
       "name": "non-semver manifest version is rejected",
       "stage": "validation",
       "expected_code": "MANIFEST_VERSION_UNSUPPORTED",
-      "manifest_overrides": { "manifest_version": "two point oh" }
+      "manifest_overrides": {
+        "manifest_version": "two point oh"
+      }
     },
     {
       "name": "unknown required feature is rejected, not ignored",
       "stage": "validation",
       "expected_code": "UNKNOWN_REQUIRED_FEATURE",
-      "manifest_overrides": { "required_features": ["signed_manifests"] }
+      "manifest_overrides": {
+        "required_features": ["signed_manifests"]
+      }
     },
     {
       "name": "unknown top-level manifest field is rejected",
       "stage": "validation",
       "expected_code": "UNKNOWN_FIELD",
-      "manifest_overrides": { "distribution_mode": "automatic" }
+      "manifest_overrides": {
+        "distribution_mode": "automatic"
+      }
     },
     {
       "name": "unknown descriptor field is rejected",
       "stage": "validation",
       "expected_code": "UNKNOWN_FIELD",
-      "descriptor_overrides": { "auto_activate": true }
+      "descriptor_overrides": {
+        "auto_activate": true
+      }
     },
     {
       "name": "missing required descriptor field is rejected",
@@ -50,31 +67,45 @@
       "name": "unknown approval status is rejected, never coerced",
       "stage": "validation",
       "expected_code": "APPROVAL_STATUS_UNKNOWN",
-      "descriptor_overrides": { "approvals": { "clinical": { "status": "auto_approved" } } }
+      "descriptor_overrides": {
+        "approvals": {
+          "clinical": {
+            "status": "auto_approved"
+          }
+        }
+      }
     },
     {
       "name": "unsupported artifact schema is rejected",
       "stage": "validation",
       "expected_code": "UNSUPPORTED_ARTIFACT_SCHEMA",
-      "descriptor_overrides": { "schema_version": "wellapath.artifact/9" }
+      "descriptor_overrides": {
+        "schema_version": "wellapath.artifact/9"
+      }
     },
     {
       "name": "malformed sha256 is rejected",
       "stage": "validation",
       "expected_code": "MALFORMED_FIELD",
-      "descriptor_overrides": { "sha256": "sha256:not-a-real-digest" }
+      "descriptor_overrides": {
+        "sha256": "sha256:not-a-real-digest"
+      }
     },
     {
       "name": "wrong content type is rejected",
       "stage": "validation",
       "expected_code": "CONTENT_TYPE_UNSUPPORTED",
-      "descriptor_overrides": { "content_type": "text/html" }
+      "descriptor_overrides": {
+        "content_type": "text/html"
+      }
     },
     {
       "name": "activation authorization without a decision reference is rejected",
       "stage": "validation",
       "expected_code": "MALFORMED_FIELD",
-      "descriptor_overrides": { "activation_decision_ref": null }
+      "descriptor_overrides": {
+        "activation_decision_ref": null
+      }
     },
     {
       "name": "duplicate artifact identity is rejected",
@@ -134,7 +165,9 @@
       "name": "arbitrary external origin is rejected",
       "stage": "validation",
       "expected_code": "ORIGIN_NOT_APPROVED",
-      "descriptor_overrides": { "url": "https://cdn.example-attacker.com/kb.ng.v2.4.json" }
+      "descriptor_overrides": {
+        "url": "https://cdn.example-attacker.com/kb.ng.v2.4.json"
+      }
     },
     {
       "name": "plain http origin is rejected",
@@ -161,12 +194,62 @@
       }
     },
     {
+      "name": "a decision scoped away from publication cannot occupy an approval slot",
+      "stage": "validation",
+      "expected_code": "APPROVAL_SCOPE_MISMATCH",
+      "descriptor_overrides": {
+        "approvals": {
+          "product": {
+            "status": "granted",
+            "decision_ref": "a real, complete Product display decision",
+            "decision_scope": ["product_display"]
+          }
+        }
+      }
+    },
+    {
+      "name": "unknown approval scope is rejected, never read as authorisation",
+      "stage": "validation",
+      "expected_code": "APPROVAL_SCOPE_UNKNOWN",
+      "descriptor_overrides": {
+        "approvals": {
+          "product": {
+            "decision_scope": ["artifact_publication_v2"]
+          }
+        }
+      }
+    },
+    {
+      "name": "a granted approval that records no scope at all is rejected",
+      "stage": "validation",
+      "expected_code": "APPROVAL_SCOPE_MISSING",
+      "descriptor_overrides": {
+        "approvals": {
+          "clinical": {
+            "status": "granted",
+            "decision_ref": "an unscoped decision",
+            "decision_scope": null
+          }
+        }
+      }
+    },
+    {
+      "name": "missing decision_scope key on an approval record is rejected",
+      "stage": "validation",
+      "expected_code": "MISSING_REQUIRED_FIELD",
+      "remove_descriptor_fields": ["approvals.product.decision_scope"]
+    },
+    {
       "name": "required clinical approval still pending denies eligibility",
       "stage": "eligibility",
       "expected_code": "APPROVAL_NOT_GRANTED",
       "descriptor_overrides": {
         "approvals": {
-          "clinical": { "status": "pending", "decision_ref": null, "approved_at": null }
+          "clinical": {
+            "status": "pending",
+            "decision_ref": null,
+            "approved_at": null
+          }
         }
       }
     },
@@ -188,50 +271,74 @@
       "name": "unresolved safety blocker denies eligibility",
       "stage": "eligibility",
       "expected_code": "BLOCKER_UNRESOLVED",
-      "descriptor_overrides": { "blockers": [{ "id": "SB-999", "status": "open" }] }
+      "descriptor_overrides": {
+        "blockers": [
+          {
+            "id": "SB-999",
+            "status": "open"
+          }
+        ]
+      }
     },
     {
       "name": "activation without publication denies eligibility",
       "stage": "eligibility",
       "expected_code": "NOT_PUBLISHED",
-      "descriptor_overrides": { "release_status": "candidate", "published_at": null }
+      "descriptor_overrides": {
+        "release_status": "candidate",
+        "published_at": null
+      }
     },
     {
       "name": "environment mismatch denies eligibility",
       "stage": "eligibility",
       "expected_code": "ENVIRONMENT_NOT_AUTHORIZED",
-      "descriptor_overrides": { "target_environments": ["production"] }
+      "descriptor_overrides": {
+        "target_environments": ["production"]
+      }
     },
     {
       "name": "incompatible app build denies eligibility",
       "stage": "eligibility",
       "expected_code": "APP_BUILD_INCOMPATIBLE",
-      "descriptor_overrides": { "min_app_build": 999 }
+      "descriptor_overrides": {
+        "min_app_build": 999
+      }
     },
     {
       "name": "unknown consumer build fails closed when a minimum is declared",
       "stage": "eligibility",
       "expected_code": "APP_BUILD_INCOMPATIBLE",
-      "descriptor_overrides": { "min_app_build": 1 },
-      "context_overrides": { "app_build": null }
+      "descriptor_overrides": {
+        "min_app_build": 1
+      },
+      "context_overrides": {
+        "app_build": null
+      }
     },
     {
       "name": "expired descriptor denies eligibility",
       "stage": "eligibility",
       "expected_code": "DESCRIPTOR_EXPIRED",
-      "descriptor_overrides": { "expires_at": "2026-01-01T00:00:00Z" }
+      "descriptor_overrides": {
+        "expires_at": "2026-01-01T00:00:00Z"
+      }
     },
     {
       "name": "deprecated descriptor denies eligibility",
       "stage": "eligibility",
       "expected_code": "DESCRIPTOR_DEPRECATED",
-      "descriptor_overrides": { "deprecated": true }
+      "descriptor_overrides": {
+        "deprecated": true
+      }
     },
     {
       "name": "publication without activation selects nothing",
       "stage": "selection",
       "expected_code": "NOT_ACTIVE",
-      "descriptor_overrides": { "activation_status": "inactive" }
+      "descriptor_overrides": {
+        "activation_status": "inactive"
+      }
     },
     {
       "name": "candidate existence is never treated as eligibility",
@@ -244,8 +351,16 @@
         "activation_authorized": false,
         "activation_decision_ref": null,
         "approvals": {
-          "product": { "status": "pending", "decision_ref": null, "approved_at": null },
-          "clinical": { "status": "pending", "decision_ref": null, "approved_at": null }
+          "product": {
+            "status": "pending",
+            "decision_ref": null,
+            "approved_at": null
+          },
+          "clinical": {
+            "status": "pending",
+            "decision_ref": null,
+            "approved_at": null
+          }
         }
       }
     },

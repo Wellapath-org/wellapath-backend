@@ -22,13 +22,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "E8.2 calibration Option A — Issue #8",
-          "approved_at": "2026-07-27T00:00:00Z"
+          "approved_at": "2026-07-27T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": true,
           "status": "granted",
           "decision_ref": "E8.2 calibration owner decision (relayed — PROGRESS.md PR #23 record)",
-          "approved_at": "2026-07-27T00:00:00Z"
+          "approved_at": "2026-07-27T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         }
       },
       "blockers": [],
@@ -67,13 +69,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "E7 medical review fixes (PR #17)",
-          "approved_at": "2026-04-05T00:00:00Z"
+          "approved_at": "2026-04-05T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": true,
           "status": "granted",
           "decision_ref": "E7 medical review (relayed — PROGRESS.md PR #17 record)",
-          "approved_at": "2026-04-05T00:00:00Z"
+          "approved_at": "2026-04-05T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         }
       },
       "blockers": [],
@@ -111,13 +115,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "rules v2.2 release (PR #22)",
-          "approved_at": "2026-07-26T00:00:00Z"
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": true,
           "status": "granted",
           "decision_ref": "red-flag safety verification — rf_147 subsumed by rf_006 (PR #22 record)",
-          "approved_at": "2026-07-26T00:00:00Z"
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         }
       },
       "blockers": [],
@@ -155,13 +161,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "facilities v1.1 release (PR #20)",
-          "approved_at": "2026-07-26T00:00:00Z"
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": false,
           "status": "not_required",
           "decision_ref": null,
-          "approved_at": null
+          "approved_at": null,
+          "decision_scope": null
         }
       },
       "blockers": [],
@@ -199,13 +207,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "founder Case 04 decision — Option B (PR #19)",
-          "approved_at": "2026-07-23T00:00:00Z"
+          "approved_at": "2026-07-23T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": true,
           "status": "granted",
           "decision_ref": "Case 04 medical review (relayed — PROGRESS.md PR #19 record)",
-          "approved_at": "2026-07-23T00:00:00Z"
+          "approved_at": "2026-07-23T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         }
       },
       "blockers": [],
@@ -238,13 +248,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "E7 medical review fixes (PR #17)",
-          "approved_at": "2026-07-21T00:00:00Z"
+          "approved_at": "2026-07-21T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": true,
           "status": "granted",
           "decision_ref": "E7 medical review (relayed — PROGRESS.md PR #17 record)",
-          "approved_at": "2026-07-21T00:00:00Z"
+          "approved_at": "2026-07-21T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         }
       },
       "blockers": [],
@@ -277,13 +289,15 @@
           "required": true,
           "status": "granted",
           "decision_ref": "E5 facilities integration (PR #15)",
-          "approved_at": "2026-07-06T00:00:00Z"
+          "approved_at": "2026-07-06T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
         },
         "clinical": {
           "required": false,
           "status": "not_required",
           "decision_ref": null,
-          "approved_at": null
+          "approved_at": null,
+          "decision_scope": null
         }
       },
       "blockers": [],

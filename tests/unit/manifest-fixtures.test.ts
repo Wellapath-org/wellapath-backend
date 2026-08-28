@@ -3,7 +3,9 @@
  *
  * Positive: the baseline manifest and the blocked-candidates manifest validate, and the
  * blocked candidates are provably synthetic (their hashes derive from a fixture seed bound to
- * the authoritative knowledge-base commit) and provably ineligible.
+ * the authoritative knowledge-base commit) and provably ineligible. The candidate carrying the
+ * human-facing label "Vocabulary 2.0" is identified by its stable artifact id,
+ * `token_dictionary` — see the approval-scope suite for the evidence behind that.
  *
  * Negative: every case in `negative-fixtures.json` must fail at its declared stage with its
  * declared reason code. A case passing, or failing for a different reason, fails this suite.
@@ -75,7 +77,7 @@ const removePath = (base: Record<string, unknown>, path: string): void => {
   delete cursor[segments[segments.length - 1]];
 };
 
-describe('blocked candidates — Vocabulary 2.0 and Question Flow 1.1', () => {
+describe('blocked candidates — token_dictionary 2.0 ("Vocabulary 2.0") and question_flow 1.1', () => {
   const manifest = loadJson<CandidateManifest>('blocked-candidates.manifest.json');
   const context = { environment: 'staging' as const, now: new Date('2026-08-28T00:00:00Z') };
 
@@ -85,7 +87,7 @@ describe('blocked candidates — Vocabulary 2.0 and Question Flow 1.1', () => {
     expect(result.valid).toBe(true);
   });
 
-  it.each(['vocabulary', 'question_flow'])(
+  it.each(['token_dictionary', 'question_flow'])(
     '%s descriptor is provably synthetic: its hash derives from a fixture seed bound to the authoritative KB commit',
     artifactId => {
       const descriptor = manifest.artifacts.find(
@@ -98,7 +100,7 @@ describe('blocked candidates — Vocabulary 2.0 and Question Flow 1.1', () => {
     },
   );
 
-  it.each(['vocabulary', 'question_flow'])(
+  it.each(['token_dictionary', 'question_flow'])(
     '%s remains unpublished, inactive and ineligible for every environment',
     artifactId => {
       const descriptor = manifest.artifacts.find(
@@ -118,12 +120,16 @@ describe('blocked candidates — Vocabulary 2.0 and Question Flow 1.1', () => {
       entry => entry.artifact_id === 'question_flow',
     ) as ArtifactDescriptor;
 
-    // IM-001 product decisions complete — but that alone changes nothing below.
-    expect(descriptor.approvals.product.status).toBe('granted');
-    expect(descriptor.approvals.product.decision_ref).toContain('IM-001');
+    // Artifact-publication Product approval was never granted. IM-001 completed a Product
+    // *display* decision (wording and ordering) whose scope excludes publication, so it does
+    // not occupy this slot and is carried as traceability instead — see the approval-scope
+    // reconciliation suite.
+    expect(descriptor.approvals.product.status).toBe('pending');
+    expect(descriptor.approvals.product.decision_ref).toBeNull();
+    expect(descriptor.approvals.product.decision_scope).toBeNull();
     // Clinical approval is not granted and no reviewer is assigned.
     expect(descriptor.approvals.clinical.status).not.toBe('granted');
-    // Both safety blockers are open.
+    // Both safety blockers are open — and neither of them is IM-001's completed decision.
     const blockerIds = descriptor.blockers.map(blocker => `${blocker.id}:${blocker.status}`);
     expect(blockerIds).toContain('IM001-CLIN-FLAG-001:open');
     expect(blockerIds).toContain('IM003-SB-001:open');
@@ -132,16 +138,23 @@ describe('blocked candidates — Vocabulary 2.0 and Question Flow 1.1', () => {
     expect(descriptor.activation_status).toBe('inactive');
 
     const { states, reasons } = evaluateDescriptor(descriptor, context);
+    expect(states.approved).toBe(false);
     expect(states.eligible_for_environment).toBe(false);
     const codes = reasons.map(reason => reason.code);
     expect(codes).toContain('NOT_PUBLISHED');
     expect(codes).toContain('APPROVAL_NOT_GRANTED');
     expect(codes).toContain('BLOCKER_UNRESOLVED');
     expect(codes).toContain('ACTIVATION_NOT_AUTHORIZED');
+    // Both approval slots are independently outstanding, not just the clinical one.
+    const notGranted = reasons.filter(reason => reason.code === 'APPROVAL_NOT_GRANTED');
+    expect(notGranted.map(reason => reason.path).sort()).toEqual([
+      'artifact question_flow@1.1.approvals.clinical',
+      'artifact question_flow@1.1.approvals.product',
+    ]);
   });
 
   it('neither blocked candidate can ever be selected', () => {
-    for (const artifactId of ['vocabulary', 'question_flow']) {
+    for (const artifactId of ['token_dictionary', 'question_flow']) {
       const result = selectActiveDescriptor(manifest, artifactId, context);
       expect(result.selected).toBeNull();
       expect(result.reasons.map(reason => reason.code)).toContain('NO_ACTIVE_ARTIFACT');
