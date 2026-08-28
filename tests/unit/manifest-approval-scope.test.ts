@@ -18,7 +18,6 @@
  *
  * Nothing here touches runtime. The manifest contract is not wired into any route.
  */
-import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import {
@@ -567,6 +566,14 @@ describe('artifact identity — "Vocabulary 2.0" resolves to the token_dictionar
 describe('contract 1.1.0 compatibility with descriptors written against 1.0.0', () => {
   const BASE_COMMIT = 'fc40ac3e7d59cfed8e2584b78136c9704f7ab8cd';
 
+  // Read from a vendored copy, never from git history: CI checks out shallowly, so the base
+  // commit is not resolvable there, and a test that needs repo history is not hermetic.
+  const legacy = loadJson<{
+    _provenance: { source_commit: string; contract_version_at_source: string };
+    baseline_manifest: CandidateManifest;
+    blocked_candidates_manifest: CandidateManifest;
+  }>('legacy-contract-1.0.0.fixture.json');
+
   /** A descriptor exactly as contract 1.0.0 allowed: no decision_scope key anywhere. */
   const legacyDescriptor = (productStatus: 'pending' | 'granted'): ArtifactDescriptor =>
     ({
@@ -629,17 +636,7 @@ describe('contract 1.1.0 compatibility with descriptors written against 1.0.0', 
   it('the real fixtures as they stood at the base commit fail ONLY on unsafe granted claims', () => {
     // Every reason must be a scope failure on a granted approval — never a structural one.
     // A MISSING_REQUIRED_FIELD here would mean the contract had broken sound descriptors.
-    const legacyBaseline = JSON.parse(
-      execFileSync(
-        'git',
-        ['show', `${BASE_COMMIT}:tests/fixtures/manifest/baseline.manifest.json`],
-        {
-          encoding: 'utf8',
-        },
-      ),
-    ) as CandidateManifest;
-
-    const result = validateManifest(legacyBaseline);
+    const result = validateManifest(legacy.baseline_manifest);
     const codes = [...new Set(result.reasons.map(reason => reason.code))];
     expect(codes).toEqual(['APPROVAL_SCOPE_MISSING']);
     expect(result.reasons.every(reason => reason.path.endsWith('.decision_scope'))).toBe(true);
@@ -651,19 +648,23 @@ describe('contract 1.1.0 compatibility with descriptors written against 1.0.0', 
   });
 
   it('the blocked-candidate fixture at the base commit fails only on the defect itself', () => {
-    const legacyBlocked = JSON.parse(
-      execFileSync(
-        'git',
-        ['show', `${BASE_COMMIT}:tests/fixtures/manifest/blocked-candidates.manifest.json`],
-        { encoding: 'utf8' },
-      ),
-    ) as CandidateManifest;
-
-    const result = validateManifest(legacyBlocked);
+    const result = validateManifest(legacy.blocked_candidates_manifest);
     expect(result.valid).toBe(false);
     // Exactly one approval claimed granted at the base commit: question_flow's product slot.
     expect(result.reasons.map(reason => reason.code)).toEqual(['APPROVAL_SCOPE_MISSING']);
     expect(result.reasons[0].path).toBe('artifacts[1].approvals.product.decision_scope');
+  });
+
+  it('the vendored legacy fixture really is the base commit under contract 1.0.0', () => {
+    expect(legacy._provenance.source_commit).toBe(BASE_COMMIT);
+    expect(legacy._provenance.contract_version_at_source).toBe('1.0.0');
+    // No approval record in it declares a scope — that is the whole point of the comparison.
+    const scopes = [
+      ...legacy.baseline_manifest.artifacts,
+      ...legacy.blocked_candidates_manifest.artifacts,
+    ].flatMap(descriptor => [descriptor.approvals.product, descriptor.approvals.clinical]);
+    expect(scopes.length).toBeGreaterThan(0);
+    expect(scopes.every(approval => !('decision_scope' in approval))).toBe(true);
   });
 
   it('the contract version was bumped, and the schema agrees', () => {
