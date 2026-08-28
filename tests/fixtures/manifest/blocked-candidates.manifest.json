@@ -1,0 +1,105 @@
+{
+  "manifest_version": "1.0.0",
+  "generated_at": "2026-08-28T10:20:29Z",
+  "artifacts": [
+    {
+      "artifact_id": "vocabulary",
+      "artifact_version": "2.0",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:03f1bb19208c15dfad142e712de82508db433484973902391b9f274fe35d06be",
+      "byte_count": 71,
+      "object_key": "vocabulary.ng.v2.0.json",
+      "release_status": "candidate",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": null,
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null
+        },
+        "clinical": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null
+        }
+      },
+      "blockers": [],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-08-28T00:00:00Z",
+      "published_at": null,
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "SYNTHETIC FIXTURE — sha256 is the digest of 'fixture-only:vocabulary@2.0@kb:c1b07944ea0b231914943ac17b2265441e53b85c', byte_count is that seed string's length; this descriptor names no real object and must never be added to the live /config output",
+        "authoritative knowledge-base develop commit: c1b07944ea0b231914943ac17b2265441e53b85c",
+        "Vocabulary 2.0 is unpublished and inactive",
+        "no clinical reviewer is assigned"
+      ]
+    },
+    {
+      "artifact_id": "question_flow",
+      "artifact_version": "1.1",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:8c63861c6eb871fed4c62300d042ce2af40f6171dc2e47146e8d7165551dc4f8",
+      "byte_count": 74,
+      "object_key": "question_flow.ng.v1.1.json",
+      "release_status": "candidate",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": null,
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "IM-001 — Product decisions complete; activation remains unauthorized",
+          "approved_at": null
+        },
+        "clinical": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null
+        }
+      },
+      "blockers": [
+        {
+          "id": "IM001-CLIN-FLAG-001",
+          "status": "open",
+          "reference": "open clinical flag on IM-001; no clinical reviewer is assigned"
+        },
+        {
+          "id": "IM003-SB-001",
+          "status": "open",
+          "reference": "safety blocker on IM-003; IM-003 itself remains disabled"
+        }
+      ],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-08-28T00:00:00Z",
+      "published_at": null,
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "SYNTHETIC FIXTURE — sha256 is the digest of 'fixture-only:question_flow@1.1@kb:c1b07944ea0b231914943ac17b2265441e53b85c', byte_count is that seed string's length; this descriptor names no real object and must never be added to the live /config output",
+        "authoritative knowledge-base develop commit: c1b07944ea0b231914943ac17b2265441e53b85c",
+        "IM-001: Product decisions complete; activation remains unauthorized",
+        "IM-003: remains disabled",
+        "mobile PR #76: remains unauthorized to merge",
+        "remote question flow must not be activated"
+      ]
+    }
+  ]
+}
