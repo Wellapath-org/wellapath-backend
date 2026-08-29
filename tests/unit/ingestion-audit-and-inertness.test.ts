@@ -169,7 +169,7 @@ describe('pipeline stage vocabulary', () => {
 describe('integration pins do not drift', () => {
   it('the envelope pins the manifest contract this repository actually publishes', () => {
     expect(REQUIRED_MANIFEST_CONTRACT_VERSION).toBe(MANIFEST_CONTRACT_VERSION);
-    expect(INGESTION_ENVELOPE_VERSION).toBe('1.0.0');
+    expect(INGESTION_ENVELOPE_VERSION).toBe('1.1.0');
   });
 
   it('the pinned manifest schema digest matches the published schema on disk', () => {

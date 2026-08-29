@@ -24,6 +24,7 @@ import {
   REQUIRED_ENVELOPE_KEYS,
   REQUIRED_MANIFEST_CONTRACT_VERSION,
   REQUIRED_PROVENANCE_KEYS,
+  SOURCE_PROVENANCE_KINDS,
   TRUST_MODES,
 } from '../../src/manifest/ingestion/contract';
 import { ENVIRONMENTS } from '../../src/manifest/contract';
@@ -40,6 +41,11 @@ const envelopeSchema = load('ingestion-envelope.v1.schema.json') as unknown as {
   definitions: {
     provenance: { required: string[]; additionalProperties: boolean };
     attestation: { properties: { trust_mode: { enum: string[] } } };
+    plan_source_provenance: {
+      required: string[];
+      additionalProperties: boolean;
+      properties: { kinds: { items: { enum: string[] } } };
+    };
   };
 };
 
@@ -86,6 +92,19 @@ describe('ingestion envelope schema stays in sync with the TypeScript contract',
       [...REQUIRED_PROVENANCE_KEYS].sort(),
     );
     expect(envelopeSchema.definitions.provenance.additionalProperties).toBe(false);
+  });
+
+  it('declares exactly the source-provenance kinds the contract knows', () => {
+    expect(envelopeSchema.definitions.plan_source_provenance.properties.kinds.items.enum).toEqual([
+      ...SOURCE_PROVENANCE_KINDS,
+    ]);
+    expect(envelopeSchema.definitions.plan_source_provenance.additionalProperties).toBe(false);
+  });
+
+  it('requires the actor and the ingestion authorization, not merely a repository and commit', () => {
+    for (const key of ['actor_ref', 'authorization_ref', 'governance_register_sha256']) {
+      expect(envelopeSchema.definitions.provenance.required).toContain(key);
+    }
   });
 
   it('carries no URL, credential or byte-carrying field anywhere', () => {

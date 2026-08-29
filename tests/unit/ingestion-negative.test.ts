@@ -177,11 +177,156 @@ const cases: Case[] = [
     },
   },
   {
-    name: 'a branch name in place of a commit id is refused',
+    name: 'a branch name in place of a commit id is refused as a mutable reference',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_SOURCE_MUTABLE_REFERENCE',
+    mutate: envelope => {
+      envelope.provenance.source_commit = 'develop';
+    },
+  },
+  {
+    name: 'a symbolic ref is refused as a mutable reference',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_SOURCE_MUTABLE_REFERENCE',
+    mutate: envelope => {
+      envelope.provenance.source_commit = 'HEAD';
+    },
+  },
+  {
+    name: 'a truncated commit id is refused',
     stage: 'provenance_verified',
     code: 'KB_SOURCE_MISMATCH',
     mutate: envelope => {
-      envelope.provenance.source_commit = 'develop';
+      envelope.provenance.source_commit = '1f1b8dd';
+    },
+  },
+  {
+    name: 'a missing actor is refused',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_ACTOR_MISSING',
+    mutate: envelope => {
+      envelope.provenance.actor_ref = '';
+    },
+  },
+  {
+    name: 'a missing ingestion authorization is refused',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_AUTHORIZATION_MISSING',
+    mutate: envelope => {
+      envelope.provenance.authorization_ref = '';
+    },
+  },
+  {
+    name: 'a governance-register digest that differs from the pin is refused',
+    stage: 'provenance_verified',
+    code: 'GOVERNANCE_REGISTER_HASH_MISMATCH',
+    mutate: envelope => {
+      envelope.provenance.governance_register_sha256 = '1'.repeat(64);
+    },
+  },
+  {
+    name: 'envelope and plan naming different governance registers is a contradiction',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_CONTRADICTION',
+    mutate: envelope => {
+      envelope.provenance.governance_register_sha256 =
+        '0848fbd3f6a577e936c322523bfb47419b40a4e774e76f56f0620e8b93705735';
+      // The plan block names a register the envelope does not.
+      envelope.plan_source_provenance = {
+        decision_register_sha256:
+          '0848fbd3f6a577e936c322523bfb47419b40a4e774e76f56f0620e8b93705735',
+        repository_branch_cited: false,
+        kinds: ['decision_record_provenance'],
+      };
+      envelope.provenance.governance_register_sha256 = '2'.repeat(64);
+    },
+  },
+  {
+    name: 'a plan citing a mutable branch tip as its own source is refused',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_SOURCE_MUTABLE_REFERENCE',
+    mutate: envelope => {
+      envelope.plan_source_provenance = {
+        decision_register_sha256: null,
+        repository_branch_cited: true,
+        kinds: ['repository_branch_state'],
+      };
+    },
+  },
+  {
+    name: 'an unknown source-provenance kind is refused, never ignored',
+    stage: 'provenance_verified',
+    code: 'SOURCE_PROVENANCE_KIND_UNKNOWN',
+    mutate: envelope => {
+      envelope.plan_source_provenance = {
+        decision_register_sha256: null,
+        repository_branch_cited: false,
+        kinds: ['artifact_byte_identity', 'producer_self_attestation'],
+      };
+    },
+  },
+  {
+    name: 'a malformed source-provenance block is refused',
+    stage: 'provenance_verified',
+    code: 'SOURCE_PROVENANCE_MALFORMED',
+    mutate: envelope => {
+      envelope.plan_source_provenance = {
+        decision_register_sha256: null,
+        repository_branch_cited: false,
+        kinds: [],
+      };
+    },
+  },
+  {
+    name: 'a descriptor that is not the one the envelope names is refused',
+    stage: 'provenance_verified',
+    code: 'DESCRIPTOR_REFERENCE_MISMATCH',
+    mutate: envelope => {
+      envelope.identity.artifact_version = '9.9';
+      envelope.object_key = 'synthetic_fixture.zz.v9.9.json';
+    },
+  },
+  {
+    name: 'a stale KB commit carrying a current plan hash is refused',
+    stage: 'provenance_verified',
+    code: 'KB_SOURCE_MISMATCH',
+    mutate: envelope => {
+      envelope.provenance.source_commit = '77beffec2f7c8612a3760af30659a299ce2820a3';
+    },
+  },
+  {
+    name: 'a current KB commit carrying a stale plan hash is refused',
+    stage: 'provenance_verified',
+    code: 'PLAN_HASH_MISMATCH',
+    mutate: envelope => {
+      // The Step 3 hash for the same plan, superseded by the Step 3B re-pin.
+      envelope.provenance.publication_plan_sha256 =
+        '7f70788658d4d49e77e858465f931a0913e16c261e32045ebf6433829d2864aa';
+    },
+  },
+  {
+    name: 'only one candidate plan re-pinned leaves the other plan hash stale',
+    stage: 'provenance_verified',
+    code: 'PLAN_HASH_MISMATCH',
+    mutate: envelope => {
+      envelope.provenance.publication_plan_id = 'question_flow.ng.v1.1.dryrun';
+      // Its Step 3 hash: the question_flow plan was not advanced with the token_dictionary one.
+      envelope.provenance.publication_plan_sha256 =
+        '947c810cca92acb2dce4916272d7d7eca432cc879e3a36f289fb850f1bd99413';
+    },
+  },
+  {
+    name: 'provenance merely integrity-bound is refused where verified is required',
+    stage: 'provenance_verified',
+    code: 'PROVENANCE_NOT_VERIFIED',
+    mutate: envelope => {
+      envelope.requested_operation = 'publish';
+      envelope.attestation.trust_mode = 'production';
+      envelope.synthetic = false;
+      envelope.environment = 'staging';
+      (envelope.descriptor as ReturnType<typeof syntheticDescriptor>).target_environments = [
+        'staging',
+      ];
     },
   },
   {
@@ -437,9 +582,11 @@ const cases: Case[] = [
 
   /* -------------------------------------------------------- integrity_verified */
   {
+    // Caught at provenance now: a descriptor that disagrees with its own envelope is two
+    // different claims about which artifact is being ingested, not merely a digest problem.
     name: 'an identity digest that disagrees with the descriptor is refused',
-    stage: 'integrity_verified',
-    code: 'HASH_MISMATCH',
+    stage: 'provenance_verified',
+    code: 'DESCRIPTOR_REFERENCE_MISMATCH',
     mutate: envelope => {
       envelope.identity.sha256 = `sha256:${'b'.repeat(64)}`;
       envelope.object_key = 'synthetic_fixture.zz.v1.0.json';

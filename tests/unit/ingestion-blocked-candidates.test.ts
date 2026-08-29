@@ -13,7 +13,11 @@
 import { ArtifactDescriptor, Environment } from '../../src/manifest/contract';
 import { AnyReasonCode } from '../../src/manifest/ingestion/contract';
 import { KB_INTEGRATION_PINS } from '../../src/manifest/ingestion/pins';
-import { IngestionContext, runIngestionPipeline } from '../../src/manifest/ingestion/pipeline';
+import {
+  IngestionContext,
+  runIngestionPipeline,
+  stageGovernanceVerified,
+} from '../../src/manifest/ingestion/pipeline';
 import { emptyRegistry, registryView, stageCandidate } from '../../src/manifest/registry/registry';
 import { blockedCandidate, buildEnvelope, clone, testAuthority } from '../helpers/ingestion';
 
@@ -145,16 +149,25 @@ describe.each(['token_dictionary', 'question_flow'])(
       expect(descriptor.published_at).toBeNull();
       expect(descriptor.publication_decision_ref).toBeNull();
 
-      // Ask to publish, with every approval hypothetically granted and blockers resolved.
+      // Ask to publish, with every approval hypothetically granted and blockers resolved. The
+      // governance stage is exercised directly: a publish envelope is now also refused earlier,
+      // at provenance, because publication requires verified provenance that cannot exist. Both
+      // refusals are real, and isolating this one is the point of the stages being pure.
       const lifted = fullyApproved(descriptor);
-      const outcome = runIngestionPipeline(
+      const reasons = stageGovernanceVerified(
         buildEnvelope({ descriptor: lifted, operation: 'publish' }),
         context(),
       );
 
+      expect(codes(reasons)).toContain('PUBLICATION_NOT_PERFORMED');
+      expect(codes(reasons)).toContain('PUBLICATION_NOT_AUTHORIZED');
+
+      // ... and the whole pipeline refuses it too, whatever the first refusal happens to be.
+      const outcome = runIngestionPipeline(
+        buildEnvelope({ descriptor: lifted, operation: 'publish' }),
+        context(),
+      );
       expect(outcome.admissible).toBe(false);
-      expect(codes(outcome.reasons)).toContain('PUBLICATION_NOT_PERFORMED');
-      expect(codes(outcome.reasons)).toContain('PUBLICATION_NOT_AUTHORIZED');
     });
 
     it('activation authorization is absent even once publication is hypothetically complete', () => {
@@ -162,22 +175,44 @@ describe.each(['token_dictionary', 'question_flow'])(
       lifted.release_status = 'published';
       lifted.published_at = '2026-08-29T00:00:00Z';
 
-      const outcome = runIngestionPipeline(
-        buildEnvelope({
-          descriptor: lifted,
-          operation: 'activate',
-          publicationRef: 'hypothetical publication decision (test only)',
-        }),
-        context(),
+      const envelope = buildEnvelope({
+        descriptor: lifted,
+        operation: 'activate',
+        publicationRef: 'hypothetical publication decision (test only)',
+      });
+      expect(codes(stageGovernanceVerified(envelope, context()))).toContain(
+        'ACTIVATION_NOT_AUTHORIZED',
       );
-
-      expect(outcome.admissible).toBe(false);
-      expect(codes(outcome.reasons)).toContain('ACTIVATION_NOT_AUTHORIZED');
+      expect(runIngestionPipeline(envelope, context()).admissible).toBe(false);
     });
 
     it('signature policy is unavailable, so even a fully-governed envelope fails closed', () => {
       // Every governance gate lifted; only attestation remains. This is the last line of defence
       // and it must hold on its own.
+      const lifted = fullyApproved(blockedCandidate(artifactId));
+      lifted.release_status = 'published';
+      lifted.published_at = '2026-08-29T00:00:00Z';
+      lifted.activation_authorized = true;
+      lifted.activation_decision_ref = 'hypothetical activation decision (test only)';
+
+      // A `stage` operation is used here: staging needs only integrity-bound provenance, so the
+      // envelope reaches attestation and that gate must hold on its own. An `activate` envelope is
+      // refused earlier still, at provenance, because activation requires verified provenance that
+      // no trusted-producer infrastructure can currently establish — asserted separately below.
+      const outcome = runIngestionPipeline(
+        buildEnvelope({ descriptor: lifted, operation: 'stage', trustMode: 'production' }),
+        context(),
+      );
+
+      expect(outcome.reached).toContain('governance_verified');
+      expect(outcome.admissible).toBe(false);
+      expect(outcome.stage).toBe('rejected');
+      expect(codes(outcome.reasons)).toContain('SIGNATURE_POLICY_UNAVAILABLE');
+      expect(outcome.attestation?.operative).toBe(false);
+      expect(outcome.attestation?.verified).toBe(false);
+    });
+
+    it('activation additionally requires verified provenance, which cannot be established', () => {
       const lifted = fullyApproved(blockedCandidate(artifactId));
       lifted.release_status = 'published';
       lifted.published_at = '2026-08-29T00:00:00Z';
@@ -195,12 +230,9 @@ describe.each(['token_dictionary', 'question_flow'])(
         context(),
       );
 
-      expect(outcome.reached).toContain('governance_verified');
       expect(outcome.admissible).toBe(false);
-      expect(outcome.stage).toBe('rejected');
-      expect(codes(outcome.reasons)).toContain('SIGNATURE_POLICY_UNAVAILABLE');
-      expect(outcome.attestation?.operative).toBe(false);
-      expect(outcome.attestation?.verified).toBe(false);
+      expect(codes(outcome.reasons)).toContain('PROVENANCE_NOT_VERIFIED');
+      expect(outcome.reached).not.toContain('provenance_verified');
     });
   },
 );
@@ -287,10 +319,10 @@ describe('token_dictionary 2.0 rollback policy is unresolved', () => {
     };
     envelope.authorizations.rollback_decision_ref = 'hypothetical rollback decision (test only)';
 
-    const outcome = runIngestionPipeline(envelope, context());
-    expect(outcome.admissible).toBe(false);
-    expect(codes(outcome.reasons)).toContain('ROLLBACK_SCHEMA_INCOMPATIBLE');
-    expect(codes(outcome.reasons)).toContain('ROLLBACK_POLICY_UNRESOLVED');
+    const reasons = stageGovernanceVerified(envelope, context());
+    expect(codes(reasons)).toContain('ROLLBACK_SCHEMA_INCOMPATIBLE');
+    expect(codes(reasons)).toContain('ROLLBACK_POLICY_UNRESOLVED');
+    expect(runIngestionPipeline(envelope, context()).admissible).toBe(false);
   });
 
   it('an unauthorized rollback is refused before any target is even considered', () => {
@@ -298,8 +330,9 @@ describe('token_dictionary 2.0 rollback policy is unresolved', () => {
       descriptor: blockedCandidate('token_dictionary'),
       operation: 'rollback',
     });
-    const outcome = runIngestionPipeline(envelope, context());
-    expect(codes(outcome.reasons)).toContain('ROLLBACK_NOT_AUTHORIZED');
-    expect(codes(outcome.reasons)).toContain('ROLLBACK_TARGET_UNKNOWN');
+    const reasons = stageGovernanceVerified(envelope, context());
+    expect(codes(reasons)).toContain('ROLLBACK_NOT_AUTHORIZED');
+    expect(codes(reasons)).toContain('ROLLBACK_TARGET_UNKNOWN');
+    expect(runIngestionPipeline(envelope, context()).admissible).toBe(false);
   });
 });

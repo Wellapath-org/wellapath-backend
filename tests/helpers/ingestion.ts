@@ -16,6 +16,7 @@ import {
   MANIFEST_SCHEMA_SHA256,
   REQUIRED_MANIFEST_CONTRACT_VERSION,
   INGESTION_ENVELOPE_VERSION,
+  PlanSourceProvenance,
 } from '../../src/manifest/ingestion/contract';
 import { KB_INTEGRATION_PINS } from '../../src/manifest/ingestion/pins';
 import { AuditAuthority } from '../../src/manifest/registry/audit';
@@ -52,6 +53,9 @@ export interface EnvelopeOptions {
   publicationRef?: string | null;
   activationRef?: string | null;
   rollbackRef?: string | null;
+  actorRef?: string;
+  authorizationRef?: string;
+  planSourceProvenance?: PlanSourceProvenance | null;
 }
 
 /** Builds a structurally sound envelope. Callers mutate the result to create negative cases. */
@@ -74,6 +78,10 @@ export const buildEnvelope = (options: EnvelopeOptions): IngestionEnvelope => {
       source_commit: KB_INTEGRATION_PINS.source_commit,
       publication_plan_id: planId,
       publication_plan_sha256: plan?.sha256 ?? 'unknown',
+      governance_register_sha256: KB_INTEGRATION_PINS.governance.decision_register_v1.sha256,
+      actor_ref: options.actorRef ?? 'TEST-HARNESS-ACTOR-001 (fixture; authorizes nothing)',
+      authorization_ref:
+        options.authorizationRef ?? 'TEST-HARNESS-INGEST-AUTH-001 (fixture; authorizes nothing)',
       generator: 'test-harness',
       generator_version: '0.0.0',
     },
@@ -104,6 +112,18 @@ export const buildEnvelope = (options: EnvelopeOptions): IngestionEnvelope => {
         }
       : null,
     rollback: null,
+    plan_source_provenance: options.planSourceProvenance ?? {
+      decision_register_sha256: KB_INTEGRATION_PINS.governance.decision_register_v1.sha256,
+      repository_branch_cited: false,
+      kinds: [
+        'artifact_byte_identity',
+        'generator_input_identity',
+        'decision_record_provenance',
+        'publication_plan_provenance',
+        'repository_branch_state',
+        'ingestion_boundary',
+      ],
+    },
     synthetic: options.synthetic ?? false,
   };
 };

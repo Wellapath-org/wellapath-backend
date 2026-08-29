@@ -14,8 +14,16 @@
  */
 import { Environment, ReasonCode } from '../contract';
 
-/** Version of the ingestion envelope contract itself. Independent of the manifest contract. */
-export const INGESTION_ENVELOPE_VERSION = '1.0.0';
+/**
+ * Version of the ingestion envelope contract itself. Independent of the manifest contract.
+ *
+ * 1.1.0 supersedes 1.0.0, which existed only on this unmerged branch and was never published or
+ * consumed. It adds REQUIRED provenance fields — the producing actor, the authorization the
+ * ingestion occurs under, and the governance-register digest where one is referenced — so a 1.0.0
+ * draft is invalid under it. That is a pre-merge amendment of a draft, not a compatibility promise
+ * being broken. The supported major is unchanged.
+ */
+export const INGESTION_ENVELOPE_VERSION = '1.1.0';
 
 /** The only envelope major this implementation understands. Anything else is refused. */
 export const SUPPORTED_ENVELOPE_MAJOR = 1;
@@ -120,6 +128,16 @@ export const INGESTION_REASON_CODES = [
   'ROLLBACK_TARGET_NOT_IMMUTABLE',
   'ROLLBACK_SCHEMA_INCOMPATIBLE',
   'ROLLBACK_POLICY_UNRESOLVED',
+  // provenance_verified — source, actor and authorization
+  'PROVENANCE_SOURCE_MUTABLE_REFERENCE',
+  'PROVENANCE_ACTOR_MISSING',
+  'PROVENANCE_AUTHORIZATION_MISSING',
+  'PROVENANCE_CONTRADICTION',
+  'PROVENANCE_NOT_VERIFIED',
+  'GOVERNANCE_REGISTER_HASH_MISMATCH',
+  'DESCRIPTOR_REFERENCE_MISMATCH',
+  'SOURCE_PROVENANCE_MALFORMED',
+  'SOURCE_PROVENANCE_KIND_UNKNOWN',
   // integrity_verified — attestation
   'SIGNATURE_POLICY_UNAVAILABLE',
   'TEST_TRUST_MODE_FORBIDDEN',
@@ -159,19 +177,116 @@ export interface ArtifactIdentity {
   sha256: string;
 }
 
-/** Where an envelope came from, and what it claims to correspond to upstream. */
+/**
+ * Where an envelope came from, who produced it, and under what authorization.
+ *
+ * The producer's own publication plan states the division explicitly: the plan supplies artifact
+ * byte identity, hash-bound decision-record provenance and contract provenance; the *envelope*
+ * must supply the source repository and commit the bytes were taken from, the actor performing
+ * the ingestion, and the authorization it occurs under. None of those three may be inferred from
+ * an artifact hash, a descriptor, a branch name or an object key — the plan says so in as many
+ * words, and this contract enforces it.
+ */
 export interface EnvelopeProvenance {
   /** Producing repository, e.g. `wellapath-org/wellapath-knowledge-base`. */
   source_repository: string;
-  /** Exact producing commit. Never a branch name. */
+  /**
+   * Exact producing commit — a full 40-hex id. Never a branch name, tag or symbolic ref: those
+   * are mutable and name whatever they happen to point at today.
+   */
   source_commit: string;
   /** Identity of the publication plan this envelope was generated from. */
   publication_plan_id: string;
   /** `sha256:<64 hex>` over the exact committed bytes of that plan. */
   publication_plan_sha256: string;
+  /**
+   * Digest of the governance register, required whenever the envelope's plan provenance
+   * references one. `null` only when nothing references a register.
+   */
+  governance_register_sha256: string | null;
+  /**
+   * Who performed the ingestion. A reference to a recorded operator or system identity, never a
+   * person's name or credential. Absent means the ingestion has no attributable actor.
+   */
+  actor_ref: string;
+  /** The authorization the ingestion itself occurs under. Distinct from per-operation decisions. */
+  authorization_ref: string;
   /** Tool that produced the envelope, for traceability. */
   generator: string;
   generator_version: string;
+}
+
+/**
+ * How far provenance has actually been established. These three are never synonyms.
+ *
+ *   claimed          — the fields are populated. That is the entire claim: anyone can populate
+ *                      fields, so this establishes nothing beyond the envelope being well formed.
+ *   integrity_bound  — the declared digests match the digests this implementation holds. The
+ *                      bytes are the bytes. It says nothing about who approved them, who produced
+ *                      them, or whether the producer was authorised.
+ *   verified         — the producer's identity and authority have been cryptographically
+ *                      established. This requires trusted-producer infrastructure that does not
+ *                      exist, so production-like provenance can never reach it today.
+ */
+export type ProvenanceState = 'claimed' | 'integrity_bound' | 'verified';
+export const PROVENANCE_STATES: readonly ProvenanceState[] = [
+  'claimed',
+  'integrity_bound',
+  'verified',
+];
+
+/** Ordering for "at least" comparisons. Never treat a lower state as satisfying a higher one. */
+export const PROVENANCE_STATE_RANK: Readonly<Record<ProvenanceState, number>> = {
+  claimed: 0,
+  integrity_bound: 1,
+  verified: 2,
+};
+
+/**
+ * The provenance state each operation requires.
+ *
+ * Staging is Backend bookkeeping and needs the bytes to be what they say they are. Publishing,
+ * activating and rolling back change what consumers receive, so each requires provenance to be
+ * `verified` — which, with no trusted-producer infrastructure, means they fail closed outside a
+ * synthetic test.
+ */
+export const OPERATION_PROVENANCE_REQUIREMENT: Readonly<
+  Record<IngestionOperation, ProvenanceState>
+> = {
+  stage: 'integrity_bound',
+  publish: 'verified',
+  activate: 'verified',
+  rollback: 'verified',
+};
+
+/**
+ * Kinds the producer's informational `source_provenance` block may declare. Closed: an unknown
+ * kind is refused rather than ignored, because a kind this implementation does not understand may
+ * be making a claim it does not know how to disbelieve.
+ */
+export const SOURCE_PROVENANCE_KINDS: readonly string[] = [
+  'artifact_byte_identity',
+  'generator_input_identity',
+  'decision_record_provenance',
+  'publication_plan_provenance',
+  'repository_branch_state',
+  'ingestion_boundary',
+];
+
+/**
+ * The producer's `source_provenance` block, carried verbatim and treated as INFORMATIONAL.
+ *
+ * It is integrity-bound (it lives inside a plan whose digest is pinned) and it is useful context,
+ * but it can never override envelope provenance and can never certify its own producer or
+ * authorization. A document does not become authoritative about its own origin by describing it.
+ */
+export interface PlanSourceProvenance {
+  /** Digest of the governance register the plan's decision-record provenance names. */
+  decision_register_sha256: string | null;
+  /** Whether the plan cites a mutable branch tip. Must be false; a branch tip names nothing fixed. */
+  repository_branch_cited: boolean;
+  /** The kinds the block declares, checked against `SOURCE_PROVENANCE_KINDS`. */
+  kinds: string[];
 }
 
 /** Governance decision references carried by the envelope. Absent means NOT authorized. */
@@ -227,6 +342,11 @@ export interface IngestionEnvelope {
   idempotency_key: string;
   predecessor: ArtifactIdentity | null;
   rollback: RollbackIdentity | null;
+  /**
+   * The producer's own provenance narrative, carried for traceability. Informational only: it is
+   * checked for structure and agreement, and it is never read as approval or authorization.
+   */
+  plan_source_provenance: PlanSourceProvenance | null;
   /** Marks a fixture that names no real object. Required by the test-only trust mode. */
   synthetic: boolean;
 }
@@ -251,6 +371,7 @@ export const REQUIRED_ENVELOPE_KEYS: readonly string[] = [
   'idempotency_key',
   'predecessor',
   'rollback',
+  'plan_source_provenance',
   'synthetic',
 ];
 
@@ -262,8 +383,30 @@ export const REQUIRED_PROVENANCE_KEYS: readonly string[] = [
   'source_commit',
   'publication_plan_id',
   'publication_plan_sha256',
+  'governance_register_sha256',
+  'actor_ref',
+  'authorization_ref',
   'generator',
   'generator_version',
+];
+
+/**
+ * Reference forms that are never acceptable as source identity. A mutable ref names whatever it
+ * points at when someone looks, which is exactly the property a provenance record must not have.
+ */
+export const MUTABLE_SOURCE_REFERENCES: readonly string[] = [
+  'develop',
+  'main',
+  'master',
+  'head',
+  'latest',
+  'current',
+  'stable',
+  'live',
+  'production',
+  'prod',
+  'default',
+  'trunk',
 ];
 
 /** Formats an identity for audit and reason text. Never includes a URL or any secret. */

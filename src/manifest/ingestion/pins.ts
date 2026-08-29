@@ -63,7 +63,7 @@ export interface KbIntegrationPins {
 }
 
 /**
- * `wellapath-knowledge-base` at the commit this step was written against.
+ * `wellapath-knowledge-base` at the commit this step is pinned to (I3 Step 3B re-pin).
  *
  * Note this is a LATER commit than the one the blocked-candidate fixtures are seeded from
  * (`c1b07944…`, carried inside those descriptors as the authoritative generation commit). The two
@@ -72,7 +72,7 @@ export interface KbIntegrationPins {
  */
 export const KB_INTEGRATION_PINS: KbIntegrationPins = {
   source_repository: 'wellapath-org/wellapath-knowledge-base',
-  source_commit: '77beffec2f7c8612a3760af30659a299ce2820a3',
+  source_commit: '1f1b8dd0bf9cadf8b210aba16bfa516603444130',
   manifest_contract_version: '1.1.0',
 
   contract_pin: {
@@ -102,8 +102,8 @@ export const KB_INTEGRATION_PINS: KbIntegrationPins = {
   schemas: {
     publication_plan_v1: {
       path: 'schema/publication_plan.v1.schema.json',
-      sha256: 'a4069eb582d4c4d34da626dd6ffbb37a44287ddf0d2a20775bbd5ee603906d81',
-      byte_count: 27055,
+      sha256: '71d08a9efe6e61b6ea1bab3f9af08f86fd623b49861a29fbb3e6e0f936a8b89a',
+      byte_count: 32918,
       purpose:
         'Shape of a publication plan. Pins every operation flag and the eligibility fields to const false, so a plan cannot claim an act it did not perform.',
     },
@@ -119,15 +119,15 @@ export const KB_INTEGRATION_PINS: KbIntegrationPins = {
   publication_plans: {
     'token_dictionary.ng.v2.0.dryrun': {
       path: 'publication/plans/token_dictionary.ng.v2.0.dryrun.json',
-      sha256: '7f70788658d4d49e77e858465f931a0913e16c261e32045ebf6433829d2864aa',
-      byte_count: 23091,
+      sha256: 'df262e9eef6886d71a19cdca7ae81048dcf46e38771ea88d17fd92ceeaef6681',
+      byte_count: 26784,
       purpose:
         'Dry-run publication plan for the token_dictionary 2.0 candidate. Records that it is not publishable, not activatable and ineligible in every environment.',
     },
     'question_flow.ng.v1.1.dryrun': {
       path: 'publication/plans/question_flow.ng.v1.1.dryrun.json',
-      sha256: '947c810cca92acb2dce4916272d7d7eca432cc879e3a36f289fb850f1bd99413',
-      byte_count: 43104,
+      sha256: '2ae4b69471725a8a24e669f3f22406821e6f1d0957ed9bfda482e94a9dd05d48',
+      byte_count: 46806,
       purpose:
         'Dry-run publication plan for the question_flow 1.1 candidate. Records its open blockers and absent authorizations.',
     },
@@ -136,8 +136,8 @@ export const KB_INTEGRATION_PINS: KbIntegrationPins = {
   compatibility_fixtures: {
     kb_blocked_candidates: {
       path: 'publication/fixtures/compat/kb_blocked_candidates.manifest.json',
-      sha256: 'c6ea18ec68cf3b46d5722ad0c00cbe4c53cf3d3ba7746097138c963eeb82d354',
-      byte_count: 6248,
+      sha256: 'a4dc85e4e2b584f0573f241d784ee30b57aa7607efc0ccb07cea8467fa4abe7e',
+      byte_count: 7370,
       purpose:
         'The producer-side manifest of the same two blocked candidates, with real digests rather than synthetic ones.',
     },
@@ -164,14 +164,14 @@ export const KB_INTEGRATION_PINS: KbIntegrationPins = {
     },
     negative_fixtures_compat: {
       path: 'publication/fixtures/compat/negative_fixtures.compat.json',
-      sha256: 'b739ea8efced80e114eea171913bad9d9e49e8635247c53a94201a1434e2fcc3',
+      sha256: '6372fccfb69a4bcb0f55533d0944e6c19a70c3b0ccd194674c6deda013782faa',
       byte_count: 15932,
       purpose: 'Producer-side negative fixtures mirroring the Backend contract refusals.',
     },
     kb_stage_fixtures_v1: {
       path: 'publication/fixtures/negative/kb_stage_fixtures_v1.json',
-      sha256: '5bc3806ce4984bccd8ee5189b321efbf84caed464e1df47910304d5b4d5b0a78',
-      byte_count: 17155,
+      sha256: '4fc10c221f9aaf38d639c1043d50c84a9edb400fb995eea777714a002b5acef0',
+      byte_count: 21071,
       purpose: 'Producer-side stage-level negative fixtures.',
     },
   },

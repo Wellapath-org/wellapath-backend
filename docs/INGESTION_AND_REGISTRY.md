@@ -1,5 +1,10 @@
 # Ingestion and Registry Foundation — I3 Step 3
 
+> **Amended by I3 Step 3B (2026-08-29).** Re-pinned to knowledge base `1f1b8dd0`, which corrected
+> the two provenance hazards §1 recorded. The envelope now requires the actor, the ingestion
+> authorization and the governance-register digest, and provenance is tracked through three states
+> that are never synonyms (§3a). Envelope contract `1.0.0` → `1.1.0`.
+
 > **Status: INACTIVE.** No route accepts an envelope. No module outside `src/manifest/**` imports
 > any of this. Nothing here writes to a database, to R2, to the filesystem or to the network, and
 > `GET /config` is byte-for-byte unchanged at
@@ -14,7 +19,7 @@
 | Audit event              | `1.0.0` — `docs/contracts/audit-event.v1.schema.json`                 |
 | Manifest contract in use | `1.1.0` (unchanged by this step)                                      |
 | Source of truth          | `src/manifest/ingestion/`, `src/manifest/registry/`                   |
-| Producer pinned at       | `wellapath-knowledge-base` `77beffec2f7c8612a3760af30659a299ce2820a3` |
+| Producer pinned at       | `wellapath-knowledge-base` `1f1b8dd0bf9cadf8b210aba16bfa516603444130` |
 
 ---
 
@@ -29,12 +34,17 @@ Pinning runs **both ways.** The producer records digests of three of our files; 
 here as `reciprocal` and verified from our side. Either party changing agreed bytes now shows up as
 a mismatch instead of surfacing later as a mysterious disagreement.
 
-**Two cross-repository hazards worth knowing about.** Both dry-run plans carry a
-`contract_validation.contract_version` field reading `"1.0.0"` while `contract_pin.contract_version`
-in the same document reads `"1.1.0"`, and both descriptors' `references[]` name the superseded
-contract and our superseded commit `fc40ac3e`. The authoritative value is `contract_pin`; nothing
-here reads the other two. This is recorded rather than worked around, and it is the producer's to
-correct if they choose.
+**The two hazards recorded at Step 3 are closed.** Both plans now agree with themselves —
+`contract_validation.contract_version` reads `1.1.0`, and the descriptors' `references[]` name
+contract `1.1.0` at `bbaeadd6` rather than the superseded pair. The stale
+`knowledge-base develop at generation` line is gone entirely: the producer removed the branch
+citation rather than replacing it with a newer commit, on the grounds that a newer one would go
+stale the same way. `source_provenance.repository_branch_state.cited` is `false` and this
+implementation refuses a plan block that says otherwise.
+
+**The re-pin advanced as a whole.** Both plan digests, the plan schema, the producer's blocked-
+candidate manifest and both negative-fixture corpora moved together; a partial advance — one plan
+re-pinned and the other left stale — is a tested refusal, not something that would pass quietly.
 
 ## 2. The ingestion envelope
 
@@ -48,6 +58,19 @@ descriptor · identity (`artifact_id` + `artifact_version` + `sha256`, all three
 content type · immutable object key · environment · requested operation · publication / activation
 / rollback decision references · attestation · created-at · idempotency key · predecessor ·
 rollback identity · a `synthetic` flag.
+
+## 2a. What the envelope must supply, and why
+
+The producer's plan states the division of labour explicitly. The plan supplies artifact-byte
+identity, hash-bound decision-record provenance and contract provenance. The **envelope** must
+supply the three things a plan cannot honestly assert about itself: the source repository and
+commit the bytes were taken from, the actor performing the ingestion, and the authorization the
+ingestion occurs under.
+
+None of those may be inferred from an artifact hash, a descriptor, a branch name or an object key.
+A branch name, tag or symbolic ref (`develop`, `main`, `HEAD`, `latest`, …) is refused outright as
+`PROVENANCE_SOURCE_MUTABLE_REFERENCE`: a branch names whatever it points at today, which is the one
+property a provenance record must not have.
 
 ## 3. Pipeline stages
 
@@ -68,6 +91,54 @@ every refusal names the stage that produced it plus a stable reason code. Specif
 Reaching `integrity_verified` yields `admissible: true`, which means only that every check up to
 that point held. It is not staging, publication or activation; those are registry operations with
 their own preconditions.
+
+## 3a. Claimed, integrity-bound, verified
+
+Three states, never synonyms:
+
+| State             | Established by                                                            | Establishes                                                                      |
+| ----------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `claimed`         | the fields being populated                                                | that the envelope is well formed. Anyone can populate fields.                    |
+| `integrity_bound` | the declared digests matching the ones we hold                            | that **the bytes are the bytes** — nothing about approval, producer or authority |
+| `verified`        | the producer's identity and authority being cryptographically established | requires trusted-producer infrastructure that **does not exist**                 |
+
+`stage` requires `integrity_bound`. `publish`, `activate` and `rollback` each require `verified`, so
+each **fails closed** with `PROVENANCE_NOT_VERIFIED` for production-like input. The synthetic
+test-only mode may traverse the transition so the rest of the pipeline can be exercised, and every
+evaluation it produces is marked `operative: false` — exercising a transition is not verification.
+
+**No envelope claims trusted source authorization merely because its repository and commit fields
+are populated.** That is asserted directly: an envelope whose every provenance field matches the pin
+still reports `producer_authority_established: false`.
+
+## 3b. Hash agreement is never governance
+
+The single substitution this subsystem exists to prevent, in the producer's own words: _"a matching
+sha256 proves the bytes are the bytes. It proves nothing about who approved them or where they came
+from. An ingester that treats hash agreement as governance evidence has skipped the governance check
+entirely."_
+
+| A matching digest of…   | establishes            | grants  |
+| ----------------------- | ---------------------- | ------- |
+| the artifact            | byte identity          | nothing |
+| the publication plan    | plan identity          | nothing |
+| the governance register | register-byte identity | nothing |
+
+None grants Product approval, Clinical approval, publication authorization or activation
+authorization; none proves actor authority; none makes an artifact eligible. **Only a correctly
+scoped approval record contributes to `approved`** — a decision scoped `product_display` in an
+artifact-publication slot is `APPROVAL_SCOPE_MISMATCH`, exactly as under manifest contract 1.1.0.
+
+## 3c. The plan's provenance block is informational
+
+The producer's `source_provenance` is carried, checked and never obeyed. It is validated for
+structure and for known kinds (an unknown kind is refused, not ignored, because a kind this
+implementation does not understand may be making a claim it does not know how to disbelieve), its
+governance-register digest must agree with the envelope's and with the pin, and a disagreement is a
+`PROVENANCE_CONTRADICTION` refused rather than resolved in favour of either side.
+
+It can never supply what the envelope must supply, never self-certify its producer or its
+authorization, and its narrative is never copied into an approval slot.
 
 ## 4. Registry invariants
 

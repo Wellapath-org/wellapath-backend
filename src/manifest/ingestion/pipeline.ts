@@ -36,12 +36,12 @@ import {
   PipelineStage,
   REQUIRED_ENVELOPE_KEYS,
   REQUIRED_MANIFEST_CONTRACT_VERSION,
-  REQUIRED_PROVENANCE_KEYS,
   StageReason,
   SUPPORTED_ENVELOPE_MAJOR,
   formatIdentity,
   identityEquals,
 } from './contract';
+import { evaluateProvenance } from './provenance';
 import { AttestationResult, evaluateAttestation } from './signing';
 import { KbIntegrationPins } from './pins';
 
@@ -280,91 +280,23 @@ export const stageContractValidated = (envelope: IngestionEnvelope): StageReason
 
 /* -------------------------------------------------------- stage 4: provenance_verified */
 
-/** Where it came from, that it matches the pinned upstream, and that its identity is immutable. */
+/**
+ * Where it came from, who produced it, under what authority, and whether its identity is
+ * immutable in this registry.
+ *
+ * Source identity, digest binding, the producer's informational provenance block and the
+ * descriptor cross-reference are all delegated to `provenance.ts`, which also computes how far
+ * provenance actually got. What stays here is the part that needs registry state: an object key
+ * must be the immutable key its identity implies and must never be rebound, and a known version
+ * must never reappear with different content.
+ */
 export const stageProvenanceVerified = (
   envelope: IngestionEnvelope,
   context: IngestionContext,
 ): StageReason[] => {
-  const reasons: StageReason[] = [];
-  const provenance = envelope.provenance;
+  const evaluation = evaluateProvenance(envelope, context.pins);
+  const reasons: StageReason[] = [...evaluation.reasons];
 
-  if (!isPlainObject(provenance)) {
-    return [
-      reason(
-        'provenance_verified',
-        'PROVENANCE_MISSING',
-        'envelope.provenance',
-        'provenance is absent; an envelope of unknown origin is never ingested',
-      ),
-    ];
-  }
-  for (const key of REQUIRED_PROVENANCE_KEYS) {
-    const value = (provenance as unknown as Record<string, unknown>)[key];
-    if (typeof value !== 'string' || value.trim() === '') {
-      reasons.push(
-        reason(
-          'provenance_verified',
-          'PROVENANCE_MISSING',
-          `envelope.provenance.${key}`,
-          `provenance field ${key} is absent or empty`,
-        ),
-      );
-    }
-  }
-  if (reasons.length > 0) return reasons;
-
-  if (provenance.source_repository !== context.pins.source_repository) {
-    reasons.push(
-      reason(
-        'provenance_verified',
-        'KB_SOURCE_MISMATCH',
-        'envelope.provenance.source_repository',
-        `envelope names repository ${provenance.source_repository}; the pinned producer is ${context.pins.source_repository}`,
-      ),
-    );
-  }
-  if (!COMMIT_SHA.test(provenance.source_commit)) {
-    reasons.push(
-      reason(
-        'provenance_verified',
-        'KB_SOURCE_MISMATCH',
-        'envelope.provenance.source_commit',
-        'source_commit must be a full 40-hex commit id, never a branch name',
-      ),
-    );
-  } else if (provenance.source_commit !== context.pins.source_commit) {
-    reasons.push(
-      reason(
-        'provenance_verified',
-        'KB_SOURCE_MISMATCH',
-        'envelope.provenance.source_commit',
-        `envelope names commit ${provenance.source_commit}; the pinned producing commit is ${context.pins.source_commit}`,
-      ),
-    );
-  }
-
-  const pinnedPlan = context.pins.publication_plans[provenance.publication_plan_id];
-  if (pinnedPlan === undefined) {
-    reasons.push(
-      reason(
-        'provenance_verified',
-        'PLAN_HASH_MISMATCH',
-        'envelope.provenance.publication_plan_id',
-        `no pinned publication plan is known by id ${provenance.publication_plan_id}`,
-      ),
-    );
-  } else if (provenance.publication_plan_sha256 !== pinnedPlan.sha256) {
-    reasons.push(
-      reason(
-        'provenance_verified',
-        'PLAN_HASH_MISMATCH',
-        'envelope.provenance.publication_plan_sha256',
-        'the envelope names a publication plan whose digest differs from the pinned copy',
-      ),
-    );
-  }
-
-  // Identity must be well formed before anything can be said about collisions.
   const identity = envelope.identity;
   if (!isPlainObject(identity) || !SHA256_PATTERN.test(String(identity.sha256))) {
     reasons.push(
@@ -378,8 +310,7 @@ export const stageProvenanceVerified = (
     return reasons;
   }
 
-  // The object key is immutable: it must be derivable from the identity, and must never be
-  // rebound to different content.
+  // The object key is immutable: it must be derivable from the identity, and never rebound.
   const expectedKey = `${identity.artifact_id}.${(envelope.descriptor as ArtifactDescriptor)?.country ?? 'ng'}.v${identity.artifact_version}.json`;
   if (envelope.object_key !== expectedKey) {
     reasons.push(

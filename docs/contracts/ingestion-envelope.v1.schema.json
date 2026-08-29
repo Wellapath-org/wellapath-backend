@@ -3,7 +3,7 @@
   "$id": "https://wellapath.org/contracts/ingestion-envelope.v1.schema.json",
   "title": "WellaPath ingestion envelope contract",
   "description": "The boundary across which governed artifact publication output would one day be offered to the Backend. INACTIVE: no route accepts an envelope, no module outside src/manifest/** imports the code that validates one, and GET /config is unchanged. Source of truth is src/manifest/ingestion/contract.ts; tests/unit/ingestion-contract-sync.test.ts fails if this schema drifts from it. An envelope carries identity and digests, never bytes, never a URL, never a credential. Passing one stage never implies the next: received is not staged, staged is not published, published is not active, approval is not activation, and a merged upstream commit is not publication authorization.",
-  "contract_version": "1.0.0",
+  "contract_version": "1.1.0",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -25,6 +25,7 @@
     "idempotency_key",
     "predecessor",
     "rollback",
+    "plan_source_provenance",
     "synthetic"
   ],
   "properties": {
@@ -75,6 +76,10 @@
     "rollback": {
       "oneOf": [{ "$ref": "#/definitions/rollback_identity" }, { "type": "null" }]
     },
+    "plan_source_provenance": {
+      "oneOf": [{ "$ref": "#/definitions/plan_source_provenance" }, { "type": "null" }],
+      "description": "The producer's own provenance narrative, carried for traceability. INFORMATIONAL: checked for structure, known kinds and agreement, never read as approval or authorization, and never permitted to supply what the envelope must supply itself. A document does not become authoritative about its own origin by describing it."
+    },
     "synthetic": {
       "type": "boolean",
       "description": "Declares that this envelope names no real object. Required true by the synthetic test-only trust mode."
@@ -100,6 +105,9 @@
         "source_commit",
         "publication_plan_id",
         "publication_plan_sha256",
+        "governance_register_sha256",
+        "actor_ref",
+        "authorization_ref",
         "generator",
         "generator_version"
       ],
@@ -112,10 +120,24 @@
         },
         "publication_plan_id": { "type": "string", "minLength": 1 },
         "publication_plan_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "governance_register_sha256": {
+          "type": ["string", "null"],
+          "description": "Digest of the governance register, required whenever plan provenance references one. Matching it establishes that the register bytes are the register bytes — it grants no approval and proves no authority."
+        },
+        "actor_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Who performed the ingestion. A recorded operator or system identity, never a person's name or credential. The envelope must supply this; it can never be inferred from an artifact hash, a descriptor, a branch name or an object key."
+        },
+        "authorization_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The authorization the ingestion itself occurs under, distinct from any per-operation decision."
+        },
         "generator": { "type": "string", "minLength": 1 },
         "generator_version": { "type": "string", "minLength": 1 }
       },
-      "description": "Where the envelope came from. Absent provenance is PROVENANCE_MISSING; an envelope of unknown origin is never ingested."
+      "description": "Where the envelope came from, who produced it and under what authority. The producer's plan supplies artifact-byte identity, hash-bound decision-record provenance and contract provenance; the ENVELOPE must supply the source repository and commit, the actor, and the authorization. Absent provenance is PROVENANCE_MISSING. A mutable branch name or symbolic ref is PROVENANCE_SOURCE_MUTABLE_REFERENCE: a branch names whatever it points at today."
     },
     "authorizations": {
       "type": "object",
@@ -148,6 +170,33 @@
         "signature_ref": {
           "type": ["string", "null"],
           "description": "Opaque reference to a signature, when one exists. Never key material."
+        }
+      }
+    },
+    "plan_source_provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decision_register_sha256", "repository_branch_cited", "kinds"],
+      "properties": {
+        "decision_register_sha256": { "type": ["string", "null"] },
+        "repository_branch_cited": {
+          "type": "boolean",
+          "description": "Must be false. A plan that cites a mutable branch tip as its own source is refused: putting a branch name in a field does not make it an identity."
+        },
+        "kinds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "enum": [
+              "artifact_byte_identity",
+              "generator_input_identity",
+              "decision_record_provenance",
+              "publication_plan_provenance",
+              "repository_branch_state",
+              "ingestion_boundary"
+            ]
+          },
+          "description": "Closed set. An unknown kind is refused rather than ignored, because a kind this implementation does not understand may be making a claim it does not know how to disbelieve."
         }
       }
     },
