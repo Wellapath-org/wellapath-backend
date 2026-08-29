@@ -82,6 +82,17 @@ export interface AuditEvent {
   occurred_at: string;
 }
 
+/**
+ * Bounds on what a single event may carry.
+ *
+ * An audit record is a fixed-shape statement about a transition, not a place to put a document.
+ * Without bounds, a caller could park a megabyte of arbitrary content in a reference field and the
+ * redaction scan would happily pass it: the content would not *look* like a credential, and the
+ * record would still be an unbounded payload written to a durable, trusted log.
+ */
+export const AUDIT_FIELD_MAX_LENGTH = 512;
+export const AUDIT_REASON_CODES_MAX = 64;
+
 /** Keys whose presence in an audit payload is a leak regardless of value. */
 const FORBIDDEN_KEY_PATTERN =
   /(password|secret|token|credential|api[_-]?key|authorization|cookie|session|private[_-]?key|bytes|payload|body|content)/i;
@@ -97,6 +108,13 @@ const FORBIDDEN_VALUE_PATTERNS: { pattern: RegExp; what: string }[] = [
   { pattern: /-----BEGIN [A-Z ]*PRIVATE KEY-----/, what: 'private key material' },
   { pattern: /\bAKIA[0-9A-Z]{16}\b/, what: 'AWS access key id' },
   { pattern: /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\./, what: 'JWT' },
+  {
+    // An environment-variable assignment carrying a secret-shaped name. The forbidden-key scan
+    // catches these as field NAMES; this catches them embedded in a value.
+    pattern:
+      /\b[A-Z0-9_]*(SECRET|PASSWORD|PASSWD|TOKEN|APIKEY|API_KEY|CREDENTIAL)[A-Z0-9_]*\s*=\s*\S/,
+    what: 'environment-variable assignment carrying a secret',
+  },
 ];
 
 export interface SensitiveFinding {
@@ -108,19 +126,32 @@ export interface SensitiveFinding {
  * Scans an audit event (or any candidate payload) for data that must never be recorded.
  *
  * Returns every finding rather than the first, so a reviewer sees the whole problem. An empty
- * result is the only acceptable state for an emitted event.
+ * result is the only acceptable state for an emitted event. Oversized fields count as findings:
+ * an unbounded payload is a leak channel whether or not its content looks like a secret.
  */
 export const findSensitiveData = (value: unknown, path = 'event'): SensitiveFinding[] => {
   const findings: SensitiveFinding[] = [];
 
   const walk = (node: unknown, at: string): void => {
     if (typeof node === 'string') {
+      if (node.length > AUDIT_FIELD_MAX_LENGTH) {
+        findings.push({
+          path: at,
+          what: `oversized field (${node.length} chars, limit ${AUDIT_FIELD_MAX_LENGTH}); an audit record states a transition, it does not carry a document`,
+        });
+      }
       for (const { pattern, what } of FORBIDDEN_VALUE_PATTERNS) {
         if (pattern.test(node)) findings.push({ path: at, what });
       }
       return;
     }
     if (Array.isArray(node)) {
+      if (node.length > AUDIT_REASON_CODES_MAX) {
+        findings.push({
+          path: at,
+          what: `oversized array (${node.length} entries, limit ${AUDIT_REASON_CODES_MAX})`,
+        });
+      }
       node.forEach((entry, index) => walk(entry, `${at}[${index}]`));
       return;
     }

@@ -38,6 +38,7 @@ import {
   REQUIRED_MANIFEST_CONTRACT_VERSION,
   StageReason,
   SUPPORTED_ENVELOPE_MAJOR,
+  SUPPORTED_ENVELOPE_VERSIONS,
   formatIdentity,
   identityEquals,
 } from './contract';
@@ -151,6 +152,17 @@ export const stageEnvelopeValidated = (envelope: Record<string, unknown>): Stage
         'ENVELOPE_VERSION_UNSUPPORTED',
         'envelope.envelope_version',
         `envelope major ${match[1]} is not supported (supported: ${SUPPORTED_ENVELOPE_MAJOR})`,
+      ),
+    );
+  } else if (!SUPPORTED_ENVELOPE_VERSIONS.includes(version as string)) {
+    // Membership, not comparison. A future minor may need semantics this code lacks; a superseded
+    // minor was written under weaker rules and must not inherit the current guarantees.
+    reasons.push(
+      reason(
+        'envelope_validated',
+        'ENVELOPE_VERSION_UNSUPPORTED',
+        'envelope.envelope_version',
+        `envelope version ${String(version)} is not one this implementation understands (supported: ${SUPPORTED_ENVELOPE_VERSIONS.join(', ')}); a newer minor may rely on semantics this code does not implement, and an older one was written under weaker requirements`,
       ),
     );
   }

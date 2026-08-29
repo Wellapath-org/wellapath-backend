@@ -1,5 +1,10 @@
 # Ingestion and Registry Foundation — I3 Step 3
 
+> **Amended by I3 Step 3C (2026-08-29).** Review hardening: the envelope version became a closed
+> set (§2a) after a future minor and the superseded 1.0.0 draft were both found to be accepted; the
+> Git object-id constraint is now recorded as a compatibility decision (§2b); and audit events are
+> bounded and reject environment-secret assignments (§9).
+>
 > **Amended by I3 Step 3B (2026-08-29).** Re-pinned to knowledge base `1f1b8dd0`, which corrected
 > the two provenance hazards §1 recorded. The envelope now requires the actor, the ingestion
 > authorization and the governance-register digest, and provenance is tracked through three states
@@ -59,7 +64,35 @@ content type · immutable object key · environment · requested operation · pu
 / rollback decision references · attestation · created-at · idempotency key · predecessor ·
 rollback identity · a `synthetic` flag.
 
-## 2a. What the envelope must supply, and why
+## 2a. Envelope version is a closed set
+
+`SUPPORTED_ENVELOPE_VERSIONS` lists the versions this implementation understands; membership is
+the test, not a major-version comparison. Both directions matter, and the Step 3C review found both
+failing open:
+
+- a **future minor** may rely on semantics this code does not implement, so accepting it because
+  the major matches is the fail-open pattern the rest of this subsystem exists to avoid;
+- a **superseded minor** was written under weaker rules — 1.0.0 required no actor and no ingestion
+  authorization — so honouring its declared version would hand old input the guarantees of the
+  current contract without it ever having met them.
+
+This mirrors the producer's own pin record, which lists `supported_contract_versions` rather than
+a range.
+
+## 2b. Git object-id policy — a compatibility constraint, not an assumption
+
+`source_commit` must be **40 lowercase hex characters**, because both repositories in this system
+use SHA-1 object ids today (`SOURCE_COMMIT_OBJECT_FORMAT = 'sha1'`). Git's SHA-256 object format
+produces 64-hex ids; those are **refused** rather than accepted at a length this implementation has
+not been reconciled against. **This constraint must be revisited on both sides, together, before
+either repository migrates object format.** It is recorded here so it is not mistaken for a
+universal statement about Git.
+
+Repository identity is compared exactly. A URL form, an ssh form, a `.git` suffix, a trailing
+slash or a case variant is refused as ambiguous rather than normalised — normalisation is where two
+different identities quietly become one.
+
+## 2c. What the envelope must supply, and why
 
 The producer's plan states the division of labour explicitly. The plan supplies artifact-byte
 identity, hash-bound decision-record provenance and contract provenance. The **envelope** must
@@ -213,6 +246,13 @@ This is a recorded gap, not a defect to work around. It closes when an algorithm
 custody model, a rotation process and a verification policy are each separately decided.
 
 ## 9. Audit events
+
+Bounded as well as redacted. `AUDIT_FIELD_MAX_LENGTH` (512) and `AUDIT_REASON_CODES_MAX` (64) cap
+what a single event may carry, because an audit record is a fixed-shape statement about a
+transition, not a place to park a document — and without a bound, a megabyte of arbitrary content
+in a reference field passes the redaction scan simply by not looking like a credential. The scan
+also rejects an environment-variable assignment carrying a secret-shaped name, which the
+forbidden-field-name check catches only when it appears as a key.
 
 Eight types: `envelope_received`, `rejection`, `staging`, `publication`, `activation`, `rollback`,
 `idempotent_replay`, `conflict`. Each binds event version and id · prior and resulting revision ·

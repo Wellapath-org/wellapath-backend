@@ -29,6 +29,33 @@ export const INGESTION_ENVELOPE_VERSION = '1.1.0';
 export const SUPPORTED_ENVELOPE_MAJOR = 1;
 
 /**
+ * The closed set of envelope versions this implementation actually understands.
+ *
+ * A major check alone is not enough in either direction. A *future* minor may rely on semantics
+ * this code does not implement, and accepting it because the major matches is precisely the
+ * fail-open behaviour the rest of this subsystem exists to avoid. A *superseded* minor was written
+ * under weaker rules — 1.0.0 required no actor and no ingestion authorization — so accepting a
+ * document that declares 1.0.0 would hand old input the guarantees of the new contract without it
+ * ever having met them.
+ *
+ * So the rule is membership, not comparison. This mirrors the producer's own pin record, which
+ * lists `supported_contract_versions` rather than a range.
+ */
+export const SUPPORTED_ENVELOPE_VERSIONS: readonly string[] = ['1.1.0'];
+
+/**
+ * Git object-id policy for `source_commit`.
+ *
+ * **A current compatibility constraint, not a universal assumption about Git.** Both repositories
+ * in this system use SHA-1 object ids today, so a commit is 40 lowercase hex characters. Git's
+ * SHA-256 object format produces 64-hex ids; this implementation deliberately refuses those rather
+ * than accepting a length it has not been reconciled against, and the constraint must be revisited
+ * — on both sides, together — before either repository migrates.
+ */
+export const SOURCE_COMMIT_HEX_LENGTH = 40;
+export const SOURCE_COMMIT_OBJECT_FORMAT = 'sha1';
+
+/**
  * The manifest contract version an envelope must declare. An envelope that names a different
  * contract is refused rather than interpreted: the Backend will not guess which semantics a
  * producer meant.
