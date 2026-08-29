@@ -1,0 +1,207 @@
+# Ingestion and Registry Foundation — I3 Step 3
+
+> **Status: INACTIVE.** No route accepts an envelope. No module outside `src/manifest/**` imports
+> any of this. Nothing here writes to a database, to R2, to the filesystem or to the network, and
+> `GET /config` is byte-for-byte unchanged at
+> `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`.
+>
+> This step models what governed ingestion would have to prove before anything could be published.
+> It publishes nothing, activates nothing and authorizes nothing.
+
+| Item                     | Value                                                                 |
+| ------------------------ | --------------------------------------------------------------------- |
+| Ingestion envelope       | `1.0.0` — `docs/contracts/ingestion-envelope.v1.schema.json`          |
+| Audit event              | `1.0.0` — `docs/contracts/audit-event.v1.schema.json`                 |
+| Manifest contract in use | `1.1.0` (unchanged by this step)                                      |
+| Source of truth          | `src/manifest/ingestion/`, `src/manifest/registry/`                   |
+| Producer pinned at       | `wellapath-knowledge-base` `77beffec2f7c8612a3760af30659a299ce2820a3` |
+
+---
+
+## 1. The integration boundary
+
+`src/manifest/ingestion/pins.ts` freezes, by digest over committed bytes, every upstream input the
+Backend would consume: the producer's contract pin record and its vendored copy of our schema, the
+publication-plan and receipt schemas, both dry-run plans, the compatibility fixtures, the
+reconciliation records (v1 and v2), and the governance register.
+
+Pinning runs **both ways.** The producer records digests of three of our files; those are recorded
+here as `reciprocal` and verified from our side. Either party changing agreed bytes now shows up as
+a mismatch instead of surfacing later as a mysterious disagreement.
+
+**Two cross-repository hazards worth knowing about.** Both dry-run plans carry a
+`contract_validation.contract_version` field reading `"1.0.0"` while `contract_pin.contract_version`
+in the same document reads `"1.1.0"`, and both descriptors' `references[]` name the superseded
+contract and our superseded commit `fc40ac3e`. The authoritative value is `contract_pin`; nothing
+here reads the other two. This is recorded rather than worked around, and it is the producer's to
+correct if they choose.
+
+## 2. The ingestion envelope
+
+An envelope names an artifact and proves things about it. It carries **no bytes, no URL and no
+credential** — the object is identified by immutable identity and verified by digest, so an
+envelope cannot leak a secret or be replayed against a live endpoint.
+
+Required: envelope version · manifest contract version · pinned schema digest and byte count ·
+provenance (repository, full commit id, plan id and digest, generator and version) · the artifact
+descriptor · identity (`artifact_id` + `artifact_version` + `sha256`, all three) · byte count ·
+content type · immutable object key · environment · requested operation · publication / activation
+/ rollback decision references · attestation · created-at · idempotency key · predecessor ·
+rollback identity · a `synthetic` flag.
+
+## 3. Pipeline stages
+
+`received → envelope_validated → contract_validated → provenance_verified → governance_verified →
+integrity_verified → staged → published → active`, plus terminal `rejected`.
+
+**No stage implies the next.** The pipeline stops at the first stage that produces a reason, and
+every refusal names the stage that produced it plus a stable reason code. Specifically:
+
+- `received` is not `staged` — an envelope arriving proves nothing about it;
+- `staged` is not `published` — staging is Backend bookkeeping, not a release;
+- `published` is not `active` — publication makes an artifact available, not chosen;
+- storage presence is not publication — an object existing in R2 is not a governance event;
+- approval is not activation — approvals gate publication; activation is its own decision;
+- a merged upstream commit is not publication authorization — merging is not deciding;
+- a valid descriptor is not eligible — structure is not governance.
+
+Reaching `integrity_verified` yields `admissible: true`, which means only that every check up to
+that point held. It is not staging, publication or activation; those are registry operations with
+their own preconditions.
+
+## 4. Registry invariants
+
+Pure and in-memory. Every operation is a function from a state to a new state; nothing mutates.
+
+- **immutable identity** — the triple `artifact_id` + `artifact_version` + `sha256`. A known
+  version reappearing with a different digest is `IDENTITY_COLLISION`; an object key rebound to
+  different content is `OBJECT_KEY_MUTABLE`;
+- **monotonic revision** — increases by exactly one on an accepted mutation, and never otherwise;
+- **at most one active** descriptor per artifact line per environment, by construction;
+- **append-only audit**, with each event binding the revision it moved the registry from and to;
+- **rejected records carry no envelope payload** — a refusal is recorded, the offending document
+  is not;
+- **a failed operation returns the prior state object itself.** Not an equal copy — the same
+  reference. `expect(result.state).toBe(before)` is the assertion, so "unchanged" is checked
+  rather than trusted. The audit event describing a failure is returned to the caller; recording
+  it into the registry is a separate, deliberate act.
+
+## 5. Compare-and-swap
+
+Activation requires, simultaneously: the expected current revision · the expected current active
+identity · the exact candidate identity and digest · an explicit target environment · publication
+authorization · activation authorization · every required approval · no open blocker · compatibility
+and integrity success · signing-policy success · an idempotency key.
+
+Refused: stale revision (`REVISION_STALE`) · unexpected current active
+(`ACTIVE_IDENTITY_UNEXPECTED`, which is also how a candidate-replacement race loses) · replay with a
+changed payload (`REPLAY_PAYLOAD_MISMATCH`) · activating what is only staged
+(`ACTIVATION_BEFORE_PUBLICATION`) · re-activating the already-active descriptor
+(`DUPLICATE_ACTIVE_SELECTION`) · environment mismatch · missing or ambiguous active state.
+
+## 6. Idempotency and replay
+
+An idempotency key is bound to the canonical digest of what the request asked for. Same key, same
+digest → an idempotent no-op that leaves the revision untouched. Same key, different digest →
+`REPLAY_PAYLOAD_MISMATCH`; the system never guesses which request was meant.
+
+**The idempotency check runs before the revision check**, deliberately. A client retrying a request
+whose response was lost sends the identical request, including the same expected revision — and
+that request has already been applied. Checking the revision first would answer `REVISION_STALE`
+to a correct retry.
+
+## 7. Last-known-good and rollback
+
+Last-known-good advances **only** on a successful activation, and only to the descriptor that was
+genuinely serving before. Rollback is a separate compare-and-swap, never a fallback path of
+activation, and requires explicit rollback authorization plus a target bound by version _and_
+digest that is already known and immutable. Rolling back does not promote the descriptor being
+rolled away from — that is precisely what was found wanting.
+
+**Both real candidates' rollbacks are refused.** `token_dictionary` 2.0 → 1.1 crosses content
+schema 2.0 → 1.0, and `question_flow` 1.1 → 1.0 crosses 1.1 → 1.0. No cross-schema rollback policy
+has been approved by either repository, so the refusal stands and **no rollback target is
+invented**: `ROLLBACK_SCHEMA_INCOMPATIBLE` together with `ROLLBACK_POLICY_UNRESOLVED`. The producer
+records the same refusal under its own code `KB_ROLLBACK_SCHEMA_INCOMPATIBLE`; the namespaces are
+disjoint by design and a producer code is never written into a descriptor.
+
+## 8. The signing blocker
+
+There is **no signing algorithm, no trusted key source, no custody model, no rotation process and
+no verification policy** approved for this system, and none is invented here. The consequence is
+that production-like ingestion **fails closed** with `SIGNATURE_POLICY_UNAVAILABLE`, whatever the
+producer claims about having signed — a claim is recorded and never trusted.
+
+The `synthetic_test_only` trust mode exists so the pipeline can be exercised end to end. It is a
+function argument, never ambient state; it is never read from an environment variable; it is
+refused in staging and production; it requires the envelope to declare `synthetic: true`; and the
+result it produces is marked `operative: false` and `verified: false`. A test asserts that no
+application file references it.
+
+This is a recorded gap, not a defect to work around. It closes when an algorithm, a key source, a
+custody model, a rotation process and a verification policy are each separately decided.
+
+## 9. Audit events
+
+Eight types: `envelope_received`, `rejection`, `staging`, `publication`, `activation`, `rollback`,
+`idempotent_replay`, `conflict`. Each binds event version and id · prior and resulting revision ·
+authority reference · environment · artifact identity and digest · decision references · operation ·
+outcome and reason codes · timestamp · correlation key.
+
+Event ids are derived from event content, so the same inputs always produce the same trail. The
+builder **refuses to emit** an event containing a credentialed URL, a signed URL, a bearer token,
+key material, an AWS key id, a JWT, or any field named like a secret or a payload. Synthetic
+examples for every type are in `tests/fixtures/ingestion/audit-events.examples.json`, generated by
+the real builder so they cannot drift from it.
+
+## 10. What the real candidates do
+
+Both are refused **before staging**, and each disqualifying condition is proven independently by
+lifting every earlier gate:
+
+| Condition                                     | Code                           |
+| --------------------------------------------- | ------------------------------ |
+| Product artifact-publication approval pending | `APPROVAL_NOT_GRANTED`         |
+| Clinical approval pending                     | `APPROVAL_NOT_GRANTED`         |
+| Publication not performed                     | `PUBLICATION_NOT_PERFORMED`    |
+| Publication authorization absent              | `PUBLICATION_NOT_AUTHORIZED`   |
+| Activation authorization absent               | `ACTIVATION_NOT_AUTHORIZED`    |
+| Open blocker (`question_flow` only)           | `BLOCKER_UNRESOLVED`           |
+| Signature policy unavailable                  | `SIGNATURE_POLICY_UNAVAILABLE` |
+| Cross-schema rollback                         | `ROLLBACK_SCHEMA_INCOMPATIBLE` |
+
+`question_flow` 1.1 retains both open blockers (`IM001-CLIN-FLAG-001`, `IM003-SB-001`) and IM-003
+remains disabled. No fixture was altered to manufacture eligibility.
+
+## 11. Future persistence responsibilities
+
+Not built, and deliberately so. Whoever wires this to storage must provide: durable append-only
+audit retention with a defined retention period; a persisted registry whose revision is monotonic
+_across processes_, not merely within one; a compare-and-swap that is atomic at the storage layer
+(a transaction or a conditional write — the in-memory model's atomicity does not survive being
+split across two statements); idempotency-key retention at least as long as any client will retry;
+and a migration path that cannot lose last-known-good. None of that is designed here.
+
+## 12. Future operator authorization requirements
+
+Before any of this may run against a real artifact, all of the following must exist:
+
+1. an explicit publication authorization bound to the exact artifact, version and digest;
+2. a separate explicit activation authorization;
+3. an assigned Clinical reviewer and a recorded Clinical approval — **none is assigned today**;
+4. adjudication of both open blockers;
+5. an approved signing algorithm, key source, custody model, rotation process and verification
+   policy;
+6. an approved cross-schema rollback policy, or a schema-compatible exact rollback target;
+7. an upload path that does not exist yet, isolated from this code, requiring explicit environment
+   and authorization inputs and holding no usable credentials in tests.
+
+## 13. Exact conditions required before runtime wiring
+
+Runtime wiring is a separate, authorized step. It must not begin until items 1–7 above are
+satisfied **and** an engineering-lead decision records: which route (if any) accepts an envelope
+and how it is authenticated; how operator authority is established and recorded; what happens to
+`/config` when a manifest becomes active, and how that transition is rolled back; the persistence
+design in §11; and the retention and access policy for the audit trail.
+
+Nothing in this step asks the knowledge base or Mobile to implement anything.
