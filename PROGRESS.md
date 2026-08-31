@@ -8,9 +8,78 @@
 
 ## Current Status
 
-**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **I1 is OPEN.** The backend staging-enablement gate has passed; the phase has not.
-**Sprint:** E8/E9 complete. I1/W1 backend contract merged (PR #29) and **staging-enablement gate PASSED 2026-08-11**
+**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **All backend I1 work is done.** Phase closure sits with mobile PR #69, still open.
+**Sprint:** Backend contract merged (PR #29), staging gate PASSED, closure recorded (PR #30). **No backend work outstanding since 2026-08-11.**
 **Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+
+> ### Status check — 2026-08-14
+>
+> **Backend: nothing outstanding, nothing changed.** `origin/develop` is unchanged since PR #30
+> merged on 2026-08-11 (`1c0fd16`). No backend commits, no open backend PRs except the stale
+> #28 below. Staging re-verified today — see the live check below.
+>
+> **The picture has moved on the mobile side, not here.** Everything in this box below the
+> backend line is 📩 **read from the `wellapath-mobile` PR record**, not independently verified
+> from this repository. It is recorded because it changes what "I1" means, and because two of
+> the items previously tracked here as open are now answered elsewhere.
+>
+> #### 🔍 Backend — verified live today (2026-08-14)
+>
+> | Check                                            | Result                             |
+> | ------------------------------------------------ | ---------------------------------- |
+> | `GET /health`                                    | **200**, `checks.database: "ok"`   |
+> | `POST /v1/telemetry/events` (single valid event) | **202**, `accepted: 1`             |
+> | `telemetry_enabled` / `telemetry_sink`           | **`true`** / **`log`** — unchanged |
+> | Contract version                                 | **1.0** — unchanged                |
+> | Production telemetry                             | **Still disabled**                 |
+>
+> **Operational metrics counters read all zero** before that probe, despite mobile having run
+> live staging tests. That is expected, not a fault: the counters are in-memory and per-instance,
+> and on the Render Free plan an idle service spins down, so they reset far more often than a
+> deploy would suggest. **Treat `/internal/metrics` as a live signal only — it is not a record of
+> cumulative traffic.** The 7-day log window remains the only durable record
+> (`docs/TELEMETRY_OPERATIONS.md` §3).
+>
+> #### 📩 Mobile — relayed from `wellapath-mobile`
+>
+> | PR       | State                         | What it did                                                                                                                                                                                               |
+> | -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | #61      | **Merged 2026-08-11**         | Mobile telemetry v1.0 against backend commit `5e13379`. Contract artifacts vendored and verified byte-identical; **no contract mismatch found**, nothing requested from backend beyond staging enablement |
+> | #62, #63 | Merged                        | `--dart-define` enablement; `os_version` omitted                                                                                                                                                          |
+> | #64      | **Merged 2026-08-13**         | **Low-end Android emulator gate PASSES** (cold −4.2 %, warm +7.9 % mean / −15.4 % median; memory deltas both directions)                                                                                  |
+> | #65      | Merged                        | Privacy-safe **Sentry** crash monitoring — **Flutter/Dart only**                                                                                                                                          |
+> | #66–#68  | Merged                        | Protected internal-beta CI validation workflow and Sentry receipt runner                                                                                                                                  |
+> | #69      | **OPEN** (created 2026-08-14) | I1 closure record. Asserts the **I1 technical engineering gate PASSED**                                                                                                                                   |
+>
+> #### What this changes for items previously tracked here as open
+>
+> - **Mobile integration gate — closed.** PR #61 merged 2026-08-11 at 12:41 UTC, ~25 minutes
+>   _before_ backend PR #30 merged. The line in the block below saying #61 "is running its final
+>   live integration tests" was already stale when written.
+> - **Low-end Android gate — emulator PASS** (#64). **Physical low-end handset validation is
+>   carried forward before external beta** — not closed.
+> - **Crash monitoring — resolved for mobile, still absent for backend.** See the open question
+>   below.
+>
+> #### ⚠️ Still not authorized, per mobile #69
+>
+> - **External beta: NOT AUTHORIZED.**
+> - **Sentry-enabled distribution beyond the authorized internal engineering group: BLOCKED**
+>   pending **DPA formal electronic acceptance**. Sentry Terms v3.0 are accepted; the DPA is not.
+>   A BAA is unavailable on the Team plan and is **not relied upon**, because PHI is prohibited
+>   from Sentry in the first place. Sentry error-event retention is **30 days**, EU region.
+> - **I1 is not closed until #69 merges.** #69 is a documentation PR and is still open — do not
+>   record the phase as complete on the strength of its title.
+>
+> #### 🔴 Open question for the engineering lead — backend crash monitoring
+>
+> Mobile #69 asserts the I1 technical gate passed, and #65 delivered crash monitoring that is
+> explicitly **Flutter/Dart only**. **This backend still has no crash or error-reporting
+> integration of any kind.** That item was recorded here as an I1-scope gate on 2026-08-11 and
+> has not been answered for the backend — it appears to have been satisfied mobile-side and not
+> revisited for this service. Either it was deliberately descoped for the backend, in which case
+> that decision should be recorded, or it is a genuine gap in the I1 closure. **Backend cannot
+> resolve this unilaterally; it needs a decision.**
 
 > ### ✅ I1 / W1 backend staging-enablement gate — PASSED (2026-08-11)
 >
@@ -39,22 +108,26 @@
 >
 > **Rollback is unchanged: `TELEMETRY_ENABLED=false` plus restart.**
 >
-> ### ⚠️ Mobile PR #61 is unblocked — but I1 is NOT complete
+> ### Mobile PR #61 — unblocked, and since **merged**
 >
-> **Mobile PR #61 is running its final live integration tests** against contract v1.0. No
-> contract change is required or pending, and **staging telemetry must not be disabled while
-> those tests run.**
+> _Written 2026-08-11, superseded by the 2026-08-14 status check above._ At the time this
+> recorded PR #61 as "running its final live integration tests"; it had in fact already merged
+> that same day at 12:41 UTC. **No contract change was required or requested.**
 >
-> **I1 remains open.** The backend gate is one gate, not the phase. Still outstanding:
+> **I1 remained open** at the time of writing. The backend gate is one gate, not the phase. Then
+> outstanding, with current status:
 >
-> - the **Mobile integration gate** (PR #61 in final validation);
-> - the **low-end Android gate**;
-> - a **crash-monitoring provider or approved alternative**, which is in I1 scope and unresolved;
-> - the operational and security backlog in `docs/TELEMETRY_OPERATIONS.md` §7 — notably
->   protecting or disabling the unauthenticated `/internal/metrics` before external beta, and
->   analytics consent before external beta.
+> - the **Mobile integration gate** — ✅ closed, PR #61 merged 2026-08-11;
+> - the **low-end Android gate** — ✅ emulator PASS, PR #64; physical handset validation carried
+>   forward before external beta;
+> - a **crash-monitoring provider or approved alternative** — ⚠️ delivered mobile-side (Sentry,
+>   Flutter/Dart only, PR #65); **still absent for this backend** — see the open question above;
+> - the operational and security backlog in `docs/TELEMETRY_OPERATIONS.md` §7 — 🔴 **still open**,
+>   notably protecting or disabling the unauthenticated `/internal/metrics` before external beta,
+>   and analytics consent before external beta.
 >
-> Do not record I1 as complete until those close.
+> **Do not record I1 as complete until mobile PR #69 merges** and the backend crash-monitoring
+> question is answered.
 
 > ### ✅ I1 / W1 Step 1 delivered (2026-08-11): telemetry contract v1.0
 >
@@ -93,12 +166,27 @@
 > Note: `jest` was declared in `package.json` but had never been installed, and the repo had no
 > tests. Test tooling (`jest`, `ts-jest`, `@types/jest`) was added and CI now runs `npm test`.
 
-> ### Staging database — status 2026-08-11
+> ### Staging database — status 2026-08-14
 >
-> `GET /health` returned **200** with `checks.database: "ok"` on 2026-08-11 at 09:01 UTC, so the
-> 2026-08-03 pause has cleared. **The pre-production item stands:** that is two pauses and two
-> manual restores. Upgrade off the Supabase free tier or add a keep-alive ping before beta.
-> `PROGRESS.md` on the open PR #28 branch still describes the 08-03 outage as ongoing.
+> `GET /health` returned **200** with `checks.database: "ok"` on 2026-08-11 and again on
+> **2026-08-14**, so the 2026-08-03 pause remains cleared and no third pause has occurred.
+>
+> **The pre-production item stands regardless:** two pauses, two manual restores. Upgrade off the
+> Supabase free tier or add a keep-alive ping before beta. Note that recent days have seen steady
+> mobile staging traffic, which itself keeps the project from idling — **that is incidental
+> protection, not a fix.** Once mobile testing quietens, the idle clock starts again.
+>
+> #### 🧹 PR #28 is stale and now conflicting — recommend closing it
+>
+> PR #28 (`docs/progress-2026-08-03`) has been open since 2026-08-03 and is now
+> **`CONFLICTING` / `DIRTY`**. It touches only `PROGRESS.md`, which has moved substantially
+> since. Its content is also **wrong now**: it describes the 08-03 database pause as ongoing,
+> and it predates the whole I1/W1 workstream.
+>
+> **Recommendation: close it without merging.** Everything it was written to record is already
+> captured here — the 08-03 pause, its clearance, and the standing pre-production item.
+> Resolving the conflict would mean reconstructing a stale snapshot for no benefit. Backend has
+> not closed it because closing someone else's PR is the engineering lead's call.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -129,7 +217,9 @@
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** All three assigned E9 backend items are complete (CI fix PR #25, E9.2 docs PR #24, this progress log PR #21). No backend work outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence — the remaining steps are mobile, data-engineering, and founder items.
+**Next immediate action (2026-08-14):** **None outstanding for backend.** All assigned E9 and I1/W1 backend items are merged (PRs #24, #25, #26, #27, #29, #30). `develop` unchanged since 2026-08-11. Staging re-verified today: `/health` 200, telemetry accepting (`202`), production telemetry disabled.
+
+Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure), a decision on **backend crash monitoring** (see the open question in the status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
 
 **Open, owned by others (backend cannot action):** approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
@@ -163,6 +253,15 @@
 | `feat/kb-v2.4-headache-reachability` | Merged → `develop` | PR #23 ✅ |
 | `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
 | `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
+
+| Branch                                     | Status                | PR                          |
+| ------------------------------------------ | --------------------- | --------------------------- |
+| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop`    | PR #26 ✅                   |
+| `docs/pre-production-items`                | Merged → `develop`    | PR #27 ✅                   |
+| `docs/progress-2026-08-03`                 | **Open, CONFLICTING** | PR #28 🧹 recommend closing |
+| `feat/i1-telemetry-contract`               | Merged → `develop`    | PR #29 ✅                   |
+| `docs/i1-telemetry-operations-closure`     | Merged → `develop`    | PR #30 ✅                   |
+| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`       | wellapath-docs PR #1 ✅     |
 
 ---
 
@@ -355,23 +454,30 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                                            | Branch                                           | Status    |
-| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------ | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`            | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`  | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`     | Merged ✅ |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`       | Merged ✅ |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`       | Merged ✅ |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`       | Merged ✅ |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`             | Merged ✅ |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`    | Merged ✅ |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`             | Merged ✅ |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`   | Merged ✅ |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`  | Merged ✅ |
-| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`    | Merged ✅ |
-| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop` | Merged ✅ |
-| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`           | Merged ✅ |
-| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`        | Merged ✅ |
+| PR  | Title                                                                                            | Branch                                                 | Status                          |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`                  | Merged ✅                       |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`        | Merged ✅                       |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`           | Merged ✅                       |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`             | Merged ✅                       |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`             | Merged ✅                       |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`             | Merged ✅                       |
+| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`                   | Merged ✅                       |
+| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`          | Merged ✅                       |
+| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`                   | Merged ✅                       |
+| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`         | Merged ✅                       |
+| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`        | Merged ✅                       |
+| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`          | Merged ✅                       |
+| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop`       | Merged ✅                       |
+| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`                 | Merged ✅                       |
+| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`              | Merged ✅                       |
+| #26 | `docs(structure): move decision log to wellapath-docs repo`                                      | `docs/move-decision-log-to-wellapath-docs` → `develop` | Merged ✅                       |
+| #27 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅                       |
+| #29 | `feat(telemetry): add privacy-safe product telemetry contract v1.0 — i1/w1 step 1`               | `feat/i1-telemetry-contract` → `develop`               | Merged ✅ 2026-08-11, `5e13379` |
+| #30 | `docs(telemetry): record passed i1/w1 staging-enablement gate and 7-day retention`               | `docs/i1-telemetry-operations-closure` → `develop`     | Merged ✅ 2026-08-11, `1c0fd16` |
+
+> **PR #28 is open and CONFLICTING** — see the staging-database section above. Recommend closing
+> it unmerged; its content is stale and already superseded here.
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -424,9 +530,11 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
 **E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
 
-**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 backend items complete.
+**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Phase closure itself sits with mobile PR #69, still open.
 
-**Next backend action:** None outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence. Standing by for the next artifact release (which now requires engineering lead approval under the E9.1 freeze) or a post-beta task.
+**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 and I1/W1 backend items complete and merged.
+
+**Next backend action:** None outstanding. Backend is not blocking I1 closure or the beta tag. Standing by for the next artifact release (which requires engineering lead approval under the E9.1 freeze), a decision on backend crash monitoring, or an I2 task.
 
 ---
 
@@ -443,4 +551,8 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 2026-07-29 — decision log relocated out of this repo to `wellapath-docs` (`decision-log.md`, PR #1 there) per the engineering lead, with the data engineer's SAM/MAM clinical rationale added and its implementation verified against the frozen artifacts. `docs/DECISION_LOG.md` removed here and references repointed. Remaining open decisions are owned by the founder and the E8.2 calibration owner and are tracked in `wellapath-docs`.
 
-**Staging incident (2026-07-29) — RESOLVED:** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which read like a deleted project but was the **free tier pausing after 7 days of inactivity**. Engineering lead restored it manually; `/health` now returns 200 with `database: ok`. `/config` and `/version` were unaffected throughout, so the mobile bootstrap path never broke. **Logged as a pre-production item** — upgrade off the free tier or add a weekly keep-alive ping before real beta users; see `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.\_
+**Staging incident (2026-07-29) — RESOLVED:** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which read like a deleted project but was the **free tier pausing after 7 days of inactivity**. Engineering lead restored it manually; `/health` now returns 200 with `database: ok`. `/config` and `/version` were unaffected throughout, so the mobile bootstrap path never broke. **Logged as a pre-production item** — upgrade off the free tier or add a weekly keep-alive ping before real beta users; see `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.
+
+2026-08-11 — **I1/W1 telemetry contract v1.0 delivered and staging gate passed.** Backend contract merged (PR #29, `5e13379`), staging enabled (`TELEMETRY_ENABLED=true`, sink `log`), 25/25 functional checks passed, privacy-marker log search returned zero results with sink entries present, closure recorded (PR #30, `1c0fd16`). Three defects fixed en route, two pre-existing: rate limiting answered 500 instead of 429; request logs carried the full URL including query string; logger redaction drift closed. Staging log retention confirmed at **7 days** (Render Free plan).
+
+2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.\_
