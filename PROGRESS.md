@@ -8,9 +8,128 @@
 
 ## Current Status
 
-**Phase:** I3 — Governed Artifact Delivery · **Step 1 COMPLETE (2026-08-28):** distribution baseline frozen, inactive manifest contract v1.0.0 merged (PR #32 → `develop` `fc40ac3`). I1 phase closure still sits with mobile PR #69 (not re-checked since 2026-08-14).
-**Sprint:** I3 Step 1 delivered, reviewed against pinned head, and merged. **Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started — each gated on its own authorization.**
-**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all re-verified live (hashes and byte counts recomputed from R2 on 2026-08-28). No artifact changes past this point without engineering lead approval.
+**Phase:** I3 — Governed Artifact Delivery · **Steps 1, 2B and 3 COMPLETE (2026-08-31).** `develop` is at `2485ce0`. Manifest contract **1.1.0**, ingestion envelope **1.1.0**, audit event **1.0.0** — all inactive. I1 phase closure still sits with mobile PR #69 (not re-checked since 2026-08-14).
+**Sprint:** Three PRs delivered, independently reviewed against pinned heads, and merged: #32 (baseline freeze), #34 (approval-scope correction + contract 1.1.0), #35 (ingestion and registry foundation). **Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started — each gated on its own authorization.**
+**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1. `GET /config` canonical sha256 unchanged throughout at `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`, verified in the repository and live on staging after every merge. No artifact changes without engineering lead approval.
+
+| Contract              | Version | SHA256                                                             | Bytes  |
+| --------------------- | ------- | ------------------------------------------------------------------ | ------ |
+| Manifest              | `1.1.0` | `948299bc1ca87592e372d4ce889bdd2424a6cfc3d34c7660453dfe7d60d5038a` | 7,806  |
+| Ingestion envelope    | `1.1.0` | `f54debf7e22e4716d31fe046d92391ef76d5695c10b6e921c6f031666e46a68e` | 11,036 |
+| Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
+| Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
+
+> ### ✅ I3 Step 3 — inactive ingestion and registry foundation (2026-08-29)
+>
+> **PR #35 merged → `develop`** as `2485ce0ce564e27f562afa7d994d3ebfc388da6d` (parents `bbaeadd6` +
+> `5d900695`). 18 files, **all additions**, confined to `src/manifest/`, `tests/` and `docs/`.
+> Pre- and post-merge CI green. **653 tests, 23 suites** — up from 439.
+>
+> Models what governed ingestion must prove before anything can be published. Ten pipeline stages
+> where **no stage implies the next**; a pure in-memory registry with compare-and-swap activation
+> and rollback; deterministic, redacted audit events. Nothing is wired to a route.
+>
+> **Provenance has three states that are never synonyms:** `claimed` (fields populated — anyone can
+> populate fields), `integrity_bound` (digests match: **the bytes are the bytes, and nothing more**)
+> and `verified` (producer authority established — which requires infrastructure that does not
+> exist). `publish`, `activate` and `rollback` each require `verified`, so all three fail closed.
+>
+> The substitution the whole subsystem exists to prevent, proven directly: a matching **artifact**,
+> **plan** or **governance-register** digest establishes byte identity only. None grants Product or
+> Clinical approval, publication or activation authorization; none proves actor authority; none
+> makes an artifact eligible. Only a correctly scoped approval record contributes to `approved`.
+>
+> **Both real candidates are refused before staging.** `token_dictionary` 2.0 and `question_flow`
+> 1.1 stop at `governance_verified` on a `stage` request (`APPROVAL_NOT_GRANTED`, plus
+> `BLOCKER_UNRESOLVED` for question_flow) and at `provenance_verified` on publish/activate/rollback
+> (`PROVENANCE_NOT_VERIFIED`). Registry left byte-for-byte identical after every rejection. No
+> fixture was altered to manufacture eligibility.
+>
+> **Signing remains a recorded gap.** No algorithm, key source, custody model, rotation process or
+> verification policy exists, and none was invented. Production-like ingestion fails closed with
+> `SIGNATURE_POLICY_UNAVAILABLE`. The synthetic test-only trust mode is a function argument, never
+> an environment variable, refused outside `development`, and always non-operative.
+>
+> **Review (Step 3C) found five fail-open gaps and closed them:** a future minor envelope version
+> was accepted; the superseded 1.0.0 draft was accepted, which would have handed old input the new
+> contract's guarantees; the SHA-1 40-hex commit constraint was enforced but undocumented, reading
+> as a universal Git assumption; audit events accepted unbounded payloads (a megabyte in a
+> reference field passed because it did not _look_ like a credential); and an
+> environment-variable assignment carrying a secret passed for the same reason. Version is now
+> membership in a closed set, the object-id constraint is recorded as a compatibility decision to
+> revisit before either repository migrates to SHA-256, and audit fields are capped and scanned.
+>
+> Added seeded property-style tests over randomized registry operation sequences (existing tooling,
+> no new dependency) asserting the invariants on every step.
+
+> ### ✅ I3 Step 2B — approval-scope correction and contract 1.1.0 (2026-08-28)
+>
+> **PR #34 merged → `develop`** as `bbaeadd6075eb37fd51acbe04101f939e52c7d48`. 439 tests, up from 387.
+>
+> **The defect.** IM-001 completed a Product decision about question _display wording and ordering_.
+> That completion was recorded in the artifact-level Product approval slot of the `question_flow`
+> 1.1 candidate — a slot the contract reads to compute `approved`. As shipped the candidate was
+> still ineligible, but only because the clinical approval was pending and two blockers were open.
+> Lifting those _unrelated_ conditions produced `approved: true` and `eligible_for_environment:
+true` **with zero reason codes**, on the strength of a wording decision. A field that is safe only
+> while something else happens to be blocking is not scoped correctly.
+>
+> **The correction.** `approvals.product` returned to `pending`. IM-001's completion is preserved —
+> it is true and it matters — as scoped `references` traceability plus a reconciliation fixture
+> bound to the knowledge base. It is deliberately **not** filed as a blocker: the blocker list is
+> the safety channel, and a completed decision recorded there inverts its meaning for anyone
+> scanning it.
+>
+> **Approval scope became first-class.** Every approval record carries `decision_scope` from a
+> closed set; both slots demand `artifact_publication`. Missing, malformed, unknown or
+> non-publication scope all fail closed, in validation and again in eligibility. Three reason codes
+> added: `APPROVAL_SCOPE_MISSING`, `APPROVAL_SCOPE_UNKNOWN`, `APPROVAL_SCOPE_MISMATCH`.
+>
+> **Contract 1.0.0 → 1.1.0.** The review caught the change silently retaining `1.0.0` while
+> invalidating _every_ descriptor valid at `fc40ac3` — `decision_scope` had been made required on
+> all approvals. Restructured so it is required only for a `granted` approval (an approval claiming
+> nothing needs no scope, and requiring one there protected nothing), which confines the breakage to
+> the unsafe claims. Minor, not patch: the field is added to a closed surface, so a 1.1.0 document
+> is invalid against 1.0.0. Minor, not major: no _safe_ previously-valid descriptor is invalidated
+> and the supported major stays 1.
+>
+> **"Vocabulary 2.0" identity resolved from evidence:** it is a human-facing workstream label; the
+> stable artifact id is **`token_dictionary`**. The knowledge base's generator declares
+> `ARTIFACT_ID = "token_dictionary"`, no `"artifact_id": "vocabulary"` exists anywhere in that
+> repository, lineage is 1.0 → 1.1 → candidate 2.0 with **1.1 the version `/config` serves today**,
+> the token set and Mobile consumer are unchanged, and the rename was declined in writing. The
+> fixture adopted the stable id.
+>
+> **Review also found the compatibility tests were not hermetic** — they read git history, which
+> CI's shallow checkout does not have. The base-era manifests are now vendored as a fixture, proven
+> passing in a one-commit shallow clone.
+>
+> Also fixed: the telemetry contract drift check diffed the whole of `docs/contracts/`, so an
+> unrelated uncommitted manifest-schema edit reported as a _telemetry_ failure. Now scoped to the
+> four files it generates.
+
+> ### 📩 Knowledge base — moved twice, both cross-repo findings actioned (2026-08-28 → 08-29)
+>
+> Read from the `wellapath-knowledge-base` record; verified by recomputing digests from its
+> committed bytes, not taken on trust.
+>
+> - **KB PR #38** re-pinned its publication tooling to Backend contract **1.1.0**, recording our
+>   schema digest `948299bc…5038a` / 7,806 bytes and our merge commit `bbaeadd6`. This actioned the
+>   re-pin the Step 2B review handed over. Pins were verified **in both directions**: its vendored
+>   copy of our schema is byte-identical to ours, and the three digests it recorded of our files all
+>   match when recomputed here.
+> - **KB PR #39** corrected the two provenance hazards recorded during Step 3: the plans'
+>   `contract_validation` had read `1.0.0` while `contract_pin` in the same document read `1.1.0`,
+>   and the descriptors' `references[]` named the superseded contract and our superseded commit.
+>   Both now agree. The stale branch citation was **removed rather than refreshed**, on the grounds
+>   that a newer commit would go stale the same way.
+> - KB `develop` moved `77beffec` → **`1f1b8dd0`**. All 15 pinned inputs were re-verified from
+>   committed bytes; a partial or mixed-generation pin update is now a tested refusal.
+> - The knowledge base added an explicit **ingestion boundary**: the plan supplies artifact-byte
+>   identity, hash-bound decision-record provenance and contract provenance; the _envelope_ must
+>   supply the source repository and commit, the actor, and the authorization. Its rule, quoted:
+>   _"an ingester that treats hash agreement as governance evidence has skipped the governance check
+>   entirely."_ The Backend enforces exactly that.
 
 > ### ✅ I3 Step 1 — baseline freeze + inactive manifest contract (2026-08-28)
 >
@@ -50,7 +169,42 @@
 > all four artifact hashes/byte counts recomputed from R2 — exact matches; no R2 write (read-only
 > GET/HEAD only), no deploy-config, env-var, secret, dependency or auth change.
 >
-> #### ⚠️ Staging database — third pause observed 2026-08-28
+> #### ✅ Staging database — third pause, deploy failure, and restore (2026-08-28 → 08-29)
+>
+> **RESOLVED.** The third Supabase free-tier pause caused a **staging deploy failure**, which is
+> the indirect risk `docs/DEPLOYMENT.md` §4 predicted in writing materialising for the first time.
+>
+> | When (UTC)       | Event                                                                 |
+> | ---------------- | --------------------------------------------------------------------- |
+> | 2026-08-28 10:39 | PR #32 merged                                                         |
+> | 2026-08-28 10:46 | Third pause observed — `/health` already 503 `database: error`        |
+> | 2026-08-28 13:06 | PR #34 merged → **Render reported the deploy as failed**              |
+> | 2026-08-29 ~11:5 | Investigated: `/config` and `/version` still 200, `/health` still 503 |
+> | 2026-08-29 ~12:0 | Engineering lead restored the Supabase project → `/health` 200        |
+> | 2026-08-29 13:48 | PR #35 merged; staging observed healthy, `/config` byte-identical     |
+>
+> **The deploy failure was not caused by the merge.** `/health` had been failing for 2h20m _before_
+> PR #34 merged, and PR #34 was runtime-inert — `src/manifest/` is imported by nothing the server
+> loads, and CI's Docker Build passed on the exact merge commit. Render marks a deploy failed when
+> the health-check path does not return 2xx; `/health` returns 503 whenever the database is
+> unreachable (`src/routes/health.ts`), so any deploy triggered after the pause would have failed
+> regardless of content. The previous build kept serving throughout, so `/config` and `/version`
+> — which never touch the database — stayed up and the mobile bootstrap path never broke.
+>
+> _Caveat on the diagnosis:_ this was inferred from endpoint behaviour, the timeline and a green
+> Docker build. Render's deploy log and its configured health-check path were **not** read — no
+> dashboard or API access from this session.
+>
+> **Two items this raises, both needing a decision:**
+>
+> 1. **The pause will recur.** This was the third. The 7-day idle clock restarted at the restore.
+>    Upgrade off the Supabase free tier, or add a keep-alive `SELECT 1`. Open since 2026-07-29.
+> 2. **`/health` couples liveness to the database.** A paused database can fail deploys of changes
+>    that never touch the database, and could eventually take `/config` down with it. Splitting
+>    liveness from database readiness would stop this recurring — a runtime change, so it needs
+>    engineering-lead approval before a PR is opened. **Offered; not yet authorized.**
+>
+> #### ⚠️ Third pause as originally observed 2026-08-28
 >
 > `GET /health` returned **degraded / `checks.database: "error"`** on 2026-08-28 (observed
 > during baseline work and still degraded after the merge) — the predicted third Supabase
@@ -265,7 +419,7 @@
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action (2026-08-28):** **None outstanding for backend.** I3 Step 1 is merged (PR #32). Next I3 steps (runtime manifest delivery, KB publication tooling, Mobile consumer) each require explicit authorization — see `docs/handoffs/`. The staging database pause needs the engineering lead's manual restore.
+**Next immediate action (2026-08-31):** **None outstanding for backend.** I3 Steps 1, 2B and 3 are merged (PRs #32, #34, #35) and `develop` is at `2485ce0`. Everything built in this phase is inactive: no route serves or consumes any of it, and `/config` is unchanged. Every remaining I3 step — runtime manifest delivery, candidate publication, activation, Mobile consumption — requires its own explicit authorization; the exact preconditions are listed in `docs/INGESTION_AND_REGISTRY.md` §§11–13.
 
 Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure — status not re-checked since 2026-08-14), a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
 
@@ -273,7 +427,10 @@ Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merg
 
 **Pre-production items (before real beta users / production):**
 
-- **Supabase free-tier pause** — upgrade off the free tier, or add a weekly keep-alive ping. Free tier pauses after 7 days idle; this caused a real staging outage on 2026-07-29
+- **Supabase free-tier pause** — upgrade off the free tier, or add a weekly keep-alive ping. Free tier pauses after 7 days idle; this caused a real staging outage on 2026-07-29 and, on 2026-08-28, a **failed staging deploy**. Three occurrences, three manual restores. The idle clock restarted 2026-08-29
+- **`/health` couples liveness to the database** — a paused database fails deploys of changes that never touch it. Splitting liveness from database readiness needs engineering-lead approval; offered 2026-08-29, not yet authorized
+- **Manifest / receipt signing does not exist** — no algorithm, key source, custody model, rotation process or verification policy. Production-like ingestion fails closed by design. Blocks any real publication or activation
+- **Cross-schema rollback policy is unresolved** — both candidates' rollbacks cross a content-schema boundary and are refused by both repositories. No target is invented on either side
 - **Certificate pinning** — deferred to production, accepted for internal beta
 - **DB TLS `rejectUnauthorized: false`** — encrypted but chain unverified; tighten before production
 - **CORS production allowlist** — still references the superseded `api-staging.wellapath.org`
@@ -302,16 +459,19 @@ Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merg
 | `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
 | `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
 
-| Branch                                     | Status                | PR                                               |
-| ------------------------------------------ | --------------------- | ------------------------------------------------ |
-| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop`    | PR #26 ✅                                        |
-| `docs/pre-production-items`                | Merged → `develop`    | PR #27 ✅                                        |
-| `docs/progress-2026-08-03`                 | **Open, CONFLICTING** | PR #28 🧹 recommend closing                      |
-| `feat/i1-telemetry-contract`               | Merged → `develop`    | PR #29 ✅                                        |
-| `docs/i1-telemetry-operations-closure`     | Merged → `develop`    | PR #30 ✅                                        |
-| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`       | wellapath-docs PR #1 ✅                          |
-| `docs/progress-2026-08-14`                 | Open                  | PR #31 (carried into the 2026-08-28 progress PR) |
-| `feat/i3-manifest-contract-foundation`     | Merged → `develop`    | PR #32 ✅ `fc40ac3`                              |
+| Branch                                     | Status                | PR                                                                            |
+| ------------------------------------------ | --------------------- | ----------------------------------------------------------------------------- |
+| `docs/move-decision-log-to-wellapath-docs` | Merged → `develop`    | PR #26 ✅                                                                     |
+| `docs/pre-production-items`                | Merged → `develop`    | PR #27 ✅                                                                     |
+| `docs/progress-2026-08-03`                 | **Open, CONFLICTING** | PR #28 🧹 recommend closing                                                   |
+| `feat/i1-telemetry-contract`               | Merged → `develop`    | PR #29 ✅                                                                     |
+| `docs/i1-telemetry-operations-closure`     | Merged → `develop`    | PR #30 ✅                                                                     |
+| `feat/e9-decision-log` (`wellapath-docs`)  | Merged → `main`       | wellapath-docs PR #1 ✅                                                       |
+| `docs/progress-2026-08-14`                 | **Open — superseded** | PR #31 🧹 its only commit `e5a924b` is contained in PR #33; recommend closing |
+| `feat/i3-manifest-contract-foundation`     | Merged → `develop`    | PR #32 ✅ `fc40ac3`                                                           |
+| `docs/progress-2026-08-28`                 | Open                  | PR #33 — this progress update                                                 |
+| `feat/i3-approval-scope-correction`        | Merged → `develop`    | PR #34 ✅ `bbaeadd6`                                                          |
+| `feat/i3-ingestion-registry-foundation`    | Merged → `develop`    | PR #35 ✅ `2485ce0`                                                           |
 
 ---
 
@@ -504,28 +664,30 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                                            | Branch                                                 | Status                          |
-| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`                  | Merged ✅                       |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`        | Merged ✅                       |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`           | Merged ✅                       |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`             | Merged ✅                       |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`             | Merged ✅                       |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`             | Merged ✅                       |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`                   | Merged ✅                       |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`          | Merged ✅                       |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`                   | Merged ✅                       |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`         | Merged ✅                       |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`        | Merged ✅                       |
-| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`          | Merged ✅                       |
-| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop`       | Merged ✅                       |
-| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`                 | Merged ✅                       |
-| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`              | Merged ✅                       |
-| #26 | `docs(structure): move decision log to wellapath-docs repo`                                      | `docs/move-decision-log-to-wellapath-docs` → `develop` | Merged ✅                       |
-| #27 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅                       |
-| #29 | `feat(telemetry): add privacy-safe product telemetry contract v1.0 — i1/w1 step 1`               | `feat/i1-telemetry-contract` → `develop`               | Merged ✅ 2026-08-11, `5e13379` |
-| #30 | `docs(telemetry): record passed i1/w1 staging-enablement gate and 7-day retention`               | `docs/i1-telemetry-operations-closure` → `develop`     | Merged ✅ 2026-08-11, `1c0fd16` |
-| #32 | `feat(i3): freeze distribution baseline and add inactive manifest contract foundation`           | `feat/i3-manifest-contract-foundation` → `develop`     | Merged ✅ 2026-08-28, `fc40ac3` |
+| PR  | Title                                                                                            | Branch                                                 | Status                           |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`                  | Merged ✅                        |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`        | Merged ✅                        |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`           | Merged ✅                        |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`             | Merged ✅                        |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`             | Merged ✅                        |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`             | Merged ✅                        |
+| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`                   | Merged ✅                        |
+| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`          | Merged ✅                        |
+| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`                   | Merged ✅                        |
+| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`         | Merged ✅                        |
+| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`        | Merged ✅                        |
+| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`          | Merged ✅                        |
+| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop`       | Merged ✅                        |
+| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`                 | Merged ✅                        |
+| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`              | Merged ✅                        |
+| #26 | `docs(structure): move decision log to wellapath-docs repo`                                      | `docs/move-decision-log-to-wellapath-docs` → `develop` | Merged ✅                        |
+| #27 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅                        |
+| #29 | `feat(telemetry): add privacy-safe product telemetry contract v1.0 — i1/w1 step 1`               | `feat/i1-telemetry-contract` → `develop`               | Merged ✅ 2026-08-11, `5e13379`  |
+| #30 | `docs(telemetry): record passed i1/w1 staging-enablement gate and 7-day retention`               | `docs/i1-telemetry-operations-closure` → `develop`     | Merged ✅ 2026-08-11, `1c0fd16`  |
+| #32 | `feat(i3): freeze distribution baseline and add inactive manifest contract foundation`           | `feat/i3-manifest-contract-foundation` → `develop`     | Merged ✅ 2026-08-28, `fc40ac3`  |
+| #34 | `fix(i3): correct blocked-candidate approval scope, vocabulary identity, and contract version`   | `feat/i3-approval-scope-correction` → `develop`        | Merged ✅ 2026-08-28, `bbaeadd6` |
+| #35 | `feat(i3): inactive ingestion pipeline and registry foundation`                                  | `feat/i3-ingestion-registry-foundation` → `develop`    | Merged ✅ 2026-08-29, `2485ce0`  |
 
 > **PR #28 is open and CONFLICTING** — see the staging-database section above. Recommend closing
 > it unmerged; its content is stale and already superseded here.
@@ -583,11 +745,17 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 **I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Phase closure itself sits with mobile PR #69 (still open as of 2026-08-14; not re-checked since).
 
-**I3 — Governed Artifact Delivery** ✅ **Step 1 complete** (PR #32, merged 2026-08-28 as `fc40ac3`) — distribution baseline frozen with a CI drift check, inactive candidate manifest contract v1.0.0 (fail-closed eligibility, five distinct states, version+hash-bound rollback, origin/integrity policy), blocked candidates modeled as synthetic fixtures only, KB and Mobile handoffs written. Live `/config` proven unchanged; nothing uploaded or deployed.
+**I3 — Governed Artifact Delivery** ✅ **Steps 1, 2B and 3 complete**, all inactive:
 
-**Current status:** Artifacts frozen for beta and re-verified against R2 (2026-08-28). All assigned E9, I1/W1 and I3 Step 1 backend items complete and merged. Staging database paused again (third occurrence, 2026-08-28) — awaiting manual restore by the engineering lead.
+- **Step 1** (PR #32, `fc40ac3`) — distribution baseline frozen with a CI drift check; candidate manifest contract v1.0.0 with fail-closed eligibility, five distinct states, version+hash-bound rollback and an origin/integrity policy; blocked candidates modeled as synthetic fixtures; KB and Mobile handoffs written.
+- **Step 2B** (PR #34, `bbaeadd6`) — approval-scope substitution corrected, `decision_scope` made first-class, contract **1.0.0 → 1.1.0**, "Vocabulary 2.0" resolved to the stable id `token_dictionary`.
+- **Step 3** (PR #35, `2485ce0`) — inactive ingestion pipeline and registry: ten stages where none implies the next, compare-and-swap activation and rollback, three provenance states, deterministic redacted audit, signing failing closed. Envelope contract 1.1.0, audit contract 1.0.0, knowledge base pinned at `1f1b8dd0`.
 
-**Next backend action:** None outstanding. Later I3 steps (runtime manifest delivery, KB publication tooling, Mobile consumer) are each gated on explicit authorization — see `docs/handoffs/`. Also standing by for: the next artifact release (engineering lead approval required under the E9.1 freeze), a decision on backend crash monitoring, and the staging database restore.
+Across all three: `/config` byte-identical, no route added, no dependency, no deployment configuration touched, and neither blocked candidate can reach staging.
+
+**Current status:** Artifacts frozen for beta. All assigned E9, I1/W1 and I3 backend items complete and merged; `develop` at `2485ce0`, 653 tests. Staging healthy — the third database pause was restored on 2026-08-29 and `/config` is byte-identical to the frozen baseline.
+
+**Next backend action:** None outstanding. Every remaining I3 step is gated on explicit authorization, with preconditions listed in `docs/INGESTION_AND_REGISTRY.md` §§11–13. Standing by for: the next artifact release (engineering-lead approval required under the E9.1 freeze), a decision on backend crash monitoring, a decision on splitting `/health` liveness from database readiness, and the Supabase free-tier fix before the idle clock runs down again.
 
 ---
 
@@ -600,7 +768,9 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-\_Last updated: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
+\_Last updated: 2026-08-31 — I3 Governed Artifact Delivery, Steps 1/2B/3 complete. Earlier entries below are kept in place; the most recent status is at the top of this file.
+
+Earlier: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
 
 2026-07-29 — decision log relocated out of this repo to `wellapath-docs` (`decision-log.md`, PR #1 there) per the engineering lead, with the data engineer's SAM/MAM clinical rationale added and its implementation verified against the frozen artifacts. `docs/DECISION_LOG.md` removed here and references repointed. Remaining open decisions are owned by the founder and the E8.2 calibration owner and are tracked in `wellapath-docs`.
 
@@ -609,5 +779,7 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 2026-08-11 — **I1/W1 telemetry contract v1.0 delivered and staging gate passed.** Backend contract merged (PR #29, `5e13379`), staging enabled (`TELEMETRY_ENABLED=true`, sink `log`), 25/25 functional checks passed, privacy-marker log search returned zero results with sink entries present, closure recorded (PR #30, `1c0fd16`). Three defects fixed en route, two pre-existing: rate limiting answered 500 instead of 429; request logs carried the full URL including query string; logger redaction drift closed. Staging log retention confirmed at **7 days** (Render Free plan).
 
 2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.
+
+2026-08-31 — **I3 Steps 2B and 3 delivered, reviewed and merged; progress log brought current.** PR #34 (`bbaeadd6`) corrected an approval-scope substitution that would have let a _display-wording_ decision satisfy artifact-publication Product approval once unrelated conditions lifted, made `decision_scope` first-class, versioned the manifest contract **1.0.0 → 1.1.0**, and resolved "Vocabulary 2.0" to the stable artifact id `token_dictionary` from knowledge-base evidence. PR #35 (`2485ce0`) added the inactive ingestion and registry foundation — ten pipeline stages, compare-and-swap activation and rollback, three provenance states, deterministic redacted audit, signing failing closed — pinned to knowledge base `1f1b8dd0`. **Each PR's own review caught real fail-open defects before merge:** #34 had silently retained contract version `1.0.0` while invalidating every existing descriptor, and its compatibility tests read git history that CI's shallow checkout does not have; #35 accepted both a future and a superseded envelope minor version, and would have written unbounded payloads and environment-secret assignments into the audit log. All were fixed on the branch. 653 tests, up from 387 at the start of the phase. `/config` unchanged throughout, in the repository and live on staging. **Staging deploy failure on 2026-08-28 traced to the third Supabase pause, not to the merge** — `/health` had been failing for 2h20m before PR #34 merged, and the previous build kept serving `/config` and `/version` throughout; the engineering lead restored the database on 2026-08-29. Progress PRs #31 and #28 are superseded by this one and should be closed unmerged.
 
 2026-08-28 — **I3 Step 1 delivered and merged.** Baseline frozen from `origin/develop` tip `1c0fd16` with repository/deployed/inferred/unavailable evidence kept apart and a CI drift check; inactive manifest contract v1.0.0 added (`src/manifest/`, schema drift-checked against the TS source of truth); Vocabulary 2.0 and Question Flow 1.1 modeled as synthetic, permanently ineligible fixtures bound to KB commit `c1b07944`; 86 new tests (387 total). PR #32 reviewed against pinned head `ed83cda` (clean-worktree validation, hash recomputation of the schema, handoffs, canonical `/config` and all four R2 artifacts) and merged as `fc40ac3`; post-merge CI green and staging `/config` byte-identical. **Staging DB paused for the third time** — observed degraded `/health` before and after the merge; left for the engineering lead to restore. Nothing runtime-facing changed; no upload, no deployment, no new env var or dependency.\_
