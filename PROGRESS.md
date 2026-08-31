@@ -11,6 +11,7 @@
 **Phase:** I3 — Governed Artifact Delivery · **Steps 1, 2B and 3 COMPLETE (2026-08-31).** `develop` is at `2485ce0`. Manifest contract **1.1.0**, ingestion envelope **1.1.0**, audit event **1.0.0** — all inactive. I1 phase closure still sits with mobile PR #69 (not re-checked since 2026-08-14).
 **Sprint:** Three PRs delivered, independently reviewed against pinned heads, and merged: #32 (baseline freeze), #34 (approval-scope correction + contract 1.1.0), #35 (ingestion and registry foundation). **Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started — each gated on its own authorization.**
 **Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1. `GET /config` canonical sha256 unchanged throughout at `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`, verified in the repository and live on staging after every merge. No artifact changes without engineering lead approval.
+**Watch:** a nationwide `facilities` v2.0 candidate exists in the knowledge base (KB PR #40, unmerged) and is **blocked on licence, attribution and coverage**, not on engineering. See the 2026-08-31 entry below before anyone proposes a `/config` change.
 
 | Contract              | Version | SHA256                                                             | Bytes  |
 | --------------------- | ------- | ------------------------------------------------------------------ | ------ |
@@ -18,6 +19,58 @@
 | Ingestion envelope    | `1.1.0` | `f54debf7e22e4716d31fe046d92391ef76d5695c10b6e921c6f031666e46a68e` | 11,036 |
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
+
+> ### 📩 Nationwide facilities candidate — delivered in the knowledge base, BLOCKED (2026-08-31)
+>
+> **KB PR #40 open, unmerged** (`feat/facilities-nhf-candidate`, head `4afffe18` → KB `develop`).
+> 26 files. Read from the `wellapath-knowledge-base` record; the digests, record counts and
+> operation flags below were **recomputed here from its committed bytes**, the coverage and licence
+> findings are quoted from its own reports.
+>
+> **Nothing about this reaches the backend yet.** `/config` is untouched, `facilities` stays at
+> v1.1, and no `/config` change may even be proposed until the gates below clear.
+>
+> |                    |                                                                                                                                                |
+> | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Candidate          | `candidate/facilities.ng.v2.0.json` — `2f42db7026a20eda4af8315ee8cb97fac07600edbd611d2cee919d99b1acad7d`, **30,961,471 bytes**, 31,274 records |
+> | Source             | `nigeria_health_facilities.csv` — `e598cecc24de7cea213118dfd88cb581754029f2dc9086618728989b6c3becb3`, 20,913,558 bytes, preserved unchanged    |
+> | Plan               | all seven operation flags `false`; not publishable, not activatable, ineligible everywhere; both approvals `pending`; 7 blocking reasons       |
+> | **facilities 1.1** | **unchanged** — `25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398`, byte-identical to what `/config` serves                    |
+>
+> #### 🔴 Three findings that contradict the brief, and one that sizes the risk
+>
+> 1. **"NHF" is not established.** The file carries no organisation name, publisher field,
+>    copyright line or contact anywhere in its 90 columns. The provenance record refuses to assert
+>    one, correctly: _"Recording an organisation on the strength of a filename would be inventing
+>    provenance."_ The dataset's origin is currently **unattributed**.
+> 2. **No licence, and therefore a blocking non-technical gate.** No licence file, no licence
+>    column, no terms of use accompanied the data. Redistribution terms are **unknown**. The
+>    candidate must not be published, uploaded or served until licence or reuse permission is
+>    established **in writing**. This blocks the artifact regardless of its data quality.
+> 3. **It is not nationwide.** Observed coverage is **33 of 36 states plus the FCT** —
+>    **Adamawa, Kebbi and Sokoto are absent entirely** — and 682 distinct LGA names against
+>    Nigeria's 774. "Nationwide" was a claim in the brief, not a property of the data.
+> 4. **It is ~18× the size of the artifact it would replace:** 30,961,471 bytes against 1,695,844.
+>    Mobile downloads and caches this on first launch. Nothing in the current mobile contract or
+>    the E9.1 freeze anticipated a jump of that order, and it needs sizing against the low-end
+>    Android device budget before anyone treats v2.0 as a drop-in.
+>
+> Also flagged: `Akwa Ibom` appears hyphenated as `Akwa-Ibom`, which differs from the spelling
+> `facilities` 1.1 uses — a state-matching hazard for any consumer that joins on the name. 116 rows
+> quarantined.
+>
+> **Mobile compatibility was measured, not asserted** — the KB ported
+> `facility_locator_service.dart` at mobile commit `13be0d49` and ran both artifacts through it,
+> rather than claiming compatibility from field names. The mobile repository was not modified.
+>
+> #### What this means for the backend
+>
+> **No backend action, and none available.** Wiring `facilities` v2.0 into `/config` would be a
+> backend change, but it is gated on, in order: a licence or reuse permission in writing; a
+> decision on the three missing states; a Product decision on presenting an unattributed dataset
+> and on tap-to-call behaviour for its phone numbers; a mobile size/performance assessment; and
+> engineering-lead approval under the E9.1 artifact freeze. **None of those exists.** The version
+> number `2.0` is the knowledge base's proposal and does not bind the backend.
 
 > ### ✅ I3 Step 3 — inactive ingestion and registry foundation (2026-08-29)
 >
@@ -423,7 +476,7 @@ true` **with zero reason codes**, on the strength of a wording decision. A field
 
 Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure — status not re-checked since 2026-08-14), a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
 
-**Open, owned by others (backend cannot action):** approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
+**Open, owned by others (backend cannot action):** licence or reuse permission for the facilities source dataset, and a decision on whether an unattributed dataset may be presented to users at all (founder + engineering lead); whether the three missing states — Adamawa, Kebbi, Sokoto — block a nationwide claim (Product); approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
 **Pre-production items (before real beta users / production):**
 
@@ -431,6 +484,8 @@ Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merg
 - **`/health` couples liveness to the database** — a paused database fails deploys of changes that never touch it. Splitting liveness from database readiness needs engineering-lead approval; offered 2026-08-29, not yet authorized
 - **Manifest / receipt signing does not exist** — no algorithm, key source, custody model, rotation process or verification policy. Production-like ingestion fails closed by design. Blocks any real publication or activation
 - **Cross-schema rollback policy is unresolved** — both candidates' rollbacks cross a content-schema boundary and are refused by both repositories. No target is invented on either side
+- **Facilities source has no licence and no established publisher** — the nationwide candidate cannot be published, uploaded or served until reuse permission is obtained in writing. A legal/commercial gate, not an engineering one
+- **Facilities candidate is ~18× the current artifact** (30,961,471 vs 1,695,844 bytes) — needs a mobile download, cache and memory assessment against the low-end Android budget before it can be considered for `/config`
 - **Certificate pinning** — deferred to production, accepted for internal beta
 - **DB TLS `rejectUnauthorized: false`** — encrypted but chain unverified; tighten before production
 - **CORS production allowlist** — still references the superseded `api-staging.wellapath.org`
@@ -768,7 +823,7 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-08-31 — I3 Governed Artifact Delivery, Steps 1/2B/3 complete. Earlier entries below are kept in place; the most recent status is at the top of this file.
+\_Last updated: 2026-08-31 — I3 Governed Artifact Delivery, Steps 1/2B/3 complete; nationwide facilities candidate delivered in the knowledge base and blocked on licence, attribution and coverage. Earlier entries below are kept in place; the most recent status is at the top of this file.
 
 Earlier: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
 
@@ -779,6 +834,8 @@ Earlier: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipp
 2026-08-11 — **I1/W1 telemetry contract v1.0 delivered and staging gate passed.** Backend contract merged (PR #29, `5e13379`), staging enabled (`TELEMETRY_ENABLED=true`, sink `log`), 25/25 functional checks passed, privacy-marker log search returned zero results with sink entries present, closure recorded (PR #30, `1c0fd16`). Three defects fixed en route, two pre-existing: rate limiting answered 500 instead of 429; request logs carried the full URL including query string; logger redaction drift closed. Staging log retention confirmed at **7 days** (Render Free plan).
 
 2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.
+
+2026-08-31 — **Nationwide facilities candidate delivered in the knowledge base, and blocked.** KB PR #40 (unmerged) builds `facilities` v2.0 from a supplied CSV: 31,274 records, 30,961,471 bytes, deterministic generator, schema, quality/quarantine/comparison/mobile-compatibility reports and a dry-run plan with every operation flag false. Digests and record counts recomputed here from its committed bytes; `facilities` 1.1 confirmed byte-identical to what `/config` serves. **The three things the brief assumed are not true of the data:** the file names no organisation, so "NHF" is unattributed; **no licence or terms of use accompanied it**, which blocks publication outright until reuse permission is obtained in writing; and it is **not nationwide** — 33 of 36 states plus FCT, with Adamawa, Kebbi and Sokoto absent, and 682 of 774 LGAs. It is also **~18× the size** of the artifact it would replace, which needs sizing against the low-end Android budget before v2.0 is treated as a drop-in. The knowledge base measured mobile compatibility by porting the real locator service rather than asserting it. No backend change is possible or appropriate yet.
 
 2026-08-31 — **I3 Steps 2B and 3 delivered, reviewed and merged; progress log brought current.** PR #34 (`bbaeadd6`) corrected an approval-scope substitution that would have let a _display-wording_ decision satisfy artifact-publication Product approval once unrelated conditions lifted, made `decision_scope` first-class, versioned the manifest contract **1.0.0 → 1.1.0**, and resolved "Vocabulary 2.0" to the stable artifact id `token_dictionary` from knowledge-base evidence. PR #35 (`2485ce0`) added the inactive ingestion and registry foundation — ten pipeline stages, compare-and-swap activation and rollback, three provenance states, deterministic redacted audit, signing failing closed — pinned to knowledge base `1f1b8dd0`. **Each PR's own review caught real fail-open defects before merge:** #34 had silently retained contract version `1.0.0` while invalidating every existing descriptor, and its compatibility tests read git history that CI's shallow checkout does not have; #35 accepted both a future and a superseded envelope minor version, and would have written unbounded payloads and environment-secret assignments into the audit log. All were fixed on the branch. 653 tests, up from 387 at the start of the phase. `/config` unchanged throughout, in the repository and live on staging. **Staging deploy failure on 2026-08-28 traced to the third Supabase pause, not to the merge** — `/health` had been failing for 2h20m before PR #34 merged, and the previous build kept serving `/config` and `/version` throughout; the engineering lead restored the database on 2026-08-29. Progress PRs #31 and #28 are superseded by this one and should be closed unmerged.
 
