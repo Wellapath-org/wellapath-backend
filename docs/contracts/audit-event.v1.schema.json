@@ -1,0 +1,125 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://wellapath.org/contracts/audit-event.v1.schema.json",
+  "title": "WellaPath registry audit event contract",
+  "description": "Append-only record of every registry transition, successful or refused. INACTIVE: nothing emits these at runtime; they are produced by the pure registry model and returned to the caller. Source of truth is src/manifest/registry/audit.ts. Event ids are derived from event content rather than generated, so the same inputs always produce the same trail and two replays cannot silently differ. Every event binds the revision it moved the registry from and to, so a reader can prove the chain is continuous. An event MUST NOT carry a URL with credentials, a token, a key, a secret, raw artifact bytes or sensitive configuration; the builder refuses to emit one that does.",
+  "contract_version": "1.0.0",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_version",
+    "event_id",
+    "event_type",
+    "prior_revision",
+    "resulting_revision",
+    "environment",
+    "operation",
+    "identity",
+    "authority",
+    "outcome",
+    "stage",
+    "reason_codes",
+    "correlation_key",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_version": { "const": "1.0.0" },
+    "event_id": {
+      "type": "string",
+      "pattern": "^evt_[0-9a-f]{32}$",
+      "description": "Derived from the canonical form of the event's own content. Deterministic, never random."
+    },
+    "event_type": {
+      "enum": [
+        "envelope_received",
+        "rejection",
+        "staging",
+        "publication",
+        "activation",
+        "rollback",
+        "idempotent_replay",
+        "conflict"
+      ]
+    },
+    "prior_revision": { "type": "integer", "minimum": 0 },
+    "resulting_revision": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Equal to prior_revision whenever nothing changed — every refusal, and every idempotent replay."
+    },
+    "environment": { "enum": ["development", "staging", "production"] },
+    "operation": {
+      "oneOf": [{ "enum": ["stage", "publish", "activate", "rollback"] }, { "type": "null" }]
+    },
+    "identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["artifact_id", "artifact_version", "sha256"],
+          "properties": {
+            "artifact_id": { "type": "string" },
+            "artifact_version": { "type": "string" },
+            "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+          }
+        },
+        { "type": "null" }
+      ],
+      "description": "The artifact acted on, digest included. An audit trail that cannot identify content is not an audit trail."
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "actor_ref",
+        "publication_decision_ref",
+        "activation_decision_ref",
+        "rollback_decision_ref"
+      ],
+      "properties": {
+        "actor_ref": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Reference to a recorded decision or operator identity. Never a person's name, credential or contact detail."
+        },
+        "publication_decision_ref": { "type": ["string", "null"] },
+        "activation_decision_ref": { "type": ["string", "null"] },
+        "rollback_decision_ref": { "type": ["string", "null"] }
+      }
+    },
+    "outcome": { "enum": ["accepted", "refused", "no_op"] },
+    "stage": {
+      "oneOf": [
+        {
+          "enum": [
+            "received",
+            "envelope_validated",
+            "contract_validated",
+            "provenance_verified",
+            "governance_verified",
+            "integrity_verified",
+            "staged",
+            "published",
+            "active",
+            "rejected"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "reason_codes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Empty for an accepted transition. Machine-readable, from the manifest contract's REASON_CODES or the ingestion namespace."
+    },
+    "correlation_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope's idempotency key, so a request and every event it produced can be joined."
+    },
+    "occurred_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    }
+  }
+}

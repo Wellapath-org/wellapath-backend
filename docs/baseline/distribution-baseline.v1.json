@@ -1,0 +1,179 @@
+{
+  "baseline_version": "1.0.0",
+  "provenance": {
+    "purpose": "I3 Step 1 — frozen record of the artifact-distribution baseline before any manifest-contract work. Evidence classes are separated: repository_baseline is read from source at the recorded commit; deployed_observation is what the live staging service and R2 objects returned on the recorded date; inferred entries are conclusions not directly proven; unavailable_evidence lists what could not be verified from this repository.",
+    "repository": "wellapath-org/wellapath-backend",
+    "repository_commit": "1c0fd1676f926cb78f0c72a108788a1746cb180f",
+    "knowledge_base_authoritative_commit": "c1b07944ea0b231914943ac17b2265441e53b85c",
+    "generated_at": "2026-08-28T10:20:29Z",
+    "generated_by": "backend engineering — I3 step 1 baseline freeze",
+    "drift_check": "tests/baseline/baseline-drift.test.ts rebuilds the real application, requests GET /config and fails if the response differs in any field, value or canonical hash from repository_baseline.response"
+  },
+  "repository_baseline": {
+    "endpoint": "GET /config",
+    "implementation": "src/routes/config.ts — a static literal; the only runtime input is ARTIFACT_BASE_URL, which prefixes each artifact url",
+    "authentication": "none — public endpoint by design; the mobile app bootstraps from it before any other call",
+    "methods_allowed": ["GET"],
+    "cache_headers_set_by_backend": null,
+    "rate_limit_per_minute": 100,
+    "error_behavior": "the route cannot fail by itself (no I/O); the global handler returns { error: { statusCode, message } } for 404/429/5xx; /config does not depend on the database, so a database outage does not affect it",
+    "environment_specific_behavior": [
+      "artifact url prefix comes from ARTIFACT_BASE_URL per environment",
+      "CORS: origin allowlist plus GET/POST/OPTIONS only when NODE_ENV=production, permissive otherwise",
+      "/version reports NODE_ENV as environment; /config payload itself is identical in every environment"
+    ],
+    "response_canonical_sha256": "3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed",
+    "response_canonicalization": "JSON with object keys sorted recursively, no whitespace, UTF-8",
+    "response": {
+      "version": "1.0",
+      "country": "ng",
+      "artifacts": {
+        "token_dictionary": {
+          "version": "1.1",
+          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/token_dictionary.ng.v1.1.json",
+          "hash": "sha256:0cc47ad9537c0bd4c6ef3aec8f1931eb9b4c62103a8809d16544f94a90b5c019",
+          "release_date": "2026-04-05",
+          "country": "ng"
+        },
+        "knowledge_base": {
+          "version": "2.4",
+          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/kb.ng.v2.4.json",
+          "hash": "sha256:6c00d8257f8417e86bd5e237630bf8a4623ad72e2e46b1b071dd447c067cec2b",
+          "release_date": "2026-07-27",
+          "country": "ng"
+        },
+        "rules": {
+          "version": "2.2",
+          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/rules.ng.v2.2.json",
+          "hash": "sha256:1d27e854cba95b179577a88f92445400f494a7fe8e6a53a60fcaa98b3870d1c4",
+          "release_date": "2026-07-26",
+          "country": "ng"
+        },
+        "facilities": {
+          "version": "1.1",
+          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/facilities.ng.v1.1.json",
+          "hash": "sha256:25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398",
+          "release_date": "2026-07-26",
+          "country": "ng"
+        }
+      }
+    },
+    "storage_convention": {
+      "origin": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev",
+      "object_key_pattern": "<artifact>.<country>.v<version>.json, flat at bucket root",
+      "immutability_rule": "a released object key is never rewritten; any content change requires a new version, filename and hash (enforced by review process and by UNIQUE (artifact, version) in artifact_versions)"
+    },
+    "rollback_mechanism": "a /config-only change: edit src/routes/config.ts back to the previous version string, url and hash; every prior version remains addressable on R2 (docs/DEPLOYMENT.md section 7). Requires engineering lead approval like a forward release. No automated selection exists.",
+    "compatibility_expectations": [
+      "the mobile app treats /config as its bootstrap and must always consume artifact urls from this response, never construct them",
+      "top-level shape is exactly { version, country, artifacts } with exactly the four artifact keys above",
+      "each artifact descriptor carries exactly { version, url, hash, release_date, country }",
+      "hash format is sha256:<64 hex> over the exact object bytes",
+      "the E9.1 beta freeze forbids changing any of the four artifact versions without engineering lead approval"
+    ]
+  },
+  "deployed_observation": {
+    "observed_at": "2026-08-28T10:11:51Z",
+    "service": "wellapath-backend-staging (Render), public host wellapath-backend-staging.onrender.com",
+    "config_response_matches_repository": true,
+    "config_response_body_sha256": "183a15bda78f7ccb3b3954e829e7228b1154a17f200c609bff7a0b73cdf45d3b",
+    "config_response_headers": {
+      "content-type": "application/json; charset=utf-8",
+      "cf-cache-status": "DYNAMIC",
+      "cache-control": null,
+      "x-ratelimit-limit": "100"
+    },
+    "version_endpoint": { "version": "0.1.0", "environment": "staging" },
+    "health_endpoint": {
+      "status": "degraded",
+      "checks_database": "error",
+      "note": "consistent with the known Supabase free-tier idle pause (third occurrence pattern predicted in PROGRESS.md 2026-08-14); /config and /version were unaffected, as designed. Restoration is a manual engineering-lead action and is outside this task's scope."
+    },
+    "artifact_objects": [
+      {
+        "object_key": "token_dictionary.ng.v1.1.json",
+        "http_status": 200,
+        "byte_count": 8820,
+        "sha256_recomputed": "sha256:0cc47ad9537c0bd4c6ef3aec8f1931eb9b4c62103a8809d16544f94a90b5c019",
+        "matches_config_hash": true,
+        "content_type": "application/json",
+        "cache_control": null
+      },
+      {
+        "object_key": "kb.ng.v2.4.json",
+        "http_status": 200,
+        "byte_count": 102118,
+        "sha256_recomputed": "sha256:6c00d8257f8417e86bd5e237630bf8a4623ad72e2e46b1b071dd447c067cec2b",
+        "matches_config_hash": true,
+        "content_type": "application/json",
+        "cache_control": null
+      },
+      {
+        "object_key": "rules.ng.v2.2.json",
+        "http_status": 200,
+        "byte_count": 29082,
+        "sha256_recomputed": "sha256:1d27e854cba95b179577a88f92445400f494a7fe8e6a53a60fcaa98b3870d1c4",
+        "matches_config_hash": true,
+        "content_type": "application/json",
+        "cache_control": null
+      },
+      {
+        "object_key": "facilities.ng.v1.1.json",
+        "http_status": 200,
+        "byte_count": 1695844,
+        "sha256_recomputed": "sha256:25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398",
+        "matches_config_hash": true,
+        "content_type": "application/json",
+        "cache_control": null
+      }
+    ],
+    "rollback_targets_verified": [
+      {
+        "object_key": "kb.ng.v2.3.json",
+        "http_status": 200,
+        "byte_count": 101914,
+        "sha256_recomputed": "sha256:cb0e43fc20bfab4351e123e73bc997d663469a36bca3222ec7fdbe5d7dc4e9f8"
+      },
+      {
+        "object_key": "rules.ng.v2.1.json",
+        "http_status": 200,
+        "byte_count": 29077,
+        "sha256_recomputed": "sha256:57da3ff543c0e2e948c196930de75b40f70edf7d40b6ef4e90b8ccbe10481b79"
+      },
+      {
+        "object_key": "facilities.ng.v1.0.json",
+        "http_status": 200,
+        "byte_count": 1695059,
+        "sha256_recomputed": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e"
+      },
+      {
+        "object_key": "token_dictionary.ng.v1.0.json",
+        "http_status": 200,
+        "byte_count": 8557,
+        "sha256_recomputed": "sha256:773006dee306a3b03312315134fe62d7abf1aa29baa1903a388854f34f24b76d"
+      },
+      { "object_key": "kb.ng.v2.2.json", "http_status": 200 },
+      { "object_key": "kb.ng.v2.1.json", "http_status": 200 }
+    ]
+  },
+  "inferred": [
+    "mobile consumes artifacts.<name>.version, .url and .hash (documented contract: version for cache comparison, url for download, hash for integrity); release_date and country are informational — inferred from docs/DEPLOYMENT.md and PROGRESS.md, not verified against mobile source, which is not accessible from this repository",
+    "no caching layer sits in front of /config (cf-cache-status DYNAMIC, no cache-control anywhere), so clients see changes on next request; effective cache duration is therefore zero at the CDN and client-policy-defined on device",
+    "production serves the identical /config payload if deployed, since the payload is environment-independent; the existence and state of a production deployment was not observed"
+  ],
+  "unavailable_evidence": [
+    "mobile repository source (fields actually read from /config) — recorded above as inferred",
+    "R2 bucket name, account configuration and object metadata beyond public HTTP responses",
+    "Render service configuration and environment variable values (deliberately not enumerated here)",
+    "production deployment state, if any",
+    "wellapath-knowledge-base repository content at commit c1b07944ea0b231914943ac17b2265441e53b85c (commit id relayed by task instruction; repository not accessible from here)"
+  ],
+  "known_gaps": [
+    "no Cache-Control headers on /config or on R2 artifact objects: cache behavior is client-defined, not contract-defined",
+    "artifact hashes are declared by /config but the backend never verifies them against R2 at serve time; verification happens at release time (process) and on device (mobile)",
+    "no manifest signing; integrity relies on TLS to an approved origin plus the sha256 in /config",
+    "GET /internal/metrics is unauthenticated (pre-external-beta item, docs/TELEMETRY_OPERATIONS.md section 7)",
+    "database TLS uses rejectUnauthorized:false (pre-production item)",
+    "rollback is a manual code change with no machine-readable last-known-good record"
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "manifest_version": "1.1.0",
+  "generated_at": "2026-08-28T10:20:29Z",
+  "artifacts": [
+    {
+      "artifact_id": "token_dictionary",
+      "artifact_version": "2.0",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:066efc286dbee8f40ec437dde328b5bad7f091b49c7d176aec8de429213c73e7",
+      "byte_count": 77,
+      "object_key": "token_dictionary.ng.v2.0.json",
+      "release_status": "candidate",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": null,
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        },
+        "clinical": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        }
+      },
+      "blockers": [],
+      "predecessor": {
+        "artifact_version": "1.1",
+        "sha256": "sha256:0cc47ad9537c0bd4c6ef3aec8f1931eb9b4c62103a8809d16544f94a90b5c019"
+      },
+      "rollback_target": null,
+      "created_at": "2026-08-28T00:00:00Z",
+      "published_at": null,
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "SYNTHETIC FIXTURE — sha256 is the digest of 'fixture-only:token_dictionary@2.0@kb:c1b07944ea0b231914943ac17b2265441e53b85c', byte_count is that seed string's length; this descriptor names no real object and must never be added to the live /config output",
+        "authoritative knowledge-base develop commit: c1b07944ea0b231914943ac17b2265441e53b85c",
+        "IDENTITY RESOLVED (I3 Step 2B): \"Vocabulary 2.0\" is a human-facing workstream label, not an artifact identity. The stable artifact id is token_dictionary, unchanged across the version boundary. Evidence: knowledge-base generator tools/build_vocabulary_v2.py declares ARTIFACT_ID = \"token_dictionary\" and emits candidate/token_dictionary.ng.v2.0.json; schema/token_dictionary.v2.schema.json is titled \"WellaPath Symptom Vocabulary (token_dictionary) — schema 2.0\"; no \"artifact_id\": \"vocabulary\" exists anywhere in the knowledge-base repository; lineage is token_dictionary 1.0 → 1.1 → candidate 2.0, and 1.1 is the version GET /config serves today",
+        "the knowledge base declined the rename deliberately — docs/I2_W2_VOCABULARY_FOUNDATION.md §3 and docs/VOCABULARY_VERSION_NEGOTIATION.md record that renaming to \"vocabulary\" would break /config, the mobile consumer and a backend regression test for a cosmetic gain",
+        "predecessor sha256 is the REAL published token_dictionary 1.1 digest currently served by GET /config; this descriptor changes nothing about that active artifact",
+        "token_dictionary 2.0 is a candidate: unpublished, inactive, unapproved, ineligible in every environment",
+        "no governance decision of any kind binds to token_dictionary@2.0 — the knowledge-base publication plan records KB_DECISION_RECORD_MISSING, KB_PUBLICATION_AUTHORIZATION_MISSING and KB_ACTIVATION_AUTHORIZATION_MISSING",
+        "no clinical reviewer is assigned"
+      ]
+    },
+    {
+      "artifact_id": "question_flow",
+      "artifact_version": "1.1",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:8c63861c6eb871fed4c62300d042ce2af40f6171dc2e47146e8d7165551dc4f8",
+      "byte_count": 74,
+      "object_key": "question_flow.ng.v1.1.json",
+      "release_status": "candidate",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": null,
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        },
+        "clinical": {
+          "required": true,
+          "status": "pending",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        }
+      },
+      "blockers": [
+        {
+          "id": "IM001-CLIN-FLAG-001",
+          "status": "open",
+          "reference": "open clinical flag on IM-001; no clinical reviewer is assigned"
+        },
+        {
+          "id": "IM003-SB-001",
+          "status": "open",
+          "reference": "safety blocker on IM-003; IM-003 itself remains disabled"
+        }
+      ],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-08-28T00:00:00Z",
+      "published_at": null,
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "SYNTHETIC FIXTURE — sha256 is the digest of 'fixture-only:question_flow@1.1@kb:c1b07944ea0b231914943ac17b2265441e53b85c', byte_count is that seed string's length; this descriptor names no real object and must never be added to the live /config output",
+        "authoritative knowledge-base develop commit: c1b07944ea0b231914943ac17b2265441e53b85c",
+        "IM-001: display wording and ordering decisions are COMPLETE. Authority: Product only. Scope: product_display. That scope EXCLUDES artifact publication and activation, so IM-001 is recorded here as traceability and is deliberately absent from approvals.product, which remains pending. See tests/fixtures/manifest/approval-scope-reconciliation.fixture.json",
+        "artifact-publication Product approval: PENDING — never granted",
+        "clinical approval: PENDING — no clinical reviewer is assigned",
+        "IM001-CLIN-FLAG-001: OPEN",
+        "IM003-SB-001: OPEN — IM-003 itself remains disabled",
+        "mobile PR #76: remains unauthorized to merge",
+        "publication and activation are unauthorized; remote question flow must not be activated"
+      ]
+    }
+  ]
+}

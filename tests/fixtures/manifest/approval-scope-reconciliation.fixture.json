@@ -1,0 +1,72 @@
+{
+  "record_version": "1.0.0",
+  "purpose": "I3 Step 2B — the scope reconciliation behind the correction to the question_flow 1.1 blocked candidate. IM-001 completed a Product decision about display wording and ordering. That completion is true, and it is recorded here. It is NOT artifact-publication Product approval, it never was, and it must never occupy approvals.product. This record carries the positive fact in a place that is structurally incapable of contributing to `approved`, so the fact survives without the substitution surviving with it. FIXTURE ONLY — nothing here is served, published or deployed.",
+  "backend_base_commit": "fc40ac3e7d59cfed8e2584b78136c9704f7ab8cd",
+  "knowledge_base_binding": {
+    "repository": "wellapath-org/wellapath-knowledge-base",
+    "merge_commit": "2325e3f9e876a40d32e6e3ff0b5b77e19c7e309a",
+    "path": "publication/fixtures/compat/approval_scope_reconciliation_v1.json",
+    "sha256": "sha256:36efa4e908df42b99463c8fe809e11e83e740d20b205f1358c51d17622e194ee",
+    "byte_count": 8578,
+    "verification": "Digest recomputed from the exact committed bytes with `git show 2325e3f9e876a40d32e6e3ff0b5b77e19c7e309a:publication/fixtures/compat/approval_scope_reconciliation_v1.json | shasum -a 256` against a clean checkout whose HEAD equalled that merge commit, which is the tip of the knowledge base's origin/develop. Read-only; nothing in that repository was modified. CI cannot reach that repository, so this suite asserts the binding is recorded exactly rather than re-fetching it."
+  },
+  "scoped_decisions": [
+    {
+      "decision_id": "IM-001",
+      "title": "question flow display wording and option ordering",
+      "authority": "product",
+      "status": "complete",
+      "scope": ["product_display"],
+      "excludes": ["artifact_publication", "artifact_activation", "clinical_content_review"],
+      "may_occupy_artifact_publication_approval_slot": false,
+      "note": "136 of 136 Product display decisions recorded (135 wording, 1 ordering rule; IM001-DECISION-SET-COMPLETE, IM001-ORD-GLOBAL-001, both 2026-08-24). The authoritative records state the boundary in machine-readable form: `authorizes` is empty and `does_not_authorize` lists product_approval, clinical_approval, publication_authorization, activation_authorization and mobile_implementation_authorization. The knowledge base's own reading rule is that a decision backlog reaching zero is not a permission."
+    },
+    {
+      "decision_id": "IM003-DISPOSITION-001",
+      "title": "IM-003 adaptive re-branching disposition",
+      "authority": "product",
+      "status": "complete",
+      "scope": ["product_display"],
+      "excludes": ["artifact_publication", "artifact_activation", "clinical_content_review"],
+      "may_occupy_artifact_publication_approval_slot": false,
+      "note": "IM-003 itself remains DISABLED and IM003-SB-001 remains OPEN, awaiting joint clinical and product adjudication. Recorded here for the same reason as IM-001: a complete Product decision that authorizes no publication-lifecycle gate."
+    }
+  ],
+  "artifact_publication_state": {
+    "artifact_id": "question_flow",
+    "artifact_version": "1.1",
+    "product_approval": "pending",
+    "clinical_approval": "pending",
+    "open_blockers": ["IM001-CLIN-FLAG-001", "IM003-SB-001"],
+    "im_003": "disabled",
+    "clinical_reviewer_assigned": false,
+    "publication_authorized": false,
+    "activation_authorized": false,
+    "mobile_pr_76": "unauthorized to merge"
+  },
+  "representation_divergence_from_knowledge_base": {
+    "knowledge_base_encoding": "A resolved blocker_record, IM001-PRODUCT-DISPLAY-DECISIONS, chosen because evaluateDescriptor computes `approved` only from `approvals`, so a resolved blocker is structurally incapable of granting approval.",
+    "backend_encoding": "Scoped traceability on the descriptor's `references`, this reconciliation record, and a new first-class `decision_scope` on every approval record.",
+    "why_they_differ": "Both keep approvals.product pending and both are ineligible in every environment, so the governance outcome is identical. The backend brief for this correction directs that a positive completed decision must not be described as a safety blocker, even a resolved one, because the blocker list is the safety channel and reading a completed decision there inverts its meaning for anyone scanning it. The backend encoding is also strictly stronger: with decision_scope in the contract, the substitution is no longer merely ineffective, it is unrepresentable — a granted approval citing a decision scoped to product_display is now rejected at validation as well as at eligibility.",
+    "cross_repository_status": "Difference in representation, not in governance state. Worth recording when the two repositories next reconcile fixtures; neither side needs to weaken."
+  },
+  "artifact_identity_finding": {
+    "question": "Is 'Vocabulary 2.0' the next version of token_dictionary, a distinct artifact family, or an unresolved mapping?",
+    "finding": "same_artifact_family",
+    "stable_artifact_id": "token_dictionary",
+    "human_facing_label": "Vocabulary 2.0",
+    "resolved_from": [
+      "knowledge-base generator tools/build_vocabulary_v2.py declares ARTIFACT_ID = 'token_dictionary', SOURCE_FILE = 'token_dictionary.ng.v1.1.json', CANDIDATE_VERSION = '2.0' and writes candidate/token_dictionary.ng.v2.0.json — the generator named after the vocabulary emits the token dictionary",
+      "no \"artifact_id\": \"vocabulary\" exists anywhere in the knowledge-base repository, and no vocabulary.ng.* artifact has ever existed in its history",
+      "schema/token_dictionary.v2.schema.json is titled 'WellaPath Symptom Vocabulary (token_dictionary) — schema 2.0' and is a strict superset of the shape of the published v1.1 artifact: the six legacy token arrays remain present and required",
+      "publication/fixtures/compat/kb_blocked_candidates.manifest.json describes itself as 'the real Vocabulary 2.0 and Question Flow 1.1 candidates' and then emits artifact_id 'token_dictionary' at version 2.0",
+      "version lineage is token_dictionary 1.0 → 1.1 → candidate 2.0, with 1.1 the version GET /config serves today at hash sha256:0cc47ad9537c0bd4c6ef3aec8f1931eb9b4c62103a8809d16544f94a90b5c019",
+      "content purpose is identical: the same 295 controlled tokens, proven lossless by a projection back to v1.1 that must reproduce it byte for byte",
+      "the intended mobile consumer is unchanged — red_flag_evaluator.dart reads tokenDictionary['symptom_tokens'] and ['red_flag_tokens'], both byte-identical to v1.1",
+      "the knowledge base declined the rename deliberately and in writing: docs/I2_W2_VOCABULARY_FOUNDATION.md §3 and docs/VOCABULARY_VERSION_NEGOTIATION.md both record that renaming to 'vocabulary' would break /config, the mobile consumer and a backend regression test for a cosmetic gain",
+      "backend_handoff/publication_tooling_v1/README.md raises the backend fixture's use of 'vocabulary' as a discrepancy and recommends the backend adopt 'token_dictionary'"
+    ],
+    "action_taken": "The blocked-candidate fixture now uses the stable artifact id token_dictionary with object key token_dictionary.ng.v2.0.json, and records its predecessor as the real published 1.1 descriptor. 'Vocabulary 2.0' is retained only as a human-facing label. Because the fixture's sha256 is a synthetic seed digest over its own identity, the digest and byte count were recomputed for the corrected identity.",
+    "not_changed": "GET /config, its artifact ids, versions, hashes and URLs, and every active descriptor are untouched. token_dictionary 2.0 remains a candidate: unpublished, inactive, unapproved and ineligible in every environment."
+  }
+}

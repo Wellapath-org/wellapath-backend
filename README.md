@@ -11,14 +11,17 @@ and configuration endpoints.
 
 ## Documentation
 
-| Document                                                               | Covers                                                         |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                             | Current stack, environment variables, rollback procedure, CI   |
-| [`docs/ARTIFACT_RELEASE_PROCESS.md`](docs/ARTIFACT_RELEASE_PROCESS.md) | Artifact versioning checklist and release history              |
-| [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md)             | Beta security posture, accepted risks, production gates        |
-| [`docs/TELEMETRY_CONTRACT.md`](docs/TELEMETRY_CONTRACT.md)             | **Telemetry contract v1.0 for Mobile Engineering**             |
-| [`docs/TELEMETRY_OPERATIONS.md`](docs/TELEMETRY_OPERATIONS.md)         | Telemetry configuration, monitoring, rollback, retention       |
-| [`docs/contracts/`](docs/contracts)                                    | Generated JSON Schema, OpenAPI, allowlist matrix, client types |
+| Document                                                                   | Covers                                                         |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)                                 | Current stack, environment variables, rollback procedure, CI   |
+| [`docs/ARTIFACT_RELEASE_PROCESS.md`](docs/ARTIFACT_RELEASE_PROCESS.md)     | Artifact versioning checklist and release history              |
+| [`docs/SECURITY_CHECKLIST.md`](docs/SECURITY_CHECKLIST.md)                 | Beta security posture, accepted risks, production gates        |
+| [`docs/TELEMETRY_CONTRACT.md`](docs/TELEMETRY_CONTRACT.md)                 | **Telemetry contract v1.0 for Mobile Engineering**             |
+| [`docs/TELEMETRY_OPERATIONS.md`](docs/TELEMETRY_OPERATIONS.md)             | Telemetry configuration, monitoring, rollback, retention       |
+| [`docs/contracts/`](docs/contracts)                                        | Generated JSON Schema, OpenAPI, allowlist matrix, client types |
+| [`docs/DISTRIBUTION_BASELINE.md`](docs/DISTRIBUTION_BASELINE.md)           | Frozen artifact-distribution baseline and its CI drift check   |
+| [`docs/ARTIFACT_MANIFEST_CONTRACT.md`](docs/ARTIFACT_MANIFEST_CONTRACT.md) | **Inactive** candidate manifest contract v1 (I3 Step 1)        |
+| [`docs/handoffs/`](docs/handoffs)                                          | Future KB-publication and Mobile-consumer handoffs (not live)  |
 
 **Cross-repo engineering decisions** (E7–E8 clinical and engineering decisions spanning mobile,
 knowledge-base, and backend) live in the `wellapath-docs` repository, in `decision-log.md` —

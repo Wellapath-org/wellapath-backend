@@ -1,0 +1,316 @@
+{
+  "manifest_version": "1.1.0",
+  "generated_at": "2026-08-28T10:20:29Z",
+  "artifacts": [
+    {
+      "artifact_id": "knowledge_base",
+      "artifact_version": "2.4",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:6c00d8257f8417e86bd5e237630bf8a4623ad72e2e46b1b071dd447c067cec2b",
+      "byte_count": 102118,
+      "object_key": "kb.ng.v2.4.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/kb.ng.v2.4.json",
+      "release_status": "published",
+      "activation_status": "active",
+      "activation_authorized": true,
+      "activation_decision_ref": "wellapath-backend PR #23 — merged to develop with engineering lead approval",
+      "target_environments": ["staging"],
+      "publication_decision_ref": "E8.2 calibration Option A — Issue #8 (wellapath-backend PR #23)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E8.2 calibration Option A — Issue #8",
+          "approved_at": "2026-07-27T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E8.2 calibration owner decision (relayed — PROGRESS.md PR #23 record)",
+          "approved_at": "2026-07-27T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        }
+      },
+      "blockers": [],
+      "predecessor": {
+        "artifact_version": "2.3",
+        "sha256": "sha256:cb0e43fc20bfab4351e123e73bc997d663469a36bca3222ec7fdbe5d7dc4e9f8"
+      },
+      "rollback_target": {
+        "artifact_version": "2.3",
+        "sha256": "sha256:cb0e43fc20bfab4351e123e73bc997d663469a36bca3222ec7fdbe5d7dc4e9f8"
+      },
+      "created_at": "2026-07-27T00:00:00Z",
+      "published_at": "2026-07-27T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": ["fixture-only model of the live E9.1 frozen set; not consumed by any route"]
+    },
+    {
+      "artifact_id": "token_dictionary",
+      "artifact_version": "1.1",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:0cc47ad9537c0bd4c6ef3aec8f1931eb9b4c62103a8809d16544f94a90b5c019",
+      "byte_count": 8820,
+      "object_key": "token_dictionary.ng.v1.1.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/token_dictionary.ng.v1.1.json",
+      "release_status": "published",
+      "activation_status": "active",
+      "activation_authorized": true,
+      "activation_decision_ref": "wellapath-backend PR #17 — merged to develop with engineering lead approval",
+      "target_environments": ["staging"],
+      "publication_decision_ref": "E7 medical review fixes (wellapath-backend PR #17)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E7 medical review fixes (PR #17)",
+          "approved_at": "2026-04-05T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E7 medical review (relayed — PROGRESS.md PR #17 record)",
+          "approved_at": "2026-04-05T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        }
+      },
+      "blockers": [],
+      "predecessor": {
+        "artifact_version": "1.0",
+        "sha256": "sha256:773006dee306a3b03312315134fe62d7abf1aa29baa1903a388854f34f24b76d"
+      },
+      "rollback_target": null,
+      "created_at": "2026-04-05T00:00:00Z",
+      "published_at": "2026-04-05T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "no rollback target declared: token_dictionary v1.0 release date is not on repository record, so no authorized rollback descriptor is modeled"
+      ]
+    },
+    {
+      "artifact_id": "rules",
+      "artifact_version": "2.2",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:1d27e854cba95b179577a88f92445400f494a7fe8e6a53a60fcaa98b3870d1c4",
+      "byte_count": 29082,
+      "object_key": "rules.ng.v2.2.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/rules.ng.v2.2.json",
+      "release_status": "published",
+      "activation_status": "active",
+      "activation_authorized": true,
+      "activation_decision_ref": "wellapath-backend PR #22 — merged to develop with engineering lead approval",
+      "target_environments": ["staging"],
+      "publication_decision_ref": "dead rule rf_147 removal (wellapath-backend PR #22)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "rules v2.2 release (PR #22)",
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "red-flag safety verification — rf_147 subsumed by rf_006 (PR #22 record)",
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        }
+      },
+      "blockers": [],
+      "predecessor": {
+        "artifact_version": "2.1",
+        "sha256": "sha256:57da3ff543c0e2e948c196930de75b40f70edf7d40b6ef4e90b8ccbe10481b79"
+      },
+      "rollback_target": {
+        "artifact_version": "2.1",
+        "sha256": "sha256:57da3ff543c0e2e948c196930de75b40f70edf7d40b6ef4e90b8ccbe10481b79"
+      },
+      "created_at": "2026-07-26T00:00:00Z",
+      "published_at": "2026-07-26T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng"
+    },
+    {
+      "artifact_id": "facilities",
+      "artifact_version": "1.1",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398",
+      "byte_count": 1695844,
+      "object_key": "facilities.ng.v1.1.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/facilities.ng.v1.1.json",
+      "release_status": "published",
+      "activation_status": "active",
+      "activation_authorized": true,
+      "activation_decision_ref": "wellapath-backend PR #20 — merged to develop with engineering lead approval",
+      "target_environments": ["staging"],
+      "publication_decision_ref": "facilities v1.1 — 45 Lagos facility phone numbers (wellapath-backend PR #20)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "facilities v1.1 release (PR #20)",
+          "approved_at": "2026-07-26T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": false,
+          "status": "not_required",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        }
+      },
+      "blockers": [],
+      "predecessor": {
+        "artifact_version": "1.0",
+        "sha256": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e"
+      },
+      "rollback_target": {
+        "artifact_version": "1.0",
+        "sha256": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e"
+      },
+      "created_at": "2026-07-26T00:00:00Z",
+      "published_at": "2026-07-26T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng"
+    },
+    {
+      "artifact_id": "knowledge_base",
+      "artifact_version": "2.3",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:cb0e43fc20bfab4351e123e73bc997d663469a36bca3222ec7fdbe5d7dc4e9f8",
+      "byte_count": 101914,
+      "object_key": "kb.ng.v2.3.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/kb.ng.v2.3.json",
+      "release_status": "published",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": "Case 04 clinical policy fix (wellapath-backend PR #19)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "founder Case 04 decision — Option B (PR #19)",
+          "approved_at": "2026-07-23T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "Case 04 medical review (relayed — PROGRESS.md PR #19 record)",
+          "approved_at": "2026-07-23T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        }
+      },
+      "blockers": [],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-07-23T00:00:00Z",
+      "published_at": "2026-07-23T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": ["superseded version retained as the addressable rollback target for kb 2.4"]
+    },
+    {
+      "artifact_id": "rules",
+      "artifact_version": "2.1",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:57da3ff543c0e2e948c196930de75b40f70edf7d40b6ef4e90b8ccbe10481b79",
+      "byte_count": 29077,
+      "object_key": "rules.ng.v2.1.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/rules.ng.v2.1.json",
+      "release_status": "published",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": "E7 medical review fixes (wellapath-backend PR #17)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E7 medical review fixes (PR #17)",
+          "approved_at": "2026-07-21T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E7 medical review (relayed — PROGRESS.md PR #17 record)",
+          "approved_at": "2026-07-21T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        }
+      },
+      "blockers": [],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-07-21T00:00:00Z",
+      "published_at": "2026-07-21T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": ["superseded version retained as the addressable rollback target for rules 2.2"]
+    },
+    {
+      "artifact_id": "facilities",
+      "artifact_version": "1.0",
+      "schema_version": "wellapath.artifact/1",
+      "content_type": "application/json",
+      "sha256": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e",
+      "byte_count": 1695059,
+      "object_key": "facilities.ng.v1.0.json",
+      "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/facilities.ng.v1.0.json",
+      "release_status": "published",
+      "activation_status": "inactive",
+      "activation_authorized": false,
+      "activation_decision_ref": null,
+      "target_environments": ["staging"],
+      "publication_decision_ref": "E5 facilities integration (wellapath-backend PR #15)",
+      "approvals": {
+        "product": {
+          "required": true,
+          "status": "granted",
+          "decision_ref": "E5 facilities integration (PR #15)",
+          "approved_at": "2026-07-06T00:00:00Z",
+          "decision_scope": ["artifact_publication"]
+        },
+        "clinical": {
+          "required": false,
+          "status": "not_required",
+          "decision_ref": null,
+          "approved_at": null,
+          "decision_scope": null
+        }
+      },
+      "blockers": [],
+      "predecessor": null,
+      "rollback_target": null,
+      "created_at": "2026-07-06T00:00:00Z",
+      "published_at": "2026-07-06T00:00:00Z",
+      "deprecated": false,
+      "expires_at": null,
+      "country": "ng",
+      "references": [
+        "superseded version retained as the addressable rollback target for facilities 1.1"
+      ]
+    }
+  ]
+}
