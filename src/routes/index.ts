@@ -1,13 +1,14 @@
 import { FastifyInstance } from 'fastify';
 import { healthRoutes } from './health';
 import { versionRoutes } from './version';
-import { configRoutes } from './config';
+import { ConfigRouteOptions, configRoutes } from './config';
 import { metricsRoutes, MetricsRouteOptions } from './metrics';
 import { telemetryRoutes, TelemetryRouteOptions } from './telemetry';
 
 export interface RegisterRoutesOptions {
   telemetry: TelemetryRouteOptions;
   metrics: MetricsRouteOptions;
+  config: ConfigRouteOptions;
 }
 
 export const registerRoutes = async (
@@ -16,7 +17,7 @@ export const registerRoutes = async (
 ): Promise<void> => {
   healthRoutes(server);
   versionRoutes(server);
-  configRoutes(server);
+  configRoutes(server, options.config);
   metricsRoutes(server, options.metrics);
   await telemetryRoutes(server, options.telemetry);
 };

@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { FacilitiesV2Declaration, parseFacilitiesV2Env } from '../manifest/facilities-v2';
 dotenv.config();
 
 interface TelemetryConfig {
@@ -39,6 +40,12 @@ interface AppConfig {
   telemetry: TelemetryConfig;
   /** Serves the operational metrics snapshot at `GET /internal/metrics`. */
   metricsEndpointEnabled: boolean;
+  /**
+   * Optional Facilities 2.0 distribution declaration. Every gate defaults to false or absent,
+   * so an unconfigured deployment serves exactly the current v1.1 `/config` response. See
+   * `src/manifest/facilities-v2.ts` and `docs/FACILITIES_V2_DISTRIBUTION.md`.
+   */
+  facilitiesV2: FacilitiesV2Declaration;
 }
 
 function requireEnv(key: string): string {
@@ -87,4 +94,5 @@ export const config: AppConfig = {
     sinkMaxInFlight: intEnv('TELEMETRY_SINK_MAX_IN_FLIGHT', 50, 1, 1000),
   },
   metricsEndpointEnabled: boolEnv('METRICS_ENDPOINT_ENABLED', true),
+  facilitiesV2: parseFacilitiesV2Env(process.env),
 };

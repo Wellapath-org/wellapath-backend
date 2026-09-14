@@ -1,7 +1,21 @@
 import { FastifyInstance } from 'fastify';
 import { config } from '../config/env';
+import { FacilitiesV2Exposure } from '../manifest/facilities-v2';
 
-export const configRoutes = (server: FastifyInstance): void => {
+export interface ConfigRouteOptions {
+  /**
+   * Resolved Facilities 2.0 exposure, or null. Null — the default, and the only value any
+   * current deployment can produce — leaves the response byte-identical to the frozen
+   * distribution baseline. Resolution happens once at startup in `buildApp`; this route never
+   * evaluates gates itself and never mutates the v1.1 artifact set either way.
+   */
+  facilitiesV2: FacilitiesV2Exposure | null;
+}
+
+export const configRoutes = (
+  server: FastifyInstance,
+  options: ConfigRouteOptions = { facilitiesV2: null },
+): void => {
   server.get('/config', async (_request, reply) => {
     return reply.status(200).send({
       version: '1.0',
@@ -36,6 +50,10 @@ export const configRoutes = (server: FastifyInstance): void => {
           country: 'ng',
         },
       },
+      // Optional and additive: present ONLY when every Facilities 2.0 gate passed at startup.
+      // Existing clients read `artifacts` and ignore unknown top-level keys; the four frozen
+      // artifacts above are identical whether or not this key is present.
+      ...(options.facilitiesV2 !== null ? { facilities_v2: options.facilitiesV2 } : {}),
     });
   });
 };

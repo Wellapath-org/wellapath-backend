@@ -13,6 +13,11 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
+import {
+  FacilitiesV2Declaration,
+  FacilitiesV2Resolution,
+  resolveFacilitiesV2,
+} from './manifest/facilities-v2';
 import dbPlugin from './plugins/db';
 import errorHandlerPlugin from './plugins/error-handler';
 import metricsPlugin from './plugins/metrics';
@@ -40,6 +45,16 @@ export interface BuildAppOptions {
   registerDatabase?: boolean;
   /** Injectable clock for the telemetry pipeline. */
   now?: () => number;
+  /**
+   * Overrides the Facilities 2.0 declaration (default: parsed from the environment) and the
+   * environment name the production gate checks (default: `config.nodeEnv`). Tests use this to
+   * exercise the gates without touching process state; the resolution itself always runs
+   * through the real `resolveFacilitiesV2`.
+   */
+  facilitiesV2?: {
+    declaration?: FacilitiesV2Declaration;
+    environment?: string;
+  };
 }
 
 export interface BuiltApp {
@@ -47,6 +62,8 @@ export interface BuiltApp {
   dispatcher: TelemetryDispatcher;
   dedupe: DedupeStore;
   service: TelemetryService;
+  /** The startup Facilities 2.0 gate decision, exposed so tests can assert on the reasons. */
+  facilitiesV2: FacilitiesV2Resolution;
 }
 
 const ALLOWED_ORIGINS =
@@ -146,6 +163,33 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
 
   const telemetryEnabled = options.telemetryEnabled ?? config.telemetry.enabled;
 
+  // Facilities 2.0 gate — resolved exactly once, before any route exists. A refused
+  // declaration changes nothing: `/config` keeps serving the frozen v1.1 response, and the
+  // refusal is logged as reason codes and field names ONLY. The configured values themselves
+  // (URLs, digests, whatever was mistakenly pasted into a variable) never reach the logs.
+  const facilitiesV2Declaration = options.facilitiesV2?.declaration ?? config.facilitiesV2;
+  const facilitiesV2Environment = options.facilitiesV2?.environment ?? config.nodeEnv;
+  const facilitiesV2 = resolveFacilitiesV2(facilitiesV2Declaration, facilitiesV2Environment);
+  if (facilitiesV2Declaration.enabled && facilitiesV2.exposure === null) {
+    server.log.warn(
+      {
+        facilities_v2_refused: facilitiesV2.reasons.map(reason => ({
+          code: reason.code,
+          field: reason.field,
+        })),
+      },
+      'Facilities v2 declaration refused — /config continues to serve facilities v1.1 only',
+    );
+  } else if (facilitiesV2.exposure !== null) {
+    server.log.info(
+      {
+        facilities_v2_version: facilitiesV2.exposure.artifact.version,
+        facilities_v2_schema: facilitiesV2.exposure.schema_version,
+      },
+      'Facilities v2 manifest entry enabled on /config',
+    );
+  }
+
   const service = new TelemetryService({
     enabled: telemetryEnabled,
     dispatcher,
@@ -164,11 +208,14 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
       sink: sink.name,
       contractVersion: TELEMETRY_CONTRACT_VERSION,
     },
+    config: {
+      facilitiesV2: facilitiesV2.exposure,
+    },
   });
 
   server.addHook('onClose', async () => {
     dedupe.clear();
   });
 
-  return { server, dispatcher, dedupe, service };
+  return { server, dispatcher, dedupe, service, facilitiesV2 };
 };

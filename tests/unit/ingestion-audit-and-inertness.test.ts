@@ -282,9 +282,21 @@ describe('runtime inertness', () => {
     }
   });
 
-  it('no route file mentions the manifest subsystem at all', () => {
+  it('route files reach nothing in the manifest subsystem beyond the facilities-v2 gate', () => {
+    // The facilities-v2 distribution gate (`src/manifest/facilities-v2.ts`) is the one
+    // authorized route-facing surface: default-off, fail-closed, resolved once at startup, and
+    // proven unable to expose an unapproved artifact (see tests/unit/facilities-v2-gate.test.ts).
+    // Everything else in the subsystem — ingestion, registry, contract, validation,
+    // eligibility, integrity, origin — stays unreachable from any route, exactly as before.
     for (const file of collectSourceFiles(join(repoRoot, 'src/routes'))) {
-      expect(readFileSync(file, 'utf8')).not.toMatch(/manifest/i);
+      const text = readFileSync(file, 'utf8');
+      const mentions = text.match(/manifest[\w/.-]*/gi) ?? [];
+      for (const mention of mentions) {
+        expect(mention).toMatch(/^manifest\/facilities-v2$|^manifest$/i);
+      }
+      expect(text).not.toMatch(
+        /manifest\/(ingestion|registry|contract|validate|eligibility|integrity|origin)/i,
+      );
     }
   });
 
