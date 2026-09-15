@@ -8,7 +8,7 @@
 
 ## Current Status
 
-**Phase:** I3 — Governed Artifact Delivery · **Steps 1, 2B and 3 COMPLETE (2026-08-31).** `develop` is at `2485ce0`. Manifest contract **1.1.0**, ingestion envelope **1.1.0**, audit event **1.0.0** — all inactive. I1 phase closure still sits with mobile PR #69 (not re-checked since 2026-08-14).
+**Phase:** I3 — Governed Artifact Delivery · **Steps 1, 2B and 3 COMPLETE (2026-08-31).** `develop` is at `2485ce0`. Manifest contract **1.1.0**, ingestion envelope **1.1.0**, audit event **1.0.0** — all inactive. **Mobile PR #69 (the I1 closure record) MERGED 2026-08-14** — checked 2026-09-15; the backend crash-monitoring question is now the only I1 item still open here (see the 2026-08-14 status check below).
 **Sprint:** Three PRs delivered, independently reviewed against pinned heads, and merged: #32 (baseline freeze), #34 (approval-scope correction + contract 1.1.0), #35 (ingestion and registry foundation). **Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started — each gated on its own authorization.**
 **New (2026-09-14):** **PR #36 open, unmerged** — an optional, default-off, fail-closed Facilities 2.0 distribution contract on `/config`, prepared for Mobile PR #79. `/config` is byte-identical to the frozen baseline in every state a current deployment can reach; the candidate's governance state fails the gates on two independent fields. See the 2026-09-14 entry below. **This changes nothing about the candidate's blocks and proposes no v2 exposure.**
 **Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1. `GET /config` canonical sha256 unchanged throughout at `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`, verified in the repository and live on staging after every merge. No artifact changes without engineering lead approval.
@@ -20,6 +20,35 @@
 | Ingestion envelope    | `1.1.0` | `f54debf7e22e4716d31fe046d92391ef76d5695c10b6e921c6f031666e46a68e` | 11,036 |
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
+
+> ### 🔍 Status check — 2026-09-15
+>
+> **Backend: no change since yesterday's PR #36.** `origin/develop` still `2485ce0`; PR #36 is
+> open, mergeable, CI green, **no reviews or comments yet**. Progress PRs #33 (this one), #31
+> and #28 unchanged (#31 and #28 still recommended for closing unmerged).
+>
+> **Staging verified live today:**
+>
+> | Check                     | Result                                                                         |
+> | ------------------------- | ------------------------------------------------------------------------------ |
+> | `GET /health`             | **200**, `checks.database: "ok"` — no fourth pause as of today                 |
+> | `GET /config` body sha256 | `183a15bd…45d3b` — **exactly the frozen live-body hash**, no v2 key            |
+> | Artifact versions         | `token_dictionary` 1.1 · `knowledge_base` 2.4 · `rules` 2.2 · `facilities` 1.1 |
+>
+> The idle clock restarted 2026-08-29; 17 days without a pause means something is generating
+> traffic — incidental protection, not a fix. The free-tier remedy remains open.
+>
+> **📩 Mobile — relayed from the `wellapath-mobile` PR record, verified via `gh` today:**
+>
+> - **PR #69 MERGED 2026-08-14 at 13:45 UTC** — the same day it was opened. The I1 closure
+>   record is in, superseding every "not re-checked since 2026-08-14" caveat below. Per this
+>   log's own standing rule, I1 completion required #69 merged **and** an answer on backend
+>   crash monitoring: the first condition is now met, the second is still open — **the backend
+>   crash-monitoring decision is now the only thing keeping I1 from being recorded closed
+>   here.** External-beta authorization and the Sentry DPA condition were not re-examined
+>   today; the 2026-08-14 record of them stands.
+> - **PR #79** (facilities 2.0 consumer preparation) remains **open, unmerged** — the
+>   counterpart to backend PR #36.
 
 > ### ✅ Facilities 2.0 distribution contract prepared — PR #36 open, UNMERGED (2026-09-14)
 >
@@ -516,7 +545,7 @@ true` **with zero reason codes**, on the strength of a wording decision. A field
 
 **Next immediate action (2026-09-14):** **PR #36 awaits engineering review — do not merge without it.** Otherwise none outstanding for backend. I3 Steps 1, 2B and 3 are merged (PRs #32, #34, #35) and `develop` is at `2485ce0`. Everything built in this phase is inactive or default-off: no route serves or consumes any of it in any current deployment, and `/config` is unchanged. Every remaining I3 step — candidate publication, activation, Mobile consumption, and ever enabling the PR #36 gates — requires its own explicit authorization; the exact preconditions are listed in `docs/INGESTION_AND_REGISTRY.md` §§11–13 and `docs/FACILITIES_V2_DISTRIBUTION.md` §5 (on the PR #36 branch).
 
-Backend is **not blocking I1 closure**. Waiting on others: mobile PR #69 to merge (phase closure — status not re-checked since 2026-08-14), a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
+Backend is **not blocking I1 closure**. Mobile PR #69 **merged 2026-08-14** (verified 2026-09-15), so the remaining waits are: a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above — now the only item keeping I1 from being recorded closed here), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
 
 **Open, owned by others (backend cannot action):** licence or reuse permission for the facilities source dataset, and a decision on whether an unattributed dataset may be presented to users at all (founder + engineering lead); whether the three missing states — Adamawa, Kebbi, Sokoto — block a nationwide claim (Product); approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
@@ -841,7 +870,7 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
 **E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
 
-**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Phase closure itself sits with mobile PR #69 (still open as of 2026-08-14; not re-checked since).
+**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Mobile closure PR #69 **merged 2026-08-14** (verified 2026-09-15); the backend crash-monitoring decision is the one item still keeping I1 from being recorded closed here.
 
 **I3 — Governed Artifact Delivery** ✅ **Steps 1, 2B and 3 complete**, all inactive:
 
@@ -868,7 +897,9 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-14 — Facilities 2.0 distribution contract prepared on `feat/i3-facilities-v2-distribution-contract` (PR #36, open, unmerged): optional default-off `facilities_v2` manifest entry for `/config` with fail-closed gates matched to Mobile PR #79, proven unable to expose the unapproved candidate under any environment-variable combination, `/config` byte-identical to the frozen baseline in every reachable state, 742 tests on the branch, CI green. Nothing uploaded, deployed, activated or changed in staging, Mobile or the knowledge base; the candidate's licence, attribution, coverage and sizing blocks are untouched. Earlier entries below are kept in place; the most recent status is at the top of this file.
+\_Last updated: 2026-09-15 — status check: backend unchanged (`develop` at `2485ce0`, PR #36 open with no reviews yet); staging verified live — `/health` 200 `database: ok`, `/config` body sha256 exactly the frozen `183a15bd…45d3b`, all four artifacts at frozen versions, no v2 key; **mobile PR #69 merged 2026-08-14** (verified today), so the I1 closure record is in and the backend crash-monitoring decision is the only I1 item still open here; mobile PR #79 still open. Earlier entries below are kept in place.
+
+Earlier: 2026-09-14 — Facilities 2.0 distribution contract prepared on `feat/i3-facilities-v2-distribution-contract` (PR #36, open, unmerged): optional default-off `facilities_v2` manifest entry for `/config` with fail-closed gates matched to Mobile PR #79, proven unable to expose the unapproved candidate under any environment-variable combination, `/config` byte-identical to the frozen baseline in every reachable state, 742 tests on the branch, CI green. Nothing uploaded, deployed, activated or changed in staging, Mobile or the knowledge base; the candidate's licence, attribution, coverage and sizing blocks are untouched. Earlier entries below are kept in place; the most recent status is at the top of this file.
 
 Earlier: 2026-08-31 — I3 Governed Artifact Delivery, Steps 1/2B/3 complete; nationwide facilities candidate delivered in the knowledge base and blocked on licence, attribution and coverage.
 
