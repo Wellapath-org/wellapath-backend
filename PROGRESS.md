@@ -21,6 +21,15 @@
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
 
+> ### 🔍 Status check — 2026-09-17: no change
+>
+> Everything below the 2026-09-15 check re-verified today, all unchanged: `origin/develop` at
+> `2485ce0`; **PR #36 still open, mergeable, and awaiting its first review**; progress PR #33
+> open; mobile PR #79 open. Staging live: `/health` 200 `database: ok` (still no fourth pause;
+> idle clock restarted 2026-08-29), `/config` body sha256 still the frozen `183a15bd…45d3b`.
+> The waits are unchanged: PR #36 review, the backend crash-monitoring decision (the last open
+> I1 item), and the pre-production list below.
+
 > ### 🔍 Status check — 2026-09-15
 >
 > **Backend: no change since yesterday's PR #36.** `origin/develop` still `2485ce0`; PR #36 is
@@ -897,7 +906,9 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-15 — status check: backend unchanged (`develop` at `2485ce0`, PR #36 open with no reviews yet); staging verified live — `/health` 200 `database: ok`, `/config` body sha256 exactly the frozen `183a15bd…45d3b`, all four artifacts at frozen versions, no v2 key; **mobile PR #69 merged 2026-08-14** (verified today), so the I1 closure record is in and the backend crash-monitoring decision is the only I1 item still open here; mobile PR #79 still open. Earlier entries below are kept in place.
+\_Last updated: 2026-09-17 — status check, no change: `develop` at `2485ce0`, PR #36 open and still awaiting its first review, PR #33 and mobile PR #79 open, staging verified live (`/health` 200 `database: ok`, `/config` still the frozen `183a15bd…45d3b`). Earlier entries below are kept in place.
+
+Earlier: 2026-09-15 — status check: backend unchanged (`develop` at `2485ce0`, PR #36 open with no reviews yet); staging verified live — `/health` 200 `database: ok`, `/config` body sha256 exactly the frozen `183a15bd…45d3b`, all four artifacts at frozen versions, no v2 key; **mobile PR #69 merged 2026-08-14** (verified that day), so the I1 closure record is in and the backend crash-monitoring decision is the only I1 item still open here; mobile PR #79 still open.
 
 Earlier: 2026-09-14 — Facilities 2.0 distribution contract prepared on `feat/i3-facilities-v2-distribution-contract` (PR #36, open, unmerged): optional default-off `facilities_v2` manifest entry for `/config` with fail-closed gates matched to Mobile PR #79, proven unable to expose the unapproved candidate under any environment-variable combination, `/config` byte-identical to the frozen baseline in every reachable state, 742 tests on the branch, CI green. Nothing uploaded, deployed, activated or changed in staging, Mobile or the knowledge base; the candidate's licence, attribution, coverage and sizing blocks are untouched. Earlier entries below are kept in place; the most recent status is at the top of this file.
 
