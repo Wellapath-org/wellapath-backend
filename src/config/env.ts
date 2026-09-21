@@ -23,17 +23,30 @@ interface TelemetryConfig {
   sinkMaxInFlight: number;
 }
 
+/**
+ * Database configuration is a discriminated union so that disabled state is structural, not a
+ * convention: when `enabled` is `false` there are no connection fields to read, and any code
+ * that wants them has to prove to the compiler that the database was turned on. No current
+ * product route requires the database — the only runtime query in the app is the health
+ * check's `SELECT 1` — so production can run with `DATABASE_ENABLED=false` until an approved
+ * feature actually needs persistence.
+ */
+export type DbConfig =
+  | {
+      enabled: true;
+      host: string;
+      port: number;
+      name: string;
+      user: string;
+      password: string;
+      ssl: boolean;
+    }
+  | { enabled: false };
+
 interface AppConfig {
   nodeEnv: string;
   port: number;
-  db: {
-    host: string;
-    port: number;
-    name: string;
-    user: string;
-    password: string;
-    ssl: boolean;
-  };
+  db: DbConfig;
   artifactBaseUrl: string;
   appVersion: string;
   telemetry: TelemetryConfig;
@@ -54,6 +67,23 @@ function boolEnv(key: string, fallback: boolean): boolean {
   return value.toLowerCase() === 'true';
 }
 
+/**
+ * Reads a boolean env var that must be exactly `true` or `false` when present. Used for
+ * switches where a typo silently flipping the value would be worse than a refused boot:
+ * `boolEnv` maps any junk to `false`, which for `DATABASE_ENABLED` would disable the database
+ * on a misspelling. This fails clear at startup instead.
+ */
+function strictBoolEnv(key: string, fallback: boolean): boolean {
+  const value = process.env[key];
+  if (value === undefined || value === '') return fallback;
+  const normalized = value.toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  // The rejected value is deliberately not echoed: refusal messages name the variable and the
+  // reason only, never configured values — a mispasted secret must not land in startup logs.
+  throw new Error(`Invalid value for ${key}: expected "true" or "false"`);
+}
+
 /** Reads a bounded integer env var, falling back on anything unparseable or out of range. */
 function intEnv(key: string, fallback: number, min: number, max: number): number {
   const raw = process.env[key];
@@ -63,17 +93,30 @@ function intEnv(key: string, fallback: number, min: number, max: number): number
   return parsed;
 }
 
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+
+/**
+ * Defaults to `true` so every existing deployment keeps its current behaviour — staging is
+ * unchanged, and enabling the database keeps the strict `requireEnv` validation below.
+ * Setting `DATABASE_ENABLED=false` is an explicit operator decision; in that state no DB_*
+ * variable is read, no pool is created and `/health` reports the database as `disabled`.
+ */
+const databaseEnabled = strictBoolEnv('DATABASE_ENABLED', true);
+
 export const config: AppConfig = {
-  nodeEnv: process.env.NODE_ENV ?? 'development',
+  nodeEnv,
   port: parseInt(process.env.PORT ?? '3000', 10),
-  db: {
-    host: requireEnv('DB_HOST'),
-    port: parseInt(process.env.DB_PORT ?? '5432', 10),
-    name: requireEnv('DB_NAME'),
-    user: requireEnv('DB_USER'),
-    password: requireEnv('DB_PASSWORD'),
-    ssl: process.env.DB_SSL === 'true',
-  },
+  db: databaseEnabled
+    ? {
+        enabled: true,
+        host: requireEnv('DB_HOST'),
+        port: parseInt(process.env.DB_PORT ?? '5432', 10),
+        name: requireEnv('DB_NAME'),
+        user: requireEnv('DB_USER'),
+        password: requireEnv('DB_PASSWORD'),
+        ssl: process.env.DB_SSL === 'true',
+      }
+    : { enabled: false },
   artifactBaseUrl: requireEnv('ARTIFACT_BASE_URL'),
   appVersion: process.env.APP_VERSION ?? '0.1.0',
   telemetry: {
@@ -86,5 +129,12 @@ export const config: AppConfig = {
     sinkRetryDelayMs: intEnv('TELEMETRY_SINK_RETRY_DELAY_MS', 200, 0, 10000),
     sinkMaxInFlight: intEnv('TELEMETRY_SINK_MAX_IN_FLIGHT', 50, 1, 1000),
   },
-  metricsEndpointEnabled: boolEnv('METRICS_ENDPOINT_ENABLED', true),
+  /**
+   * Hard-disabled in production regardless of the env var: the endpoint is unauthenticated,
+   * no authenticated monitoring design exists yet, and the recorded pre-external-beta item
+   * says it must not be publicly reachable. In production the route is simply not registered
+   * and answers with the standard 404 envelope.
+   */
+  metricsEndpointEnabled:
+    nodeEnv === 'production' ? false : boolEnv('METRICS_ENDPOINT_ENABLED', true),
 };

@@ -10,13 +10,24 @@ declare module 'fastify' {
 }
 
 async function dbPlugin(server: FastifyInstance): Promise<void> {
+  const db = config.db;
+  if (!db.enabled) {
+    // The app factory never registers this plugin when the database is disabled, so reaching
+    // this line means a caller bypassed that decision. Refuse loudly rather than building a
+    // pool from fields that do not exist.
+    throw new Error('Database plugin must not be registered when DATABASE_ENABLED=false');
+  }
+
   const pool = new Pool({
-    host: config.db.host,
-    port: config.db.port,
-    database: config.db.name,
-    user: config.db.user,
-    password: config.db.password,
-    ssl: config.db.ssl ? { rejectUnauthorized: false } : false,
+    host: db.host,
+    port: db.port,
+    database: db.name,
+    user: db.user,
+    password: db.password,
+    // rejectUnauthorized:false encrypts but does not verify the server certificate chain.
+    // Recorded hardening item for database-enabled production use; unreachable entirely when
+    // DATABASE_ENABLED=false because this plugin is never registered in that state.
+    ssl: db.ssl ? { rejectUnauthorized: false } : false,
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000,
