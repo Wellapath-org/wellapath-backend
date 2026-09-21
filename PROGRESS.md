@@ -21,6 +21,56 @@
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
 
+> ### 🛑 Production provisioning for build 211 — AUDITED, BLOCKED on founder actions (2026-09-21)
+>
+> A founder brief requested the minimum production environment for the `0.3.0+211` public
+> soft-launch candidate (mobile PR #80). **The audit completed; nothing could be provisioned,
+> because no credential available to this session has access to any WellaPath hosting, DNS or
+> database account** — exactly the brief's stop-and-report condition. Full audit, runbook,
+> env-var spec, verification checklist and mobile-handoff preconditions are in
+> **`docs/PRODUCTION_PROVISIONING.md` (PR #37, open → `develop`, docs only)**.
+>
+> Findings that change assumptions:
+>
+> - **`wellapath.org` is not on Cloudflare DNS.** Nameservers are Namecheap BasicDNS
+>   (`registrar-servers.com`); the apex points at Vercel (marketing site). `api.wellapath.org`,
+>   `backend.wellapath.org` and even `api-staging.wellapath.org` have **no DNS records**. The
+>   production record must be added at **Namecheap**.
+> - **Accounts:** Render (no key/session here), the WellaPath Cloudflare/R2 account, Namecheap
+>   and the WellaPath Supabase org are all owned elsewhere (engineering lead/founder). The
+>   Cloudflare and Supabase accounts reachable from this machine hold only unrelated projects.
+> - **Production source commit is `2485ce0`** (develop tip). Suites re-run on it today:
+>   **653/653 tests, lint, format, `tsc --noEmit`, telemetry contract sync — all clean.**
+>   **PR #36 stays excluded and unmerged**; no pending PR is required for production.
+> - **Facilities 1.1 re-verified from R2**: 1,695,844 bytes, sha256 `25684c71…982398`, exact
+>   match; v1.0 still 200. The object is environment-neutral and hash-pinned — **no separate
+>   production bucket is required for launch** (noted: `*.r2.dev` is rate-limited; custom
+>   domain on the same bucket is the follow-up).
+> - **Founder actions needed (in order):** paid-tier production Supabase project + migrate;
+>   always-on paid Render service pinned to `2485ce0` (free tier spins down — not a stable
+>   public origin); `api.wellapath.org` CNAME at Namecheap. Paid services are involved at every
+>   step, which is itself the brief's stop condition.
+> - **Code items before/at go-live** (each needs its own approval, none blocking provisioning):
+>   CORS production allowlist still lists superseded `api-staging.wellapath.org`; unauthenticated
+>   `/internal/metrics`; DB TLS `rejectUnauthorized: false`; the `/health` liveness/DB coupling;
+>   no HSTS/`X-Content-Type-Options` headers (observed live today).
+> - **Mobile handoff: NOT issued.** No production URL exists; build 211 must not be compiled
+>   against staging. Handoff package template (URL, artifact identity, `/config` fingerprint,
+>   rollback) is in the runbook §6, to be filled only after live verification.
+> - Confirmed intact: telemetry off in the production env spec (and no Sentry/analytics exists
+>   in this backend), no Facilities 2.0 exposure possible at `2485ce0`, staging untouched,
+>   IP-minimizing request logging present in source (`src/app.ts` path-only serializer).
+>
+> ### 🔴 Fourth Supabase free-tier pause — found live 2026-09-21
+>
+> During the audit, staging `GET /health` returned **503 `checks.database: "error"`** — the
+> predicted fourth pause (idle clock had restarted 2026-08-29). `/version` and `/config`
+> unaffected as designed; `/config` body sha256 still exactly the frozen `183a15bd…45d3b`,
+> facilities 1.1, no v2 key. **Not restored here** — restoration is a manual engineering-lead
+> action in the Supabase dashboard, and no accessible account owns the project. Four pauses,
+> four manual restores: the free-tier remedy (open since 2026-07-29) is now also a hard
+> production prerequisite recorded in `docs/PRODUCTION_PROVISIONING.md`.
+
 > ### 🔍 Status check — 2026-09-17: no change
 >
 > Everything below the 2026-09-15 check re-verified today, all unchanged: `origin/develop` at
@@ -906,7 +956,9 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-17 — status check, no change: `develop` at `2485ce0`, PR #36 open and still awaiting its first review, PR #33 and mobile PR #79 open, staging verified live (`/health` 200 `database: ok`, `/config` still the frozen `183a15bd…45d3b`). Earlier entries below are kept in place.
+\_Last updated: 2026-09-21 — production provisioning for build 211 audited and **blocked on founder actions** (no accessible Render/Namecheap/Cloudflare/Supabase account owns WellaPath infrastructure); audit + runbook in `docs/PRODUCTION_PROVISIONING.md` (PR #37); `wellapath.org` DNS is at Namecheap, not Cloudflare; production source commit `2485ce0` with all suites clean; Facilities 1.1 re-verified byte-exact from R2; **fourth Supabase free-tier pause found live** (`/health` 503, `/config` unaffected and still `183a15bd…45d3b`); PR #36 untouched and unmerged; staging unchanged; no mobile handoff issued.
+
+Earlier: 2026-09-17 — status check, no change: `develop` at `2485ce0`, PR #36 open and still awaiting its first review, PR #33 and mobile PR #79 open, staging verified live (`/health` 200 `database: ok`, `/config` still the frozen `183a15bd…45d3b`). Earlier entries below are kept in place.
 
 Earlier: 2026-09-15 — status check: backend unchanged (`develop` at `2485ce0`, PR #36 open with no reviews yet); staging verified live — `/health` 200 `database: ok`, `/config` body sha256 exactly the frozen `183a15bd…45d3b`, all four artifacts at frozen versions, no v2 key; **mobile PR #69 merged 2026-08-14** (verified that day), so the I1 closure record is in and the backend crash-monitoring decision is the only I1 item still open here; mobile PR #79 still open.
 
