@@ -66,9 +66,21 @@ describe('DATABASE_ENABLED — explicit, fail-clear database switch', () => {
   it('refuses any value other than "true" or "false" instead of guessing', () => {
     for (const junk of ['1', 'yes', 'off', 'disabled']) {
       expect(() => loadConfig({ DATABASE_ENABLED: junk })).toThrow(
-        `Invalid value for DATABASE_ENABLED: expected "true" or "false", got "${junk}"`,
+        'Invalid value for DATABASE_ENABLED: expected "true" or "false"',
       );
     }
+  });
+
+  it('never echoes the rejected value — a mispasted secret must not reach startup logs', () => {
+    const mispasted = 'hunter2-not-a-real-secret';
+    let message = '';
+    try {
+      loadConfig({ DATABASE_ENABLED: mispasted });
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain('DATABASE_ENABLED');
+    expect(message).not.toContain(mispasted);
   });
 
   it('accepts case-insensitive true/false', () => {

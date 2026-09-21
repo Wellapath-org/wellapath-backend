@@ -79,7 +79,9 @@ function strictBoolEnv(key: string, fallback: boolean): boolean {
   const normalized = value.toLowerCase();
   if (normalized === 'true') return true;
   if (normalized === 'false') return false;
-  throw new Error(`Invalid value for ${key}: expected "true" or "false", got "${value}"`);
+  // The rejected value is deliberately not echoed: refusal messages name the variable and the
+  // reason only, never configured values — a mispasted secret must not land in startup logs.
+  throw new Error(`Invalid value for ${key}: expected "true" or "false"`);
 }
 
 /** Reads a bounded integer env var, falling back on anything unparseable or out of range. */
