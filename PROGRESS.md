@@ -21,6 +21,42 @@
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
 
+> ### 🚀 Production service PROVISIONED and VERIFIED on Render — DNS awaiting founder (2026-09-21, evening)
+>
+> Founder-authorized production provisioning executed: the operator created the service manually
+> in the Render dashboard (account confirmed to own staging) guided step-by-step from here, and
+> every remotely verifiable check was run independently from this session.
+>
+> | Field                   | Value                                                                                                                                                                      |
+> | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Service                 | `wellapath-backend-production` · id `srv-daojooh42hec73a52lmg`                                                                                                             |
+> | Plan / region / runtime | **Starter (paid, always-on)** · Frankfurt (EU Central) · Docker (repo `Dockerfile`)                                                                                        |
+> | Source                  | `Wellapath-org/wellapath-backend`, branch **`production`** (created for this, pinned at exactly `6cf642f`), **auto-deploy OFF**                                            |
+> | Env vars                | `NODE_ENV=production` · `DATABASE_ENABLED=false` · `APP_VERSION=0.3.0` · `ARTIFACT_BASE_URL=<R2 public base>` · `TELEMETRY_ENABLED=false` — **nothing else, zero secrets** |
+> | Health check            | `/health`                                                                                                                                                                  |
+> | Hostname                | `https://wellapath-backend-production.onrender.com` — **Live**                                                                                                             |
+>
+> **Verified live (all pass):** `/health` 200 `database:"disabled"` · `/version` 0.3.0/production ·
+> `/config` canonical sha256 exactly `3b2bbb1c…8578ed` and raw body byte-identical to the frozen
+> `183a15bd…45d3b` · Facilities 1.1 downloaded from the `/config` URL: 1,695,844 bytes, sha256
+> `25684c71…982398` exact · no `facilities_v2`, no staging marker · `/internal/metrics` 404 ·
+> telemetry POST 503 `telemetry_disabled` · HSTS/nosniff/DENY/no-referrer on 200s and error
+> envelopes · rate limiting live · CORS grants only `https://wellapath.org` (no-Origin native
+> untouched; staging and arbitrary origins refused) · operator confirmed in-dashboard: deployed
+> commit `6cf642f`, Starter plan, auto-deploy off, and a query-string log-marker search returned
+> **zero results** with no client IPs in request lines. **Staging re-verified untouched** during
+> the same pass.
+>
+> **DNS — waiting on the founder.** `api.wellapath.org` was added as a custom domain on the
+> production service; Render requests exactly one record: **CNAME, host `api`, target
+> `wellapath-backend-production.onrender.com`**. Per the add-only rule in
+> `docs/PRODUCTION_PROVISIONING.md` §2, the founder adds only that record at Namecheap,
+> preserving the Vercel apex/`www` website records, the Hostinger MX records, all TXT records
+> and the nameservers. After it propagates: Render verify + TLS issuance, then the full endpoint
+> re-verification on `https://api.wellapath.org` and the mobile handoff. **PR #36 still open and
+> unmerged; Facilities 2.0, telemetry and Sentry inactive; no database exists in production;
+> nothing mobile built or uploaded.**
+
 > ### ✅ PR #38 reviewed, corrected and MERGED → `develop` at `6cf642f` (2026-09-21, later same day)
 >
 > An independent release-blocking review of PR #38 ran against `develop@2485ce0` from a clean
@@ -1025,7 +1061,7 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-21 (third entry) — **PR #38 independently reviewed and MERGED → `develop` as `6cf642f`** at reviewed head `bf4d96b`, after the review found and fixed two defects (refusal message echoed the rejected env value; DNS step was not add-only — apex/`www` → Vercel website and MX → Hostinger email now explicitly preserved). Merged tree verified byte-identical to the reviewed head; 676 tests clean from a clean worktree; PR #37 auto-marked merged via the stack, not merged separately; staging auto-deploy picked up the merge with `/config` byte-identical and `/health` 503 only from the pre-existing paused database; **PR #36 still open and unmerged; Facilities 2.0, telemetry and Sentry inactive; nothing deployed to production.** `develop` is now the soft-launch basis awaiting the paid Render service and the Namecheap `api` CNAME.
+\_Last updated: 2026-09-21 (fourth entry) — PRODUCTION PROVISIONED: `wellapath-backend-production` (srv-daojooh42hec73a52lmg) live on Render Starter at commit `6cf642f` from the pinned `production` branch, auto-deploy off, database-independent, all live verifications passed; `api.wellapath.org` CNAME → `wellapath-backend-production.onrender.com` awaiting the founder's add-only Namecheap change. Earlier (third entry) — **PR #38 independently reviewed and MERGED → `develop` as `6cf642f`** at reviewed head `bf4d96b`, after the review found and fixed two defects (refusal message echoed the rejected env value; DNS step was not add-only — apex/`www` → Vercel website and MX → Hostinger email now explicitly preserved). Merged tree verified byte-identical to the reviewed head; 676 tests clean from a clean worktree; PR #37 auto-marked merged via the stack, not merged separately; staging auto-deploy picked up the merge with `/config` byte-identical and `/health` 503 only from the pre-existing paused database; **PR #36 still open and unmerged; Facilities 2.0, telemetry and Sentry inactive; nothing deployed to production.** `develop` is now the soft-launch basis awaiting the paid Render service and the Namecheap `api` CNAME.
 
 Earlier same day (second entry) — database-independent production profile and security hardening delivered on `feat/production-db-independent-hardening` (PR #38, stacked on PR #37): `DATABASE_ENABLED` strict switch (default unchanged), `/health` truthful `disabled` state, production CORS staging-origin removal, `/internal/metrics` hard-off in production, security headers, 675 tests all clean, frozen `/config` canonical hash reproduced in a real production-profile boot; runbook revised — paid Supabase dropped as a soft-launch prerequisite, paid Render + Namecheap DNS remain the only founder actions. Nothing deployed; staging untouched; PR #36 untouched.
 
