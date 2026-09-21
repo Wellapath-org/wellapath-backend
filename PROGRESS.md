@@ -21,7 +21,40 @@
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
 
-> ### ✅ Database-independent production profile + security hardening — PR #38 open, UNMERGED (2026-09-21)
+> ### ✅ PR #38 reviewed, corrected and MERGED → `develop` at `6cf642f` (2026-09-21, later same day)
+>
+> An independent release-blocking review of PR #38 ran against `develop@2485ce0` from a clean
+> `npm ci` worktree at the pinned head: all suites re-run (676/676 after fixes, lint, format,
+> tsc, contract sync), plus a real production-profile boot re-deriving every claimed behaviour
+> — truthful `/health`, canonical `/config` sha256 `3b2bbb1c…8578ed`, metrics 404 with the flag
+> set, CORS (no-Origin native / approved / staging / arbitrary), headers on success and error
+> envelopes, log minimization, both fail-closed startup refusals, and the migrate refusal.
+> Facilities 1.1 re-verified from R2 (1,695,844 bytes, hash exact); PR #36 confirmed open.
+>
+> **The review found two real defects; both were fixed on the branch before merge:**
+>
+> 1. **The strict boolean refusal echoed the rejected value** into the startup error — a
+>    mispasted secret in `DATABASE_ENABLED` would have reached deploy logs, against this
+>    repo's recorded refusal convention (values never logged). Fixed; a test now asserts the
+>    rejected value cannot appear in the message.
+> 2. **The Namecheap DNS step was not add-only.** Live DNS: apex/`www` → the Vercel-hosted
+>    website, MX → Hostinger email. The runbook now orders Render before DNS, adds exactly one
+>    `api` CNAME, and forbids replace-all registrar flows that would take down the website or
+>    silently drop company email.
+>
+> **Merged at reviewed head `bf4d96b` (CI green there: Docker Build + Lint & Build Check) as
+> merge commit `6cf642f6e8dc182300132569e1b1b087383138f2`; the merged `develop` tree hash is
+> byte-identical to the reviewed head's tree.** GitHub auto-marked PR #37 merged (its commit
+> landed through #38's stack) — it was not merged separately. Formal GitHub approval was
+> impossible (author and reviewer are the same account); the approval is recorded as a PR
+> review comment. **Nothing deployed to production.** Staging's normal auto-deploy of
+> `develop` picked up the merge: `/config` byte-identical (`183a15bd…45d3b`), new build
+> confirmed live (`nosniff` header now served), `/health` still 503 solely from the paused
+> staging database (pre-existing incident; staging keeps `DATABASE_ENABLED` default `true`
+> and truthfully reports the error). PR #36 remains open and unmerged; Facilities 2.0,
+> telemetry and Sentry remain inactive.
+
+> ### ✅ Database-independent production profile + security hardening — PR #38 (2026-09-21)
 >
 > Follow-up to the same-day audit below, per founder brief: production should launch **without a
 > database**, since the backend stores no user or telemetry data and the only runtime query in
@@ -992,7 +1025,9 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-21 (second entry) — database-independent production profile and security hardening delivered on `feat/production-db-independent-hardening` (**PR #38, open, unmerged**, stacked on PR #37): `DATABASE_ENABLED` strict switch (default unchanged), `/health` truthful `disabled` state, production CORS staging-origin removal, `/internal/metrics` hard-off in production, security headers, 675 tests all clean, frozen `/config` canonical hash reproduced in a real production-profile boot; runbook revised — paid Supabase dropped as a soft-launch prerequisite, paid Render + Namecheap DNS remain the only founder actions. Nothing deployed; staging untouched; PR #36 untouched.
+\_Last updated: 2026-09-21 (third entry) — **PR #38 independently reviewed and MERGED → `develop` as `6cf642f`** at reviewed head `bf4d96b`, after the review found and fixed two defects (refusal message echoed the rejected env value; DNS step was not add-only — apex/`www` → Vercel website and MX → Hostinger email now explicitly preserved). Merged tree verified byte-identical to the reviewed head; 676 tests clean from a clean worktree; PR #37 auto-marked merged via the stack, not merged separately; staging auto-deploy picked up the merge with `/config` byte-identical and `/health` 503 only from the pre-existing paused database; **PR #36 still open and unmerged; Facilities 2.0, telemetry and Sentry inactive; nothing deployed to production.** `develop` is now the soft-launch basis awaiting the paid Render service and the Namecheap `api` CNAME.
+
+Earlier same day (second entry) — database-independent production profile and security hardening delivered on `feat/production-db-independent-hardening` (PR #38, stacked on PR #37): `DATABASE_ENABLED` strict switch (default unchanged), `/health` truthful `disabled` state, production CORS staging-origin removal, `/internal/metrics` hard-off in production, security headers, 675 tests all clean, frozen `/config` canonical hash reproduced in a real production-profile boot; runbook revised — paid Supabase dropped as a soft-launch prerequisite, paid Render + Namecheap DNS remain the only founder actions. Nothing deployed; staging untouched; PR #36 untouched.
 
 Earlier same day: production provisioning for build 211 audited and **blocked on founder actions** (no accessible Render/Namecheap/Cloudflare/Supabase account owns WellaPath infrastructure); audit + runbook in `docs/PRODUCTION_PROVISIONING.md` (PR #37); `wellapath.org` DNS is at Namecheap, not Cloudflare; production source commit `2485ce0` with all suites clean; Facilities 1.1 re-verified byte-exact from R2; **fourth Supabase free-tier pause found live** (`/health` 503, `/config` unaffected and still `183a15bd…45d3b`); PR #36 untouched and unmerged; staging unchanged; no mobile handoff issued.
 
