@@ -89,7 +89,9 @@ Configured entirely through environment variables (`src/config/env.ts`):
 | `DB_SSL`      | `true` — Supabase requires SSL |
 
 `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, and `ARTIFACT_BASE_URL` are validated at boot
-by `requireEnv()` and the process fails fast if any is missing.
+by `requireEnv()` and the process fails fast if any is missing. The `DB_*` validation applies
+while the database is enabled, which is the default; with `DATABASE_ENABLED=false` the
+database section is skipped entirely (see §6 and `docs/PRODUCTION_PROVISIONING.md`).
 
 **SSL note:** the pool sets `ssl: { rejectUnauthorized: false }` when `DB_SSL=true`
 (`src/plugins/db.ts`). This was the fix for the Supabase connection failure in E4. It encrypts
@@ -175,18 +177,23 @@ artifact rollback possible.
 
 See `.env.example` for the template. Never commit `.env`.
 
-| Variable            | Required | Purpose                                    |
-| ------------------- | -------- | ------------------------------------------ |
-| `NODE_ENV`          | No       | Defaults to `development`                  |
-| `PORT`              | No       | Defaults to `3000`                         |
-| `DB_HOST`           | **Yes**  | Supabase pooler host                       |
-| `DB_PORT`           | No       | Defaults to `5432` — set `6543` for pooler |
-| `DB_NAME`           | **Yes**  | Database name                              |
-| `DB_USER`           | **Yes**  | Database user                              |
-| `DB_PASSWORD`       | **Yes**  | Database password                          |
-| `DB_SSL`            | No       | `true` required for Supabase               |
-| `ARTIFACT_BASE_URL` | **Yes**  | R2 public base URL                         |
-| `APP_VERSION`       | No       | Defaults to `0.1.0`                        |
+| Variable            | Required | Purpose                                                                                                                                                                    |
+| ------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NODE_ENV`          | No       | Defaults to `development`                                                                                                                                                  |
+| `PORT`              | No       | Defaults to `3000`                                                                                                                                                         |
+| `DATABASE_ENABLED`  | No       | Defaults to `true`. Must be exactly `true`/`false`; `false` makes every `DB_*` variable optional and unread, creates no pool, and `/health` reports `database: "disabled"` |
+| `DB_HOST`           | **Yes**† | Supabase pooler host                                                                                                                                                       |
+| `DB_PORT`           | No       | Defaults to `5432` — set `6543` for pooler                                                                                                                                 |
+| `DB_NAME`           | **Yes**† | Database name                                                                                                                                                              |
+| `DB_USER`           | **Yes**† | Database user                                                                                                                                                              |
+| `DB_PASSWORD`       | **Yes**† | Database password                                                                                                                                                          |
+| `DB_SSL`            | No       | `true` required for Supabase                                                                                                                                               |
+| `ARTIFACT_BASE_URL` | **Yes**  | R2 public base URL                                                                                                                                                         |
+| `APP_VERSION`       | No       | Defaults to `0.1.0`                                                                                                                                                        |
+
+† Required only while the database is enabled (the default). With
+`DATABASE_ENABLED=false` none of the `DB_*` variables is read; see
+`docs/PRODUCTION_PROVISIONING.md` §7 for the enablement path.
 
 Telemetry adds a further set of optional variables (`TELEMETRY_ENABLED`, `TELEMETRY_SINK`, and
 tuning knobs), all defaulting safely with intake **off**. They are documented in
