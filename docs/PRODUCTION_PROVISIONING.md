@@ -43,9 +43,16 @@
    public origin). Set the environment variables in §3 — notably
    `DATABASE_ENABLED=false`. Point the health check at `/health` (it returns 200
    with the database truthfully reported `disabled`).
-2. **Namecheap** (DNS host for `wellapath.org`): add
-   `api.wellapath.org` → CNAME → the Render service hostname. TLS is then
-   issued automatically by Render for the custom domain.
+2. **Namecheap** (DNS host for `wellapath.org`): **add exactly one record and
+   change nothing else** — a CNAME for the host `api` pointing at the Render
+   service hostname (which exists only after step 1, so DNS comes second). TLS
+   is then issued automatically by Render for the custom domain.
+   **Every existing record must be preserved untouched** — verified live
+   2026-09-21: the apex A record (`216.198.79.1`) and `www` serve the marketing
+   website on **Vercel**, and the MX records (`mx1`/`mx2.hostinger.com`) carry
+   company email on **Hostinger**. Do not use any "replace all records" or
+   template flow in the registrar panel; a removed apex/`www` record takes the
+   website down and a removed MX record silently drops company email.
 3. Run the verification checklist in §5 and record results in `PROGRESS.md`.
 4. Only then hand the Mobile Engineer the §6 package for compiling build 211.
 
