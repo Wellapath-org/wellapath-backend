@@ -21,6 +21,42 @@
 | Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
 | Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
 
+> ### ✅ Database-independent production profile + security hardening — PR #38 open, UNMERGED (2026-09-21)
+>
+> Follow-up to the same-day audit below, per founder brief: production should launch **without a
+> database**, since the backend stores no user or telemetry data and the only runtime query in
+> the app is the health check's `SELECT 1`. **Branch
+> `feat/production-db-independent-hardening`, commits `0ac749f` (code) + `9242b6c` (docs), from
+> baseline `2485ce0` (re-verified, no drift), stacked on PR #37's runbook commit. PR #38 →
+> `develop`, awaiting review. Nothing deployed.**
+>
+> **What it adds:**
+>
+> - **`DATABASE_ENABLED`** — strict `true`/`false` switch, default `true` so staging and every
+>   existing deployment keep byte-identical behaviour with full fail-fast validation. At
+>   `false`: no `DB_*` variable required or read, **no pg pool created** (plugin never
+>   registered, so `rejectUnauthorized: false` is unreachable), `/health` returns **200 with
+>   `checks.database: "disabled"`** — reported as not checked, never pretended. Junk values
+>   refuse startup. The db plugin and `npm run migrate` are preserved and refuse to run while
+>   disabled; the enablement path (approved feature + schema + retention + privacy assessment +
+>   operational owner + the TLS chain decision) is `docs/PRODUCTION_PROVISIONING.md` §7.
+> - **Security corrections from the audit:** superseded `api-staging.wellapath.org` removed
+>   from production CORS (allowlist now `https://wellapath.org` only, no wildcard);
+>   `/internal/metrics` **hard-disabled in production** (404) regardless of its env var;
+>   security headers via a dependency-free `onSend` plugin (`nosniff`, `X-Frame-Options: DENY`,
+>   `Referrer-Policy: no-referrer` everywhere, HSTS production-only); IP/query-string log
+>   minimization re-proven under the production profile.
+>
+> **Proven, not asserted:** 22 new tests (**675 total, 25 suites**, lint/format/tsc/contract
+> sync all clean) including a production-profile suite that builds the real app with
+> `NODE_ENV=production`, `DATABASE_ENABLED=false` and every `DB_*` blank — plus a real boot of
+> `dist/server.js` in that exact profile: `/health` 200 `disabled`, `/version` 0.3.0/production,
+> metrics 404, all headers present, telemetry 503, and `/config` reproducing the frozen
+> canonical sha256 `3b2bbb1c…8578ed` exactly, with no `facilities_v2` key and no staging marker.
+> Runbook revised: paid Supabase removed as a soft-launch prerequisite; remaining founder
+> actions are the **paid always-on Render service** and the **Namecheap DNS record** only. The
+> fourth staging pause below stands as a staging incident; staging itself is untouched.
+
 > ### 🛑 Production provisioning for build 211 — AUDITED, BLOCKED on founder actions (2026-09-21)
 >
 > A founder brief requested the minimum production environment for the `0.3.0+211` public
@@ -956,7 +992,9 @@ Across all three: `/config` byte-identical, no route added, no dependency, no de
 
 ---
 
-\_Last updated: 2026-09-21 — production provisioning for build 211 audited and **blocked on founder actions** (no accessible Render/Namecheap/Cloudflare/Supabase account owns WellaPath infrastructure); audit + runbook in `docs/PRODUCTION_PROVISIONING.md` (PR #37); `wellapath.org` DNS is at Namecheap, not Cloudflare; production source commit `2485ce0` with all suites clean; Facilities 1.1 re-verified byte-exact from R2; **fourth Supabase free-tier pause found live** (`/health` 503, `/config` unaffected and still `183a15bd…45d3b`); PR #36 untouched and unmerged; staging unchanged; no mobile handoff issued.
+\_Last updated: 2026-09-21 (second entry) — database-independent production profile and security hardening delivered on `feat/production-db-independent-hardening` (**PR #38, open, unmerged**, stacked on PR #37): `DATABASE_ENABLED` strict switch (default unchanged), `/health` truthful `disabled` state, production CORS staging-origin removal, `/internal/metrics` hard-off in production, security headers, 675 tests all clean, frozen `/config` canonical hash reproduced in a real production-profile boot; runbook revised — paid Supabase dropped as a soft-launch prerequisite, paid Render + Namecheap DNS remain the only founder actions. Nothing deployed; staging untouched; PR #36 untouched.
+
+Earlier same day: production provisioning for build 211 audited and **blocked on founder actions** (no accessible Render/Namecheap/Cloudflare/Supabase account owns WellaPath infrastructure); audit + runbook in `docs/PRODUCTION_PROVISIONING.md` (PR #37); `wellapath.org` DNS is at Namecheap, not Cloudflare; production source commit `2485ce0` with all suites clean; Facilities 1.1 re-verified byte-exact from R2; **fourth Supabase free-tier pause found live** (`/health` 503, `/config` unaffected and still `183a15bd…45d3b`); PR #36 untouched and unmerged; staging unchanged; no mobile handoff issued.
 
 Earlier: 2026-09-17 — status check, no change: `develop` at `2485ce0`, PR #36 open and still awaiting its first review, PR #33 and mobile PR #79 open, staging verified live (`/health` 200 `database: ok`, `/config` still the frozen `183a15bd…45d3b`). Earlier entries below are kept in place.
 
