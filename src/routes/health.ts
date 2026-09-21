@@ -1,7 +1,27 @@
 import { FastifyInstance } from 'fastify';
 
-export const healthRoutes = (server: FastifyInstance): void => {
+export interface HealthRouteOptions {
+  /**
+   * Whether the database plugin was actually registered on this instance. When it was not —
+   * `DATABASE_ENABLED=false`, or a test built the app without it — the health check reports
+   * `database: "disabled"` and stays 200: the check never ran, and the response must not
+   * pretend it did. Overall health then rests on the dependencies the app really has.
+   */
+  databaseRegistered: boolean;
+}
+
+export const healthRoutes = (server: FastifyInstance, options: HealthRouteOptions): void => {
   server.get('/health', async (_request, reply) => {
+    if (!options.databaseRegistered) {
+      return reply.status(200).send({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        checks: {
+          database: 'disabled',
+        },
+      });
+    }
+
     let dbStatus: 'ok' | 'error' = 'ok';
 
     try {

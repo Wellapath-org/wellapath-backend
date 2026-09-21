@@ -39,12 +39,20 @@ const CREATE_AUDIT_LOGS = `
 `;
 
 async function migrate(): Promise<void> {
+  const db = config.db;
+  if (!db.enabled) {
+    logger.error(
+      'Migration refused: DATABASE_ENABLED=false. Set DATABASE_ENABLED=true (with the DB_* variables) to run migrations.',
+    );
+    process.exit(1);
+  }
+
   const pool = new Pool({
-    host: config.db.host,
-    port: config.db.port,
-    database: config.db.name,
-    user: config.db.user,
-    password: config.db.password,
+    host: db.host,
+    port: db.port,
+    database: db.name,
+    user: db.user,
+    password: db.password,
   });
 
   const client = await pool.connect();

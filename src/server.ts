@@ -14,6 +14,7 @@ const start = async (): Promise<void> => {
       },
       'Telemetry intake configuration',
     );
+    server.log.info({ database_enabled: config.db.enabled }, 'Database configuration');
   } catch (err) {
     server.log.error(err);
     process.exit(1);

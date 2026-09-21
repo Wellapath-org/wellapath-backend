@@ -16,6 +16,7 @@ import { config } from './config/env';
 import dbPlugin from './plugins/db';
 import errorHandlerPlugin from './plugins/error-handler';
 import metricsPlugin from './plugins/metrics';
+import securityHeadersPlugin from './plugins/security-headers';
 import { registerRoutes } from './routes';
 import { TELEMETRY_CONTRACT_VERSION } from './telemetry/contract';
 import { DedupeStore } from './telemetry/dedupe';
@@ -49,10 +50,15 @@ export interface BuiltApp {
   service: TelemetryService;
 }
 
-const ALLOWED_ORIGINS =
-  config.nodeEnv === 'production'
-    ? ['https://wellapath.org', 'https://api-staging.wellapath.org']
-    : true;
+/**
+ * Production CORS allowlist. The API's only production client is the native mobile app, which
+ * does not send an Origin header and needs no CORS grant at all; the single entry is the
+ * first-party site, kept so a future page on it can call the API without a config change.
+ * The superseded `api-staging.wellapath.org` entry was removed — it was a staging marker in
+ * production configuration and the hostname has no DNS record. Every other browser origin
+ * gets no `access-control-allow-origin` and is refused by the browser.
+ */
+const ALLOWED_ORIGINS = config.nodeEnv === 'production' ? ['https://wellapath.org'] : true;
 
 export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp> => {
   const server = Fastify({
@@ -111,11 +117,16 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   });
 
-  if (options.registerDatabase !== false) {
+  // The database is registered only when it is both enabled by configuration and not
+  // excluded by the caller. `/health` is told the outcome so it reports `disabled` truthfully
+  // instead of failing a check that was never going to run.
+  const databaseRegistered = config.db.enabled && options.registerDatabase !== false;
+  if (databaseRegistered) {
     await server.register(dbPlugin);
   }
 
   await server.register(errorHandlerPlugin);
+  await server.register(securityHeadersPlugin);
   await server.register(metricsPlugin);
 
   const sink =
@@ -154,6 +165,9 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   });
 
   await registerRoutes(server, {
+    health: {
+      databaseRegistered,
+    },
     telemetry: {
       service,
       rateLimitMax: options.telemetryRateLimitMax ?? config.telemetry.rateLimitMax,
