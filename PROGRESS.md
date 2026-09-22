@@ -8,9 +8,623 @@
 
 ## Current Status
 
-**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **I1 is OPEN.** The backend staging-enablement gate has passed; the phase has not.
-**Sprint:** E8/E9 complete. I1/W1 backend contract merged (PR #29) and **staging-enablement gate PASSED 2026-08-11**
-**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+**Phase:** Public soft launch — **PRODUCTION IS LIVE at `https://api.wellapath.org`** (provisioned, verified end to end and handed to Mobile 2026-09-21; re-verified healthy 2026-09-22). `develop` is at **`6cf642f`** (PR #38 — database-independent production profile + security hardening, reviewed and merged 2026-09-21; PR #37's runbook landed through its stack). Production runs from the **`production` branch pinned at `6cf642f`**, auto-deploy off, on Render Starter (`wellapath-backend-production`, srv-daojooh42hec73a52lmg), **database-independent** (`DATABASE_ENABLED=false`, zero secrets), telemetry off.
+**Waiting on others:** Mobile compiles build `0.3.0+211` against the issued handoff (top entry below); PR #36 still awaits its first review; the backend crash-monitoring decision remains the last open I1 item.
+**I3 background (2026-08-31):** Steps 1, 2B and 3 complete and inactive — manifest contract **1.1.0**, ingestion envelope **1.1.0**, audit event **1.0.0**. Runtime manifest delivery, KB publication tooling, Mobile consumption, candidate publication and activation are all NOT started, each gated on its own authorization. **PR #36** (optional, default-off, fail-closed Facilities 2.0 distribution contract, counterpart to Mobile PR #79) is open and unmerged; `/config` is byte-identical to the frozen baseline in every reachable state.
+**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1. `GET /config` canonical sha256 unchanged throughout at `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`, verified in the repository and live on staging after every merge. No artifact changes without engineering lead approval.
+**Watch:** a nationwide `facilities` v2.0 candidate exists in the knowledge base (KB PR #40, unmerged) and is **blocked on licence, attribution and coverage**, not on engineering. See the 2026-08-31 entry below before anyone proposes a `/config` change.
+
+| Contract              | Version | SHA256                                                             | Bytes  |
+| --------------------- | ------- | ------------------------------------------------------------------ | ------ |
+| Manifest              | `1.1.0` | `948299bc1ca87592e372d4ce889bdd2424a6cfc3d34c7660453dfe7d60d5038a` | 7,806  |
+| Ingestion envelope    | `1.1.0` | `f54debf7e22e4716d31fe046d92391ef76d5695c10b6e921c6f031666e46a68e` | 11,036 |
+| Audit event           | `1.0.0` | `f478a0184f6719790a21be9f066a5e78a4e7cb90ca6bfec1986c89826502f0ca` | 4,492  |
+| Knowledge base pinned | —       | `1f1b8dd0bf9cadf8b210aba16bfa516603444130`                         | —      |
+
+> ### 🔍 Status check — 2026-09-22: production healthy, staging database RESTORED
+>
+> Verified live today (~11:02 UTC):
+>
+> | Check                            | Result                                                                                                                                                                                                   |
+> | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Production `/health`             | **200**, `database: "disabled"`                                                                                                                                                                          |
+> | Production `/version`            | `0.3.0` / `production`                                                                                                                                                                                   |
+> | Production `/config` body sha256 | `183a15bd…45d3b` — exactly the frozen body, no v2 key                                                                                                                                                    |
+> | **Staging `/health`**            | **200 — the fourth Supabase pause has been restored** (was 503 on 2026-09-21; restoration is a manual dashboard action, presumably the engineering lead; the free-tier idle clock restarted ~2026-09-22) |
+> | Staging `/config` body sha256    | `183a15bd…45d3b` — unchanged                                                                                                                                                                             |
+> | `origin/develop`                 | `6cf642f`, unchanged since the PR #38 merge                                                                                                                                                              |
+> | Open PRs                         | #36 (awaiting first review), #33 (this log), #31 and #28 (both still recommended for closing unmerged)                                                                                                   |
+>
+> The local-network DNS negative cache noted on 2026-09-21 expired as predicted;
+> `api.wellapath.org` now resolves everywhere, including this machine. Note the free-tier pause
+> remedy for **staging** remains open (four pauses, four manual restores) — production is immune
+> by design (`DATABASE_ENABLED=false`), so this is now a staging-convenience item, not a launch
+> blocker.
+
+> ### ✅ PRODUCTION LIVE on `https://api.wellapath.org` — verified end to end, Mobile handoff ISSUED (2026-09-21 14:55 UTC)
+>
+> The founder added the single `api` CNAME at Namecheap (all existing records preserved), Render
+> verified the domain and issued TLS. **Final verification over the custom domain, all pass
+> (2026-09-21T14:55:27Z, from an independent client):**
+>
+> - **DNS:** `api.wellapath.org` → CNAME `wellapath-backend-production.onrender.com`, confirmed
+>   on the authoritative Namecheap servers, 1.1.1.1 and 8.8.8.8. No AAAA, no CAA restrictions.
+> - **TLS:** certificate CN/SAN exactly `api.wellapath.org`, issuer Google Trust Services (WE1),
+>   valid 2026-09-21 → 2026-12-20 (Render auto-renews), chain validates against the system
+>   trust store (`ssl_verify_result: 0`).
+> - **Endpoints:** `/health` 200 `database:"disabled"` · `/version` `0.3.0`/`production` ·
+>   `/config` 200 with canonical sha256 exactly `3b2bbb1c…8578ed` and raw body byte-identical to
+>   the frozen `183a15bd…45d3b`; four artifacts only, no `facilities_v2`, no staging marker ·
+>   `/internal/metrics` 404 · telemetry POST 503 `telemetry_disabled`.
+> - **Headers:** HSTS (`max-age=15552000; includeSubDomains`), `nosniff`, `X-Frame-Options:
+DENY`, `Referrer-Policy: no-referrer` on 200s and error envelopes; rate limiting live.
+> - **Facilities 1.1:** downloaded from the `/config` URL — 1,695,844 bytes, sha256
+>   `25684c71…982398` exact.
+> - **Rollback readiness:** Render "Rollback to previous deploy" targets the immutable prior
+>   image; config rollback is env-var + restart; the deploy source is the `production` branch
+>   pinned at `6cf642f` with auto-deploy off. **Staging re-verified byte-identical** in the same
+>   pass.
+>
+> **Mobile Engineer handoff for build `0.3.0+211` (issued 2026-09-21 14:55 UTC):** API base URL
+> `https://api.wellapath.org`; artifact base `https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev`
+> (consume URLs from `/config` only, never construct); `/config` canonical sha256
+> `3b2bbb1cec6b25631bcf499902314c22c19cbab33fe7fcfae0c6288a4f8578ed`; Facilities identity v1.1 /
+> `facilities.ng.v1.1.json` / sha256 `25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398`
+> / 1,695,844 bytes; required non-secret build flag: the production API base URL only — no
+> telemetry flag (intake disabled server-side), no Sentry DSN for the backend; rollback contact:
+> engineering lead (Render service owner), procedure per `docs/PRODUCTION_PROVISIONING.md` §6 and
+> `docs/DEPLOYMENT.md` §7. **Backend does not build or upload mobile artifacts — build 211
+> compilation is Mobile's action from here.**
+
+> ### 🚀 Production service PROVISIONED and VERIFIED on Render — DNS was awaiting founder (2026-09-21, evening)
+>
+> Founder-authorized production provisioning executed: the operator created the service manually
+> in the Render dashboard (account confirmed to own staging) guided step-by-step from here, and
+> every remotely verifiable check was run independently from this session.
+>
+> | Field                   | Value                                                                                                                                                                      |
+> | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Service                 | `wellapath-backend-production` · id `srv-daojooh42hec73a52lmg`                                                                                                             |
+> | Plan / region / runtime | **Starter (paid, always-on)** · Frankfurt (EU Central) · Docker (repo `Dockerfile`)                                                                                        |
+> | Source                  | `Wellapath-org/wellapath-backend`, branch **`production`** (created for this, pinned at exactly `6cf642f`), **auto-deploy OFF**                                            |
+> | Env vars                | `NODE_ENV=production` · `DATABASE_ENABLED=false` · `APP_VERSION=0.3.0` · `ARTIFACT_BASE_URL=<R2 public base>` · `TELEMETRY_ENABLED=false` — **nothing else, zero secrets** |
+> | Health check            | `/health`                                                                                                                                                                  |
+> | Hostname                | `https://wellapath-backend-production.onrender.com` — **Live**                                                                                                             |
+>
+> **Verified live (all pass):** `/health` 200 `database:"disabled"` · `/version` 0.3.0/production ·
+> `/config` canonical sha256 exactly `3b2bbb1c…8578ed` and raw body byte-identical to the frozen
+> `183a15bd…45d3b` · Facilities 1.1 downloaded from the `/config` URL: 1,695,844 bytes, sha256
+> `25684c71…982398` exact · no `facilities_v2`, no staging marker · `/internal/metrics` 404 ·
+> telemetry POST 503 `telemetry_disabled` · HSTS/nosniff/DENY/no-referrer on 200s and error
+> envelopes · rate limiting live · CORS grants only `https://wellapath.org` (no-Origin native
+> untouched; staging and arbitrary origins refused) · operator confirmed in-dashboard: deployed
+> commit `6cf642f`, Starter plan, auto-deploy off, and a query-string log-marker search returned
+> **zero results** with no client IPs in request lines. **Staging re-verified untouched** during
+> the same pass.
+>
+> **DNS — waiting on the founder.** `api.wellapath.org` was added as a custom domain on the
+> production service; Render requests exactly one record: **CNAME, host `api`, target
+> `wellapath-backend-production.onrender.com`**. Per the add-only rule in
+> `docs/PRODUCTION_PROVISIONING.md` §2, the founder adds only that record at Namecheap,
+> preserving the Vercel apex/`www` website records, the Hostinger MX records, all TXT records
+> and the nameservers. After it propagates: Render verify + TLS issuance, then the full endpoint
+> re-verification on `https://api.wellapath.org` and the mobile handoff. **PR #36 still open and
+> unmerged; Facilities 2.0, telemetry and Sentry inactive; no database exists in production;
+> nothing mobile built or uploaded.**
+
+> ### ✅ PR #38 reviewed, corrected and MERGED → `develop` at `6cf642f` (2026-09-21, later same day)
+>
+> An independent release-blocking review of PR #38 ran against `develop@2485ce0` from a clean
+> `npm ci` worktree at the pinned head: all suites re-run (676/676 after fixes, lint, format,
+> tsc, contract sync), plus a real production-profile boot re-deriving every claimed behaviour
+> — truthful `/health`, canonical `/config` sha256 `3b2bbb1c…8578ed`, metrics 404 with the flag
+> set, CORS (no-Origin native / approved / staging / arbitrary), headers on success and error
+> envelopes, log minimization, both fail-closed startup refusals, and the migrate refusal.
+> Facilities 1.1 re-verified from R2 (1,695,844 bytes, hash exact); PR #36 confirmed open.
+>
+> **The review found two real defects; both were fixed on the branch before merge:**
+>
+> 1. **The strict boolean refusal echoed the rejected value** into the startup error — a
+>    mispasted secret in `DATABASE_ENABLED` would have reached deploy logs, against this
+>    repo's recorded refusal convention (values never logged). Fixed; a test now asserts the
+>    rejected value cannot appear in the message.
+> 2. **The Namecheap DNS step was not add-only.** Live DNS: apex/`www` → the Vercel-hosted
+>    website, MX → Hostinger email. The runbook now orders Render before DNS, adds exactly one
+>    `api` CNAME, and forbids replace-all registrar flows that would take down the website or
+>    silently drop company email.
+>
+> **Merged at reviewed head `bf4d96b` (CI green there: Docker Build + Lint & Build Check) as
+> merge commit `6cf642f6e8dc182300132569e1b1b087383138f2`; the merged `develop` tree hash is
+> byte-identical to the reviewed head's tree.** GitHub auto-marked PR #37 merged (its commit
+> landed through #38's stack) — it was not merged separately. Formal GitHub approval was
+> impossible (author and reviewer are the same account); the approval is recorded as a PR
+> review comment. **Nothing deployed to production.** Staging's normal auto-deploy of
+> `develop` picked up the merge: `/config` byte-identical (`183a15bd…45d3b`), new build
+> confirmed live (`nosniff` header now served), `/health` still 503 solely from the paused
+> staging database (pre-existing incident; staging keeps `DATABASE_ENABLED` default `true`
+> and truthfully reports the error). PR #36 remains open and unmerged; Facilities 2.0,
+> telemetry and Sentry remain inactive.
+
+> ### ✅ Database-independent production profile + security hardening — PR #38 (2026-09-21)
+>
+> Follow-up to the same-day audit below, per founder brief: production should launch **without a
+> database**, since the backend stores no user or telemetry data and the only runtime query in
+> the app is the health check's `SELECT 1`. **Branch
+> `feat/production-db-independent-hardening`, commits `0ac749f` (code) + `9242b6c` (docs), from
+> baseline `2485ce0` (re-verified, no drift), stacked on PR #37's runbook commit. PR #38 →
+> `develop`, awaiting review. Nothing deployed.**
+>
+> **What it adds:**
+>
+> - **`DATABASE_ENABLED`** — strict `true`/`false` switch, default `true` so staging and every
+>   existing deployment keep byte-identical behaviour with full fail-fast validation. At
+>   `false`: no `DB_*` variable required or read, **no pg pool created** (plugin never
+>   registered, so `rejectUnauthorized: false` is unreachable), `/health` returns **200 with
+>   `checks.database: "disabled"`** — reported as not checked, never pretended. Junk values
+>   refuse startup. The db plugin and `npm run migrate` are preserved and refuse to run while
+>   disabled; the enablement path (approved feature + schema + retention + privacy assessment +
+>   operational owner + the TLS chain decision) is `docs/PRODUCTION_PROVISIONING.md` §7.
+> - **Security corrections from the audit:** superseded `api-staging.wellapath.org` removed
+>   from production CORS (allowlist now `https://wellapath.org` only, no wildcard);
+>   `/internal/metrics` **hard-disabled in production** (404) regardless of its env var;
+>   security headers via a dependency-free `onSend` plugin (`nosniff`, `X-Frame-Options: DENY`,
+>   `Referrer-Policy: no-referrer` everywhere, HSTS production-only); IP/query-string log
+>   minimization re-proven under the production profile.
+>
+> **Proven, not asserted:** 22 new tests (**675 total, 25 suites**, lint/format/tsc/contract
+> sync all clean) including a production-profile suite that builds the real app with
+> `NODE_ENV=production`, `DATABASE_ENABLED=false` and every `DB_*` blank — plus a real boot of
+> `dist/server.js` in that exact profile: `/health` 200 `disabled`, `/version` 0.3.0/production,
+> metrics 404, all headers present, telemetry 503, and `/config` reproducing the frozen
+> canonical sha256 `3b2bbb1c…8578ed` exactly, with no `facilities_v2` key and no staging marker.
+> Runbook revised: paid Supabase removed as a soft-launch prerequisite; remaining founder
+> actions are the **paid always-on Render service** and the **Namecheap DNS record** only. The
+> fourth staging pause below stands as a staging incident; staging itself is untouched.
+
+> ### 🛑 Production provisioning for build 211 — AUDITED, BLOCKED on founder actions (2026-09-21)
+>
+> A founder brief requested the minimum production environment for the `0.3.0+211` public
+> soft-launch candidate (mobile PR #80). **The audit completed; nothing could be provisioned,
+> because no credential available to this session has access to any WellaPath hosting, DNS or
+> database account** — exactly the brief's stop-and-report condition. Full audit, runbook,
+> env-var spec, verification checklist and mobile-handoff preconditions are in
+> **`docs/PRODUCTION_PROVISIONING.md` (PR #37, open → `develop`, docs only)**.
+>
+> Findings that change assumptions:
+>
+> - **`wellapath.org` is not on Cloudflare DNS.** Nameservers are Namecheap BasicDNS
+>   (`registrar-servers.com`); the apex points at Vercel (marketing site). `api.wellapath.org`,
+>   `backend.wellapath.org` and even `api-staging.wellapath.org` have **no DNS records**. The
+>   production record must be added at **Namecheap**.
+> - **Accounts:** Render (no key/session here), the WellaPath Cloudflare/R2 account, Namecheap
+>   and the WellaPath Supabase org are all owned elsewhere (engineering lead/founder). The
+>   Cloudflare and Supabase accounts reachable from this machine hold only unrelated projects.
+> - **Production source commit is `2485ce0`** (develop tip). Suites re-run on it today:
+>   **653/653 tests, lint, format, `tsc --noEmit`, telemetry contract sync — all clean.**
+>   **PR #36 stays excluded and unmerged**; no pending PR is required for production.
+> - **Facilities 1.1 re-verified from R2**: 1,695,844 bytes, sha256 `25684c71…982398`, exact
+>   match; v1.0 still 200. The object is environment-neutral and hash-pinned — **no separate
+>   production bucket is required for launch** (noted: `*.r2.dev` is rate-limited; custom
+>   domain on the same bucket is the follow-up).
+> - **Founder actions needed (in order):** paid-tier production Supabase project + migrate;
+>   always-on paid Render service pinned to `2485ce0` (free tier spins down — not a stable
+>   public origin); `api.wellapath.org` CNAME at Namecheap. Paid services are involved at every
+>   step, which is itself the brief's stop condition.
+> - **Code items before/at go-live** (each needs its own approval, none blocking provisioning):
+>   CORS production allowlist still lists superseded `api-staging.wellapath.org`; unauthenticated
+>   `/internal/metrics`; DB TLS `rejectUnauthorized: false`; the `/health` liveness/DB coupling;
+>   no HSTS/`X-Content-Type-Options` headers (observed live today).
+> - **Mobile handoff: NOT issued.** No production URL exists; build 211 must not be compiled
+>   against staging. Handoff package template (URL, artifact identity, `/config` fingerprint,
+>   rollback) is in the runbook §6, to be filled only after live verification.
+> - Confirmed intact: telemetry off in the production env spec (and no Sentry/analytics exists
+>   in this backend), no Facilities 2.0 exposure possible at `2485ce0`, staging untouched,
+>   IP-minimizing request logging present in source (`src/app.ts` path-only serializer).
+>
+> ### 🔴 Fourth Supabase free-tier pause — found live 2026-09-21
+>
+> During the audit, staging `GET /health` returned **503 `checks.database: "error"`** — the
+> predicted fourth pause (idle clock had restarted 2026-08-29). `/version` and `/config`
+> unaffected as designed; `/config` body sha256 still exactly the frozen `183a15bd…45d3b`,
+> facilities 1.1, no v2 key. **Not restored here** — restoration is a manual engineering-lead
+> action in the Supabase dashboard, and no accessible account owns the project. Four pauses,
+> four manual restores: the free-tier remedy (open since 2026-07-29) is now also a hard
+> production prerequisite recorded in `docs/PRODUCTION_PROVISIONING.md`.
+
+> ### 🔍 Status check — 2026-09-17: no change
+>
+> Everything below the 2026-09-15 check re-verified today, all unchanged: `origin/develop` at
+> `2485ce0`; **PR #36 still open, mergeable, and awaiting its first review**; progress PR #33
+> open; mobile PR #79 open. Staging live: `/health` 200 `database: ok` (still no fourth pause;
+> idle clock restarted 2026-08-29), `/config` body sha256 still the frozen `183a15bd…45d3b`.
+> The waits are unchanged: PR #36 review, the backend crash-monitoring decision (the last open
+> I1 item), and the pre-production list below.
+
+> ### 🔍 Status check — 2026-09-15
+>
+> **Backend: no change since yesterday's PR #36.** `origin/develop` still `2485ce0`; PR #36 is
+> open, mergeable, CI green, **no reviews or comments yet**. Progress PRs #33 (this one), #31
+> and #28 unchanged (#31 and #28 still recommended for closing unmerged).
+>
+> **Staging verified live today:**
+>
+> | Check                     | Result                                                                         |
+> | ------------------------- | ------------------------------------------------------------------------------ |
+> | `GET /health`             | **200**, `checks.database: "ok"` — no fourth pause as of today                 |
+> | `GET /config` body sha256 | `183a15bd…45d3b` — **exactly the frozen live-body hash**, no v2 key            |
+> | Artifact versions         | `token_dictionary` 1.1 · `knowledge_base` 2.4 · `rules` 2.2 · `facilities` 1.1 |
+>
+> The idle clock restarted 2026-08-29; 17 days without a pause means something is generating
+> traffic — incidental protection, not a fix. The free-tier remedy remains open.
+>
+> **📩 Mobile — relayed from the `wellapath-mobile` PR record, verified via `gh` today:**
+>
+> - **PR #69 MERGED 2026-08-14 at 13:45 UTC** — the same day it was opened. The I1 closure
+>   record is in, superseding every "not re-checked since 2026-08-14" caveat below. Per this
+>   log's own standing rule, I1 completion required #69 merged **and** an answer on backend
+>   crash monitoring: the first condition is now met, the second is still open — **the backend
+>   crash-monitoring decision is now the only thing keeping I1 from being recorded closed
+>   here.** External-beta authorization and the Sentry DPA condition were not re-examined
+>   today; the 2026-08-14 record of them stands.
+> - **PR #79** (facilities 2.0 consumer preparation) remains **open, unmerged** — the
+>   counterpart to backend PR #36.
+
+> ### ✅ Facilities 2.0 distribution contract prepared — PR #36 open, UNMERGED (2026-09-14)
+>
+> **Branch `feat/i3-facilities-v2-distribution-contract`, commit `5d653c7`, from `develop` tip
+> `2485ce0`. PR #36 → `develop`, left open for review. CI green (Docker Build, Lint & Build).**
+> Infrastructure preparation only, built as the backend counterpart to **Mobile PR #79**
+> (read via `gh`, never modified), whose `FacilitiesV2Gate` requires a manifest with
+> `status: approved` + `may_publish: true` + schema major 2 + a SHA-256, alongside its own
+> local evaluation flag and separate production approval.
+>
+> **What it adds:** an optional `facilities_v2` entry on `GET /config`
+> (`src/manifest/facilities-v2.ts`, resolved once at startup), shaped exactly for Mobile's
+> `FacilitiesV2Manifest.tryParse`. Exposure requires ALL of: `FACILITIES_V2_DISTRIBUTION_ENABLED`
+> · status exactly `approved` · `may_publish` exactly `true` · schema major in `[2]` · valid
+> 2.x version / `sha256:<64 hex>` / positive byte count · HTTPS URL on the existing
+> `APPROVED_ARTIFACT_ORIGINS` allowlist resolving to an immutable `facilities.<cc>.v2.x.json`
+> key · a recorded publication decision reference · and, in production only, the separate
+> `FACILITIES_V2_PRODUCTION_APPROVED` gate. **Every default is false or absent.**
+>
+> **Proven, not asserted:** with nothing configured, `/config` is byte-identical to the frozen
+> baseline (canonical sha256 unchanged at `3b2bbb1c…8578ed`) — and stays byte-identical after
+> each of 11 distinct gate failures, so a v2 failure is indistinguishable from v2 never
+> existing. The candidate's governance state (`candidate_unapproved` / `may_publish: false`)
+> fails on **both fields independently**, and a seeded 2,000-iteration randomized sweep shows
+> no environment-variable combination exposes an unapproved manifest. An enabled-but-invalid
+> declaration is refused at startup — never repaired or downgraded — and refusals log reason
+> codes and variable names only, never configured values (log-capture tested). **742 tests
+> (+89), lint/format/tsc/telemetry-contract-sync all clean.**
+>
+> Also: `docs/FACILITIES_V2_DISTRIBUTION.md` records the future 9-step controlled staging
+> activation sequence (explicitly NOT authorized, NOT executed; production separately blocked)
+> and a rollback checklist with evidence fields — rollback is configuration-only, no mobile
+> rebuild. The PR #35 route-inertness guard was narrowed to permit exactly this one surface;
+> ingestion, registry, contract, validation, eligibility, integrity and origin stay unreachable
+> from routes.
+>
+> **What did NOT happen:** no real candidate URL, hash, byte size or data anywhere in the diff
+> (grep-verified against the recorded candidate digests; tests use `facilities.zz.v2.999.json`,
+> `sha256:abab…`, `example.invalid`); no upload, no deploy, no staging/production config or env
+> change, no telemetry/Sentry change, no KB or Mobile modification, no new input route. The
+> licence, attribution, coverage and sizing blocks below are untouched and still bind.
+
+> ### 📩 Nationwide facilities candidate — delivered in the knowledge base, BLOCKED (2026-08-31)
+>
+> **KB PR #40 open, unmerged** (`feat/facilities-nhf-candidate`, head `4afffe18` → KB `develop`).
+> 26 files. Read from the `wellapath-knowledge-base` record; the digests, record counts and
+> operation flags below were **recomputed here from its committed bytes**, the coverage and licence
+> findings are quoted from its own reports.
+>
+> **Nothing about this reaches the backend yet.** `/config` is untouched, `facilities` stays at
+> v1.1, and no `/config` change may even be proposed until the gates below clear.
+>
+> |                    |                                                                                                                                                |
+> | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+> | Candidate          | `candidate/facilities.ng.v2.0.json` — `2f42db7026a20eda4af8315ee8cb97fac07600edbd611d2cee919d99b1acad7d`, **30,961,471 bytes**, 31,274 records |
+> | Source             | `nigeria_health_facilities.csv` — `e598cecc24de7cea213118dfd88cb581754029f2dc9086618728989b6c3becb3`, 20,913,558 bytes, preserved unchanged    |
+> | Plan               | all seven operation flags `false`; not publishable, not activatable, ineligible everywhere; both approvals `pending`; 7 blocking reasons       |
+> | **facilities 1.1** | **unchanged** — `25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398`, byte-identical to what `/config` serves                    |
+>
+> #### 🔴 Three findings that contradict the brief, and one that sizes the risk
+>
+> 1. **"NHF" is not established.** The file carries no organisation name, publisher field,
+>    copyright line or contact anywhere in its 90 columns. The provenance record refuses to assert
+>    one, correctly: _"Recording an organisation on the strength of a filename would be inventing
+>    provenance."_ The dataset's origin is currently **unattributed**.
+> 2. **No licence, and therefore a blocking non-technical gate.** No licence file, no licence
+>    column, no terms of use accompanied the data. Redistribution terms are **unknown**. The
+>    candidate must not be published, uploaded or served until licence or reuse permission is
+>    established **in writing**. This blocks the artifact regardless of its data quality.
+> 3. **It is not nationwide.** Observed coverage is **33 of 36 states plus the FCT** —
+>    **Adamawa, Kebbi and Sokoto are absent entirely** — and 682 distinct LGA names against
+>    Nigeria's 774. "Nationwide" was a claim in the brief, not a property of the data.
+> 4. **It is ~18× the size of the artifact it would replace:** 30,961,471 bytes against 1,695,844.
+>    Mobile downloads and caches this on first launch. Nothing in the current mobile contract or
+>    the E9.1 freeze anticipated a jump of that order, and it needs sizing against the low-end
+>    Android device budget before anyone treats v2.0 as a drop-in.
+>
+> Also flagged: `Akwa Ibom` appears hyphenated as `Akwa-Ibom`, which differs from the spelling
+> `facilities` 1.1 uses — a state-matching hazard for any consumer that joins on the name. 116 rows
+> quarantined.
+>
+> **Mobile compatibility was measured, not asserted** — the KB ported
+> `facility_locator_service.dart` at mobile commit `13be0d49` and ran both artifacts through it,
+> rather than claiming compatibility from field names. The mobile repository was not modified.
+>
+> #### What this means for the backend
+>
+> **No backend action, and none available.** Wiring `facilities` v2.0 into `/config` would be a
+> backend change, but it is gated on, in order: a licence or reuse permission in writing; a
+> decision on the three missing states; a Product decision on presenting an unattributed dataset
+> and on tap-to-call behaviour for its phone numbers; a mobile size/performance assessment; and
+> engineering-lead approval under the E9.1 artifact freeze. **None of those exists.** The version
+> number `2.0` is the knowledge base's proposal and does not bind the backend.
+
+> ### ✅ I3 Step 3 — inactive ingestion and registry foundation (2026-08-29)
+>
+> **PR #35 merged → `develop`** as `2485ce0ce564e27f562afa7d994d3ebfc388da6d` (parents `bbaeadd6` +
+> `5d900695`). 18 files, **all additions**, confined to `src/manifest/`, `tests/` and `docs/`.
+> Pre- and post-merge CI green. **653 tests, 23 suites** — up from 439.
+>
+> Models what governed ingestion must prove before anything can be published. Ten pipeline stages
+> where **no stage implies the next**; a pure in-memory registry with compare-and-swap activation
+> and rollback; deterministic, redacted audit events. Nothing is wired to a route.
+>
+> **Provenance has three states that are never synonyms:** `claimed` (fields populated — anyone can
+> populate fields), `integrity_bound` (digests match: **the bytes are the bytes, and nothing more**)
+> and `verified` (producer authority established — which requires infrastructure that does not
+> exist). `publish`, `activate` and `rollback` each require `verified`, so all three fail closed.
+>
+> The substitution the whole subsystem exists to prevent, proven directly: a matching **artifact**,
+> **plan** or **governance-register** digest establishes byte identity only. None grants Product or
+> Clinical approval, publication or activation authorization; none proves actor authority; none
+> makes an artifact eligible. Only a correctly scoped approval record contributes to `approved`.
+>
+> **Both real candidates are refused before staging.** `token_dictionary` 2.0 and `question_flow`
+> 1.1 stop at `governance_verified` on a `stage` request (`APPROVAL_NOT_GRANTED`, plus
+> `BLOCKER_UNRESOLVED` for question_flow) and at `provenance_verified` on publish/activate/rollback
+> (`PROVENANCE_NOT_VERIFIED`). Registry left byte-for-byte identical after every rejection. No
+> fixture was altered to manufacture eligibility.
+>
+> **Signing remains a recorded gap.** No algorithm, key source, custody model, rotation process or
+> verification policy exists, and none was invented. Production-like ingestion fails closed with
+> `SIGNATURE_POLICY_UNAVAILABLE`. The synthetic test-only trust mode is a function argument, never
+> an environment variable, refused outside `development`, and always non-operative.
+>
+> **Review (Step 3C) found five fail-open gaps and closed them:** a future minor envelope version
+> was accepted; the superseded 1.0.0 draft was accepted, which would have handed old input the new
+> contract's guarantees; the SHA-1 40-hex commit constraint was enforced but undocumented, reading
+> as a universal Git assumption; audit events accepted unbounded payloads (a megabyte in a
+> reference field passed because it did not _look_ like a credential); and an
+> environment-variable assignment carrying a secret passed for the same reason. Version is now
+> membership in a closed set, the object-id constraint is recorded as a compatibility decision to
+> revisit before either repository migrates to SHA-256, and audit fields are capped and scanned.
+>
+> Added seeded property-style tests over randomized registry operation sequences (existing tooling,
+> no new dependency) asserting the invariants on every step.
+
+> ### ✅ I3 Step 2B — approval-scope correction and contract 1.1.0 (2026-08-28)
+>
+> **PR #34 merged → `develop`** as `bbaeadd6075eb37fd51acbe04101f939e52c7d48`. 439 tests, up from 387.
+>
+> **The defect.** IM-001 completed a Product decision about question _display wording and ordering_.
+> That completion was recorded in the artifact-level Product approval slot of the `question_flow`
+> 1.1 candidate — a slot the contract reads to compute `approved`. As shipped the candidate was
+> still ineligible, but only because the clinical approval was pending and two blockers were open.
+> Lifting those _unrelated_ conditions produced `approved: true` and `eligible_for_environment:
+true` **with zero reason codes**, on the strength of a wording decision. A field that is safe only
+> while something else happens to be blocking is not scoped correctly.
+>
+> **The correction.** `approvals.product` returned to `pending`. IM-001's completion is preserved —
+> it is true and it matters — as scoped `references` traceability plus a reconciliation fixture
+> bound to the knowledge base. It is deliberately **not** filed as a blocker: the blocker list is
+> the safety channel, and a completed decision recorded there inverts its meaning for anyone
+> scanning it.
+>
+> **Approval scope became first-class.** Every approval record carries `decision_scope` from a
+> closed set; both slots demand `artifact_publication`. Missing, malformed, unknown or
+> non-publication scope all fail closed, in validation and again in eligibility. Three reason codes
+> added: `APPROVAL_SCOPE_MISSING`, `APPROVAL_SCOPE_UNKNOWN`, `APPROVAL_SCOPE_MISMATCH`.
+>
+> **Contract 1.0.0 → 1.1.0.** The review caught the change silently retaining `1.0.0` while
+> invalidating _every_ descriptor valid at `fc40ac3` — `decision_scope` had been made required on
+> all approvals. Restructured so it is required only for a `granted` approval (an approval claiming
+> nothing needs no scope, and requiring one there protected nothing), which confines the breakage to
+> the unsafe claims. Minor, not patch: the field is added to a closed surface, so a 1.1.0 document
+> is invalid against 1.0.0. Minor, not major: no _safe_ previously-valid descriptor is invalidated
+> and the supported major stays 1.
+>
+> **"Vocabulary 2.0" identity resolved from evidence:** it is a human-facing workstream label; the
+> stable artifact id is **`token_dictionary`**. The knowledge base's generator declares
+> `ARTIFACT_ID = "token_dictionary"`, no `"artifact_id": "vocabulary"` exists anywhere in that
+> repository, lineage is 1.0 → 1.1 → candidate 2.0 with **1.1 the version `/config` serves today**,
+> the token set and Mobile consumer are unchanged, and the rename was declined in writing. The
+> fixture adopted the stable id.
+>
+> **Review also found the compatibility tests were not hermetic** — they read git history, which
+> CI's shallow checkout does not have. The base-era manifests are now vendored as a fixture, proven
+> passing in a one-commit shallow clone.
+>
+> Also fixed: the telemetry contract drift check diffed the whole of `docs/contracts/`, so an
+> unrelated uncommitted manifest-schema edit reported as a _telemetry_ failure. Now scoped to the
+> four files it generates.
+
+> ### 📩 Knowledge base — moved twice, both cross-repo findings actioned (2026-08-28 → 08-29)
+>
+> Read from the `wellapath-knowledge-base` record; verified by recomputing digests from its
+> committed bytes, not taken on trust.
+>
+> - **KB PR #38** re-pinned its publication tooling to Backend contract **1.1.0**, recording our
+>   schema digest `948299bc…5038a` / 7,806 bytes and our merge commit `bbaeadd6`. This actioned the
+>   re-pin the Step 2B review handed over. Pins were verified **in both directions**: its vendored
+>   copy of our schema is byte-identical to ours, and the three digests it recorded of our files all
+>   match when recomputed here.
+> - **KB PR #39** corrected the two provenance hazards recorded during Step 3: the plans'
+>   `contract_validation` had read `1.0.0` while `contract_pin` in the same document read `1.1.0`,
+>   and the descriptors' `references[]` named the superseded contract and our superseded commit.
+>   Both now agree. The stale branch citation was **removed rather than refreshed**, on the grounds
+>   that a newer commit would go stale the same way.
+> - KB `develop` moved `77beffec` → **`1f1b8dd0`**. All 15 pinned inputs were re-verified from
+>   committed bytes; a partial or mixed-generation pin update is now a tested refusal.
+> - The knowledge base added an explicit **ingestion boundary**: the plan supplies artifact-byte
+>   identity, hash-bound decision-record provenance and contract provenance; the _envelope_ must
+>   supply the source repository and commit, the actor, and the authorization. Its rule, quoted:
+>   _"an ingester that treats hash agreement as governance evidence has skipped the governance check
+>   entirely."_ The Backend enforces exactly that.
+
+> ### ✅ I3 Step 1 — baseline freeze + inactive manifest contract (2026-08-28)
+>
+> **PR #32 merged → `develop`** as merge commit `fc40ac3` (parents `1c0fd16` + head `ed83cda`),
+> after independent verification from clean worktrees at both the pinned head and the post-merge
+> tip: CI green on both, 387/387 tests, format/lint/tsc/telemetry-contract-sync all clean.
+> Everything is **additive and inactive** — zero diff on `src/routes`, `src/app.ts`,
+> `src/server.ts`, `src/config`, `.env.example`, `Dockerfile`, `.github`, `package.json`.
+>
+> | Deliverable          | Where                                                                                          |
+> | -------------------- | ---------------------------------------------------------------------------------------------- |
+> | Baseline freeze      | `docs/baseline/distribution-baseline.v1.json` + `docs/DISTRIBUTION_BASELINE.md`                |
+> | CI drift check       | `tests/baseline/baseline-drift.test.ts` — fails on any `/config` field or hash drift           |
+> | Manifest contract v1 | `src/manifest/` (source of truth `contract.ts`), `docs/contracts/manifest.v1.schema.json`      |
+> | Contract docs        | `docs/ARTIFACT_MANIFEST_CONTRACT.md` (state machine, eligibility, rollback, audit, gaps)       |
+> | Blocked candidates   | `tests/fixtures/manifest/blocked-candidates.manifest.json` — **fixtures only, synthetic**      |
+> | Future handoffs      | `docs/handoffs/KB_PUBLICATION_HANDOFF.md`, `docs/handoffs/MOBILE_MANIFEST_CONSUMER_HANDOFF.md` |
+>
+> Key semantics, all test-enforced (86 new tests, incl. 34 negative fixtures each failing at its
+> declared stage with its declared reason code): five distinct states
+> (`present`/`published`/`approved`/`active`/`eligible_for_environment`), **fail-closed**
+> governance (absent/null/unknown/malformed = not eligible), candidates never selected
+> implicitly, duplicate actives select nothing, downgrades only via version+hash-bound rollback
+> targets, approved-origin/HTTPS/no-credentials/no-query transport policy, integrity verified
+> independently of transport.
+>
+> **Blocked candidates modeled, not enabled:** Vocabulary 2.0 and Question Flow 1.1 exist only
+> as fixtures with provably synthetic hashes bound to authoritative KB commit
+> `c1b07944ea0b231914943ac17b2265441e53b85c`; both `published: false`, `active: false`,
+> ineligible in every environment. Question Flow carries IM-001 product decisions complete,
+> clinical approval NOT granted, `IM001-CLIN-FLAG-001` open, `IM003-SB-001` open (IM-003
+> disabled), activation unauthorized. Mobile PR #76 remains unauthorized to merge. No clinical
+> reviewer is assigned.
+>
+> **Proof of non-change:** live staging `/config` body sha256 identical before and after merge
+> (`183a15bd…45d3b`); canonical response hash `3b2bbb1c…8578ed` recomputed from a booted app;
+> all four artifact hashes/byte counts recomputed from R2 — exact matches; no R2 write (read-only
+> GET/HEAD only), no deploy-config, env-var, secret, dependency or auth change.
+>
+> #### ✅ Staging database — third pause, deploy failure, and restore (2026-08-28 → 08-29)
+>
+> **RESOLVED.** The third Supabase free-tier pause caused a **staging deploy failure**, which is
+> the indirect risk `docs/DEPLOYMENT.md` §4 predicted in writing materialising for the first time.
+>
+> | When (UTC)       | Event                                                                 |
+> | ---------------- | --------------------------------------------------------------------- |
+> | 2026-08-28 10:39 | PR #32 merged                                                         |
+> | 2026-08-28 10:46 | Third pause observed — `/health` already 503 `database: error`        |
+> | 2026-08-28 13:06 | PR #34 merged → **Render reported the deploy as failed**              |
+> | 2026-08-29 ~11:5 | Investigated: `/config` and `/version` still 200, `/health` still 503 |
+> | 2026-08-29 ~12:0 | Engineering lead restored the Supabase project → `/health` 200        |
+> | 2026-08-29 13:48 | PR #35 merged; staging observed healthy, `/config` byte-identical     |
+>
+> **The deploy failure was not caused by the merge.** `/health` had been failing for 2h20m _before_
+> PR #34 merged, and PR #34 was runtime-inert — `src/manifest/` is imported by nothing the server
+> loads, and CI's Docker Build passed on the exact merge commit. Render marks a deploy failed when
+> the health-check path does not return 2xx; `/health` returns 503 whenever the database is
+> unreachable (`src/routes/health.ts`), so any deploy triggered after the pause would have failed
+> regardless of content. The previous build kept serving throughout, so `/config` and `/version`
+> — which never touch the database — stayed up and the mobile bootstrap path never broke.
+>
+> _Caveat on the diagnosis:_ this was inferred from endpoint behaviour, the timeline and a green
+> Docker build. Render's deploy log and its configured health-check path were **not** read — no
+> dashboard or API access from this session.
+>
+> **Two items this raises, both needing a decision:**
+>
+> 1. **The pause will recur.** This was the third. The 7-day idle clock restarted at the restore.
+>    Upgrade off the Supabase free tier, or add a keep-alive `SELECT 1`. Open since 2026-07-29.
+> 2. **`/health` couples liveness to the database.** A paused database can fail deploys of changes
+>    that never touch the database, and could eventually take `/config` down with it. Splitting
+>    liveness from database readiness would stop this recurring — a runtime change, so it needs
+>    engineering-lead approval before a PR is opened. **Offered; not yet authorized.**
+>
+> #### ⚠️ Third pause as originally observed 2026-08-28
+>
+> `GET /health` returned **degraded / `checks.database: "error"`** on 2026-08-28 (observed
+> during baseline work and still degraded after the merge) — the predicted third Supabase
+> free-tier idle pause, now that mobile staging traffic has quietened. `/config` and `/version`
+> unaffected throughout, as designed. **Not restored under these tasks** (restoration is a
+> manual engineering-lead action). This supersedes the 2026-08-14 note below that said no third
+> pause had occurred. The standing remedy is unchanged: upgrade off the free tier or add a
+> keep-alive ping before beta.
+
+> ### Status check — 2026-08-14
+>
+> **Backend: nothing outstanding, nothing changed.** `origin/develop` is unchanged since PR #30
+> merged on 2026-08-11 (`1c0fd16`). No backend commits, no open backend PRs except the stale
+> #28 below. Staging re-verified today — see the live check below.
+>
+> **The picture has moved on the mobile side, not here.** Everything in this box below the
+> backend line is 📩 **read from the `wellapath-mobile` PR record**, not independently verified
+> from this repository. It is recorded because it changes what "I1" means, and because two of
+> the items previously tracked here as open are now answered elsewhere.
+>
+> #### 🔍 Backend — verified live today (2026-08-14)
+>
+> | Check                                            | Result                             |
+> | ------------------------------------------------ | ---------------------------------- |
+> | `GET /health`                                    | **200**, `checks.database: "ok"`   |
+> | `POST /v1/telemetry/events` (single valid event) | **202**, `accepted: 1`             |
+> | `telemetry_enabled` / `telemetry_sink`           | **`true`** / **`log`** — unchanged |
+> | Contract version                                 | **1.0** — unchanged                |
+> | Production telemetry                             | **Still disabled**                 |
+>
+> **Operational metrics counters read all zero** before that probe, despite mobile having run
+> live staging tests. That is expected, not a fault: the counters are in-memory and per-instance,
+> and on the Render Free plan an idle service spins down, so they reset far more often than a
+> deploy would suggest. **Treat `/internal/metrics` as a live signal only — it is not a record of
+> cumulative traffic.** The 7-day log window remains the only durable record
+> (`docs/TELEMETRY_OPERATIONS.md` §3).
+>
+> #### 📩 Mobile — relayed from `wellapath-mobile`
+>
+> | PR       | State                         | What it did                                                                                                                                                                                               |
+> | -------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | #61      | **Merged 2026-08-11**         | Mobile telemetry v1.0 against backend commit `5e13379`. Contract artifacts vendored and verified byte-identical; **no contract mismatch found**, nothing requested from backend beyond staging enablement |
+> | #62, #63 | Merged                        | `--dart-define` enablement; `os_version` omitted                                                                                                                                                          |
+> | #64      | **Merged 2026-08-13**         | **Low-end Android emulator gate PASSES** (cold −4.2 %, warm +7.9 % mean / −15.4 % median; memory deltas both directions)                                                                                  |
+> | #65      | Merged                        | Privacy-safe **Sentry** crash monitoring — **Flutter/Dart only**                                                                                                                                          |
+> | #66–#68  | Merged                        | Protected internal-beta CI validation workflow and Sentry receipt runner                                                                                                                                  |
+> | #69      | **OPEN** (created 2026-08-14) | I1 closure record. Asserts the **I1 technical engineering gate PASSED**                                                                                                                                   |
+>
+> #### What this changes for items previously tracked here as open
+>
+> - **Mobile integration gate — closed.** PR #61 merged 2026-08-11 at 12:41 UTC, ~25 minutes
+>   _before_ backend PR #30 merged. The line in the block below saying #61 "is running its final
+>   live integration tests" was already stale when written.
+> - **Low-end Android gate — emulator PASS** (#64). **Physical low-end handset validation is
+>   carried forward before external beta** — not closed.
+> - **Crash monitoring — resolved for mobile, still absent for backend.** See the open question
+>   below.
+>
+> #### ⚠️ Still not authorized, per mobile #69
+>
+> - **External beta: NOT AUTHORIZED.**
+> - **Sentry-enabled distribution beyond the authorized internal engineering group: BLOCKED**
+>   pending **DPA formal electronic acceptance**. Sentry Terms v3.0 are accepted; the DPA is not.
+>   A BAA is unavailable on the Team plan and is **not relied upon**, because PHI is prohibited
+>   from Sentry in the first place. Sentry error-event retention is **30 days**, EU region.
+> - **I1 is not closed until #69 merges.** #69 is a documentation PR and is still open — do not
+>   record the phase as complete on the strength of its title.
+>
+> #### 🔴 Open question for the engineering lead — backend crash monitoring
+>
+> Mobile #69 asserts the I1 technical gate passed, and #65 delivered crash monitoring that is
+> explicitly **Flutter/Dart only**. **This backend still has no crash or error-reporting
+> integration of any kind.** That item was recorded here as an I1-scope gate on 2026-08-11 and
+> has not been answered for the backend — it appears to have been satisfied mobile-side and not
+> revisited for this service. Either it was deliberately descoped for the backend, in which case
+> that decision should be recorded, or it is a genuine gap in the I1 closure. **Backend cannot
+> resolve this unilaterally; it needs a decision.**
 
 > ### ✅ I1 / W1 backend staging-enablement gate — PASSED (2026-08-11)
 >
@@ -39,22 +653,26 @@
 >
 > **Rollback is unchanged: `TELEMETRY_ENABLED=false` plus restart.**
 >
-> ### ⚠️ Mobile PR #61 is unblocked — but I1 is NOT complete
+> ### Mobile PR #61 — unblocked, and since **merged**
 >
-> **Mobile PR #61 is running its final live integration tests** against contract v1.0. No
-> contract change is required or pending, and **staging telemetry must not be disabled while
-> those tests run.**
+> _Written 2026-08-11, superseded by the 2026-08-14 status check above._ At the time this
+> recorded PR #61 as "running its final live integration tests"; it had in fact already merged
+> that same day at 12:41 UTC. **No contract change was required or requested.**
 >
-> **I1 remains open.** The backend gate is one gate, not the phase. Still outstanding:
+> **I1 remained open** at the time of writing. The backend gate is one gate, not the phase. Then
+> outstanding, with current status:
 >
-> - the **Mobile integration gate** (PR #61 in final validation);
-> - the **low-end Android gate**;
-> - a **crash-monitoring provider or approved alternative**, which is in I1 scope and unresolved;
-> - the operational and security backlog in `docs/TELEMETRY_OPERATIONS.md` §7 — notably
->   protecting or disabling the unauthenticated `/internal/metrics` before external beta, and
->   analytics consent before external beta.
+> - the **Mobile integration gate** — ✅ closed, PR #61 merged 2026-08-11;
+> - the **low-end Android gate** — ✅ emulator PASS, PR #64; physical handset validation carried
+>   forward before external beta;
+> - a **crash-monitoring provider or approved alternative** — ⚠️ delivered mobile-side (Sentry,
+>   Flutter/Dart only, PR #65); **still absent for this backend** — see the open question above;
+> - the operational and security backlog in `docs/TELEMETRY_OPERATIONS.md` §7 — 🔴 **still open**,
+>   notably protecting or disabling the unauthenticated `/internal/metrics` before external beta,
+>   and analytics consent before external beta.
 >
-> Do not record I1 as complete until those close.
+> **Do not record I1 as complete until mobile PR #69 merges** and the backend crash-monitoring
+> question is answered.
 
 > ### ✅ I1 / W1 Step 1 delivered (2026-08-11): telemetry contract v1.0
 >
@@ -93,12 +711,27 @@
 > Note: `jest` was declared in `package.json` but had never been installed, and the repo had no
 > tests. Test tooling (`jest`, `ts-jest`, `@types/jest`) was added and CI now runs `npm test`.
 
-> ### Staging database — status 2026-08-11
+> ### Staging database — status 2026-08-14
 >
-> `GET /health` returned **200** with `checks.database: "ok"` on 2026-08-11 at 09:01 UTC, so the
-> 2026-08-03 pause has cleared. **The pre-production item stands:** that is two pauses and two
-> manual restores. Upgrade off the Supabase free tier or add a keep-alive ping before beta.
-> `PROGRESS.md` on the open PR #28 branch still describes the 08-03 outage as ongoing.
+> `GET /health` returned **200** with `checks.database: "ok"` on 2026-08-11 and again on
+> **2026-08-14**, so the 2026-08-03 pause remains cleared and no third pause has occurred.
+>
+> **The pre-production item stands regardless:** two pauses, two manual restores. Upgrade off the
+> Supabase free tier or add a keep-alive ping before beta. Note that recent days have seen steady
+> mobile staging traffic, which itself keeps the project from idling — **that is incidental
+> protection, not a fix.** Once mobile testing quietens, the idle clock starts again.
+>
+> #### 🧹 PR #28 is stale and now conflicting — recommend closing it
+>
+> PR #28 (`docs/progress-2026-08-03`) has been open since 2026-08-03 and is now
+> **`CONFLICTING` / `DIRTY`**. It touches only `PROGRESS.md`, which has moved substantially
+> since. Its content is also **wrong now**: it describes the 08-03 database pause as ongoing,
+> and it predates the whole I1/W1 workstream.
+>
+> **Recommendation: close it without merging.** Everything it was written to record is already
+> captured here — the 08-03 pause, its clearance, and the standing pre-production item.
+> Resolving the conflict would mean reconstructing a stale snapshot for no benefit. Backend has
+> not closed it because closing someone else's PR is the engineering lead's call.
 
 > **Doc gap notice:** This log was not kept current through E2–E4 — the doc-update commits for those phases (e.g. e2.5 real artifact wiring, the Supabase/R2 infra migration, the DB SSL fix) were made on feature branches after their PRs had already merged, so they never landed on `develop`. Sections below dated E1 reflect the last point this file was accurately in sync with `develop`. Treat `git log origin/develop` as the source of truth for E2–E4 history until this file is backfilled.
 
@@ -129,13 +762,20 @@
 - Husky hooks fixed — `.husky/pre-commit` and `.husky/commit-msg` were tracked in git as non-executable (`100644`); restored via `git update-index --chmod=+x` (plain `chmod` doesn't register because this repo has `core.filemode=false`)
 - `node_modules` permission issue resolved — local `node_modules` had a macOS quarantine flag (transferred via WhatsApp rather than installed), blocking script execution; fixed with `rm -rf node_modules && npm ci`
 
-**Next immediate action:** All three assigned E9 backend items are complete (CI fix PR #25, E9.2 docs PR #24, this progress log PR #21). No backend work outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence — the remaining steps are mobile, data-engineering, and founder items.
+**Next immediate action (2026-09-14):** **PR #36 awaits engineering review — do not merge without it.** Otherwise none outstanding for backend. I3 Steps 1, 2B and 3 are merged (PRs #32, #34, #35) and `develop` is at `2485ce0`. Everything built in this phase is inactive or default-off: no route serves or consumes any of it in any current deployment, and `/config` is unchanged. Every remaining I3 step — candidate publication, activation, Mobile consumption, and ever enabling the PR #36 gates — requires its own explicit authorization; the exact preconditions are listed in `docs/INGESTION_AND_REGISTRY.md` §§11–13 and `docs/FACILITIES_V2_DISTRIBUTION.md` §5 (on the PR #36 branch).
 
-**Open, owned by others (backend cannot action):** approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
+Backend is **not blocking I1 closure**. Mobile PR #69 **merged 2026-08-14** (verified 2026-09-15), so the remaining waits are: a decision on **backend crash monitoring** (see the open question in the 2026-08-14 status check above — now the only item keeping I1 from being recorded closed here), and the pre-external-beta items in `docs/TELEMETRY_OPERATIONS.md` §7 — chiefly protecting or disabling the unauthenticated `/internal/metrics`, and analytics consent.
+
+**Open, owned by others (backend cannot action):** licence or reuse permission for the facilities source dataset, and a decision on whether an unattributed dataset may be presented to users at all (founder + engineering lead); whether the three missing states — Adamawa, Kebbi, Sokoto — block a nationwide claim (Product); approval to update `CLAUDE.md` §1 away from decommissioned AWS infrastructure (founder + engineering lead); confirmation that the `headache` / `head_pain` double-count is deliberate (E8.2 calibration owner). Both are now tracked in `decision-log.md` in `wellapath-docs`. The SAM/MAM rationale gap is **closed** — supplied by the data engineer and relocated with the log.
 
 **Pre-production items (before real beta users / production):**
 
-- **Supabase free-tier pause** — upgrade off the free tier, or add a weekly keep-alive ping. Free tier pauses after 7 days idle; this caused a real staging outage on 2026-07-29
+- **Supabase free-tier pause** — upgrade off the free tier, or add a weekly keep-alive ping. Free tier pauses after 7 days idle; this caused a real staging outage on 2026-07-29 and, on 2026-08-28, a **failed staging deploy**. Three occurrences, three manual restores. The idle clock restarted 2026-08-29
+- **`/health` couples liveness to the database** — a paused database fails deploys of changes that never touch it. Splitting liveness from database readiness needs engineering-lead approval; offered 2026-08-29, not yet authorized
+- **Manifest / receipt signing does not exist** — no algorithm, key source, custody model, rotation process or verification policy. Production-like ingestion fails closed by design. Blocks any real publication or activation
+- **Cross-schema rollback policy is unresolved** — both candidates' rollbacks cross a content-schema boundary and are refused by both repositories. No target is invented on either side
+- **Facilities source has no licence and no established publisher** — the nationwide candidate cannot be published, uploaded or served until reuse permission is obtained in writing. A legal/commercial gate, not an engineering one
+- **Facilities candidate is ~18× the current artifact** (30,961,471 vs 1,695,844 bytes) — needs a mobile download, cache and memory assessment against the low-end Android budget before it can be considered for `/config`
 - **Certificate pinning** — deferred to production, accepted for internal beta
 - **DB TLS `rejectUnauthorized: false`** — encrypted but chain unverified; tighten before production
 - **CORS production allowlist** — still references the superseded `api-staging.wellapath.org`
@@ -163,6 +803,21 @@
 | `feat/kb-v2.4-headache-reachability` | Merged → `develop` | PR #23 ✅ |
 | `docs/e9.2-beta-readiness`           | Merged → `develop` | PR #24 ✅ |
 | `ci/enforce-typescript-check`        | Merged → `develop` | PR #25 ✅ |
+
+| Branch                                        | Status                | PR                                                                            |
+| --------------------------------------------- | --------------------- | ----------------------------------------------------------------------------- |
+| `docs/move-decision-log-to-wellapath-docs`    | Merged → `develop`    | PR #26 ✅                                                                     |
+| `docs/pre-production-items`                   | Merged → `develop`    | PR #27 ✅                                                                     |
+| `docs/progress-2026-08-03`                    | **Open, CONFLICTING** | PR #28 🧹 recommend closing                                                   |
+| `feat/i1-telemetry-contract`                  | Merged → `develop`    | PR #29 ✅                                                                     |
+| `docs/i1-telemetry-operations-closure`        | Merged → `develop`    | PR #30 ✅                                                                     |
+| `feat/e9-decision-log` (`wellapath-docs`)     | Merged → `main`       | wellapath-docs PR #1 ✅                                                       |
+| `docs/progress-2026-08-14`                    | **Open — superseded** | PR #31 🧹 its only commit `e5a924b` is contained in PR #33; recommend closing |
+| `feat/i3-manifest-contract-foundation`        | Merged → `develop`    | PR #32 ✅ `fc40ac3`                                                           |
+| `docs/progress-2026-08-28`                    | Open                  | PR #33 — this progress update                                                 |
+| `feat/i3-approval-scope-correction`           | Merged → `develop`    | PR #34 ✅ `bbaeadd6`                                                          |
+| `feat/i3-ingestion-registry-foundation`       | Merged → `develop`    | PR #35 ✅ `2485ce0`                                                           |
+| `feat/i3-facilities-v2-distribution-contract` | **Open, UNMERGED**    | PR #36 — facilities v2 contract prep, default-off; awaiting review            |
 
 ---
 
@@ -355,23 +1010,33 @@ CORS headers confirmed active (`vary: Origin`).
 
 ## Merged PRs
 
-| PR  | Title                                                                                            | Branch                                           | Status    |
-| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------ | --------- |
-| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`            | Merged ✅ |
-| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`  | Merged ✅ |
-| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`     | Merged ✅ |
-| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`       | Merged ✅ |
-| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`       | Merged ✅ |
-| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`       | Merged ✅ |
-| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`             | Merged ✅ |
-| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`    | Merged ✅ |
-| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`             | Merged ✅ |
-| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`   | Merged ✅ |
-| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`  | Merged ✅ |
-| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`    | Merged ✅ |
-| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop` | Merged ✅ |
-| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`           | Merged ✅ |
-| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`        | Merged ✅ |
+| PR  | Title                                                                                            | Branch                                                 | Status                           |
+| --- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | -------------------------------- |
+| #2  | `feat(e1): initialize fastify typescript backend with core endpoints`                            | `feature/e1-backend-init` → `develop`                  | Merged ✅                        |
+| #3  | Dockerfile fix: copy node_modules from builder, remove npm ci from production                    | `fix/dockerfile-remove-prod-npm-ci` → `develop`        | Merged ✅                        |
+| #4  | `feat(db): add postgresql connection pool, migration script, db health check`                    | `feature/e1-database-foundation` → `develop`           | Merged ✅                        |
+| #5  | `feat(security): add security baseline — cors, rate limit, error handler`                        | `feature/e1-security-baseline` → `develop`             | Merged ✅                        |
+| #6  | `feat(artifacts): add placeholder versioned artifacts for e1 skeleton`                           | `feature/e1-artifact-skeleton` → `develop`             | Merged ✅                        |
+| #15 | `feat(config): add facilities artifact to /config response — e5 complete`                        | `feature/e5-facilities-config` → `develop`             | Merged ✅                        |
+| #16 | `feat(config): update kb and rules to v2.0 artifacts — e7 complete`                              | `feature/e7-kb-rules-v2` → `develop`                   | Merged ✅                        |
+| #17 | `feat(config): update kb and rules to v2.1 after medical review fixes`                           | `feature/e7-medical-review-fixes` → `develop`          | Merged ✅                        |
+| #18 | `feat(config): update knowledge_base to v2.2 after red flag mirror fix`                          | `feature/kb-v2.2-update` → `develop`                   | Merged ✅                        |
+| #19 | `feat(config): update knowledge_base to v2.3 — malaria case04 clinical policy fix`               | `feat/kb-v2.3-malaria-explanation` → `develop`         | Merged ✅                        |
+| #20 | `feat(config): update facilities to v1.1 — 45 lagos facility phone numbers added`                | `feat/facilities-v1.1-lagos-phones` → `develop`        | Merged ✅                        |
+| #22 | `fix(config): update rules to v2.2 — remove dead rule rf_147`                                    | `fix/rules-v2.2-remove-dead-rule` → `develop`          | Merged ✅                        |
+| #23 | `feat(config): update knowledge_base to v2.4 — headache token reachability fix e8.2 calibration` | `feat/kb-v2.4-headache-reachability` → `develop`       | Merged ✅                        |
+| #24 | `docs(e9): add deployment, artifact release, decision log, and security docs`                    | `docs/e9.2-beta-readiness` → `develop`                 | Merged ✅                        |
+| #25 | `ci(workflow): enforce typescript check by removing exit code suppression`                       | `ci/enforce-typescript-check` → `develop`              | Merged ✅                        |
+| #26 | `docs(structure): move decision log to wellapath-docs repo`                                      | `docs/move-decision-log-to-wellapath-docs` → `develop` | Merged ✅                        |
+| #27 | `docs(ops): log supabase free-tier pause as pre-production item`                                 | `docs/pre-production-items` → `develop`                | Merged ✅                        |
+| #29 | `feat(telemetry): add privacy-safe product telemetry contract v1.0 — i1/w1 step 1`               | `feat/i1-telemetry-contract` → `develop`               | Merged ✅ 2026-08-11, `5e13379`  |
+| #30 | `docs(telemetry): record passed i1/w1 staging-enablement gate and 7-day retention`               | `docs/i1-telemetry-operations-closure` → `develop`     | Merged ✅ 2026-08-11, `1c0fd16`  |
+| #32 | `feat(i3): freeze distribution baseline and add inactive manifest contract foundation`           | `feat/i3-manifest-contract-foundation` → `develop`     | Merged ✅ 2026-08-28, `fc40ac3`  |
+| #34 | `fix(i3): correct blocked-candidate approval scope, vocabulary identity, and contract version`   | `feat/i3-approval-scope-correction` → `develop`        | Merged ✅ 2026-08-28, `bbaeadd6` |
+| #35 | `feat(i3): inactive ingestion pipeline and registry foundation`                                  | `feat/i3-ingestion-registry-foundation` → `develop`    | Merged ✅ 2026-08-29, `2485ce0`  |
+
+> **PR #28 is open and CONFLICTING** — see the staging-database section above. Recommend closing
+> it unmerged; its content is stale and already superseded here.
 
 > PRs #7–#14 (E2.5 real artifact wiring, DB SSL fix, AWS → Supabase/R2 infra migration) also merged to `develop` but were not logged here — see git history until this table is backfilled.
 
@@ -424,9 +1089,21 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 **E9.2 — Backend Documentation** ✅ complete (PR #24) — deployment, artifact release process, decision log, and security checklist delivered; README refreshed
 **E9.2 — CI type check enforcement** ✅ complete (PR #25) — `|| true` removed so type errors can fail CI
 
-**Current status:** Artifacts frozen for beta and verified on staging. All assigned E9 backend items complete.
+**I1 / W1 — Privacy-Safe Product Analytics** ✅ backend complete (PR #29 contract, PR #30 closure) — telemetry contract v1.0 live on staging, staging-enablement gate passed 25/25, privacy-log gate passed. Mobile closure PR #69 **merged 2026-08-14** (verified 2026-09-15); the backend crash-monitoring decision is the one item still keeping I1 from being recorded closed here.
 
-**Next backend action:** None outstanding ahead of the beta tag. Backend is not a blocker on the pre-tag sequence. Standing by for the next artifact release (which now requires engineering lead approval under the E9.1 freeze) or a post-beta task.
+**I3 — Governed Artifact Delivery** ✅ **Steps 1, 2B and 3 complete**, all inactive:
+
+- **Step 1** (PR #32, `fc40ac3`) — distribution baseline frozen with a CI drift check; candidate manifest contract v1.0.0 with fail-closed eligibility, five distinct states, version+hash-bound rollback and an origin/integrity policy; blocked candidates modeled as synthetic fixtures; KB and Mobile handoffs written.
+- **Step 2B** (PR #34, `bbaeadd6`) — approval-scope substitution corrected, `decision_scope` made first-class, contract **1.0.0 → 1.1.0**, "Vocabulary 2.0" resolved to the stable id `token_dictionary`.
+- **Step 3** (PR #35, `2485ce0`) — inactive ingestion pipeline and registry: ten stages where none implies the next, compare-and-swap activation and rollback, three provenance states, deterministic redacted audit, signing failing closed. Envelope contract 1.1.0, audit contract 1.0.0, knowledge base pinned at `1f1b8dd0`.
+
+Across all three: `/config` byte-identical, no route added, no dependency, no deployment configuration touched, and neither blocked candidate can reach staging.
+
+**Facilities 2.0 distribution contract** 🔶 **prepared, PR #36 open and UNMERGED (2026-09-14)** — optional default-off `facilities_v2` entry for `/config` with fail-closed gates, matched to Mobile PR #79's consumer; `/config` proven byte-identical to the frozen baseline in every reachable state; 742 tests on the branch. Activation remains gated on the candidate's licence/attribution/coverage/sizing blocks and every authorization in `docs/FACILITIES_V2_DISTRIBUTION.md` §5.
+
+**Current status:** Artifacts frozen for beta. All assigned E9, I1/W1 and I3 backend items complete and merged; `develop` at `2485ce0`, 653 tests (742 on the PR #36 branch). Staging healthy — the third database pause was restored on 2026-08-29 and `/config` is byte-identical to the frozen baseline.
+
+**Next backend action:** PR #36 review. Otherwise none outstanding. Every remaining I3 step is gated on explicit authorization, with preconditions listed in `docs/INGESTION_AND_REGISTRY.md` §§11–13. Standing by for: the next artifact release (engineering-lead approval required under the E9.1 freeze), a decision on backend crash monitoring, a decision on splitting `/health` liveness from database readiness, and the Supabase free-tier fix before the idle clock runs down again.
 
 ---
 
@@ -439,8 +1116,34 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ---
 
-\_Last updated: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
+\_Last updated: 2026-09-22 — status check: production `https://api.wellapath.org` healthy (`/health` 200 `disabled`, `0.3.0`/`production`, `/config` body still the frozen `183a15bd…45d3b`); **staging's fourth database pause restored** (`/health` 200 again, idle clock restarted); `develop` unchanged at `6cf642f`; PR #36 still awaiting first review; local DNS negative cache expired as predicted. Current-status header rewritten to reflect the live production era.
+
+Earlier: 2026-09-21 (fifth entry) — **PRODUCTION LIVE: `https://api.wellapath.org` verified end to end at 14:55 UTC** (DNS, TLS CN/SAN exact with valid chain, all endpoints, canonical `/config` hash `3b2bbb1c…8578ed`, Facilities 1.1 byte-exact, headers, metrics 404, telemetry 503, staging byte-identical) and the **build 211 Mobile handoff issued** — see the top entry. Earlier (fourth entry) — PRODUCTION PROVISIONED: `wellapath-backend-production` (srv-daojooh42hec73a52lmg) live on Render Starter at commit `6cf642f` from the pinned `production` branch, auto-deploy off, database-independent, all live verifications passed; `api.wellapath.org` CNAME → `wellapath-backend-production.onrender.com` awaiting the founder's add-only Namecheap change. Earlier (third entry) — **PR #38 independently reviewed and MERGED → `develop` as `6cf642f`** at reviewed head `bf4d96b`, after the review found and fixed two defects (refusal message echoed the rejected env value; DNS step was not add-only — apex/`www` → Vercel website and MX → Hostinger email now explicitly preserved). Merged tree verified byte-identical to the reviewed head; 676 tests clean from a clean worktree; PR #37 auto-marked merged via the stack, not merged separately; staging auto-deploy picked up the merge with `/config` byte-identical and `/health` 503 only from the pre-existing paused database; **PR #36 still open and unmerged; Facilities 2.0, telemetry and Sentry inactive; nothing deployed to production.** `develop` is now the soft-launch basis awaiting the paid Render service and the Namecheap `api` CNAME.
+
+Earlier same day (second entry) — database-independent production profile and security hardening delivered on `feat/production-db-independent-hardening` (PR #38, stacked on PR #37): `DATABASE_ENABLED` strict switch (default unchanged), `/health` truthful `disabled` state, production CORS staging-origin removal, `/internal/metrics` hard-off in production, security headers, 675 tests all clean, frozen `/config` canonical hash reproduced in a real production-profile boot; runbook revised — paid Supabase dropped as a soft-launch prerequisite, paid Render + Namecheap DNS remain the only founder actions. Nothing deployed; staging untouched; PR #36 untouched.
+
+Earlier same day: production provisioning for build 211 audited and **blocked on founder actions** (no accessible Render/Namecheap/Cloudflare/Supabase account owns WellaPath infrastructure); audit + runbook in `docs/PRODUCTION_PROVISIONING.md` (PR #37); `wellapath.org` DNS is at Namecheap, not Cloudflare; production source commit `2485ce0` with all suites clean; Facilities 1.1 re-verified byte-exact from R2; **fourth Supabase free-tier pause found live** (`/health` 503, `/config` unaffected and still `183a15bd…45d3b`); PR #36 untouched and unmerged; staging unchanged; no mobile handoff issued.
+
+Earlier: 2026-09-17 — status check, no change: `develop` at `2485ce0`, PR #36 open and still awaiting its first review, PR #33 and mobile PR #79 open, staging verified live (`/health` 200 `database: ok`, `/config` still the frozen `183a15bd…45d3b`). Earlier entries below are kept in place.
+
+Earlier: 2026-09-15 — status check: backend unchanged (`develop` at `2485ce0`, PR #36 open with no reviews yet); staging verified live — `/health` 200 `database: ok`, `/config` body sha256 exactly the frozen `183a15bd…45d3b`, all four artifacts at frozen versions, no v2 key; **mobile PR #69 merged 2026-08-14** (verified that day), so the I1 closure record is in and the backend crash-monitoring decision is the only I1 item still open here; mobile PR #79 still open.
+
+Earlier: 2026-09-14 — Facilities 2.0 distribution contract prepared on `feat/i3-facilities-v2-distribution-contract` (PR #36, open, unmerged): optional default-off `facilities_v2` manifest entry for `/config` with fail-closed gates matched to Mobile PR #79, proven unable to expose the unapproved candidate under any environment-variable combination, `/config` byte-identical to the frozen baseline in every reachable state, 742 tests on the branch, CI green. Nothing uploaded, deployed, activated or changed in staging, Mobile or the knowledge base; the candidate's licence, attribution, coverage and sizing blocks are untouched. Earlier entries below are kept in place; the most recent status is at the top of this file.
+
+Earlier: 2026-08-31 — I3 Governed Artifact Delivery, Steps 1/2B/3 complete; nationwide facilities candidate delivered in the knowledge base and blocked on licence, attribution and coverage.
+
+Earlier: 2026-07-27 — E9 Internal Beta Readiness. Three artifact updates shipped earlier in the day: `facilities` v1.1 (PR #20), `rules` v2.2 (PR #22), `knowledge_base` v2.4 (PR #23) — every hash independently recomputed against R2 before wiring, every prior version confirmed untouched, full content diffs run on the rules and KB updates, all verified live on staging. Artifacts now **frozen for beta** at `token_dictionary` v1.1 · `knowledge_base` v2.4 · `rules` v2.2 · `facilities` v1.1. E9.2 backend documentation delivered and merged (PR #24), CI type-check enforcement fixed (PR #25). All assigned E9 backend items complete; backend is not a blocker on the pre-tag sequence.
 
 2026-07-29 — decision log relocated out of this repo to `wellapath-docs` (`decision-log.md`, PR #1 there) per the engineering lead, with the data engineer's SAM/MAM clinical rationale added and its implementation verified against the frozen artifacts. `docs/DECISION_LOG.md` removed here and references repointed. Remaining open decisions are owned by the founder and the E8.2 calibration owner and are tracked in `wellapath-docs`.
 
-**Staging incident (2026-07-29) — RESOLVED:** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which read like a deleted project but was the **free tier pausing after 7 days of inactivity**. Engineering lead restored it manually; `/health` now returns 200 with `database: ok`. `/config` and `/version` were unaffected throughout, so the mobile bootstrap path never broke. **Logged as a pre-production item** — upgrade off the free tier or add a weekly keep-alive ping before real beta users; see `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.\_
+**Staging incident (2026-07-29) — RESOLVED:** `GET /health` returned 503 `database: error`; the Supabase pooler reported `tenant/user ... not found`, which read like a deleted project but was the **free tier pausing after 7 days of inactivity**. Engineering lead restored it manually; `/health` now returns 200 with `database: ok`. `/config` and `/version` were unaffected throughout, so the mobile bootstrap path never broke. **Logged as a pre-production item** — upgrade off the free tier or add a weekly keep-alive ping before real beta users; see `docs/DEPLOYMENT.md` §4 and `docs/SECURITY_CHECKLIST.md`.
+
+2026-08-11 — **I1/W1 telemetry contract v1.0 delivered and staging gate passed.** Backend contract merged (PR #29, `5e13379`), staging enabled (`TELEMETRY_ENABLED=true`, sink `log`), 25/25 functional checks passed, privacy-marker log search returned zero results with sink entries present, closure recorded (PR #30, `1c0fd16`). Three defects fixed en route, two pre-existing: rate limiting answered 500 instead of 429; request logs carried the full URL including query string; logger redaction drift closed. Staging log retention confirmed at **7 days** (Render Free plan).
+
+2026-08-14 — **status check, no backend change.** `develop` unchanged since PR #30. Staging re-verified: `/health` 200 `database: ok`, telemetry accepting (`202`), production telemetry still disabled. Mobile has moved on: PR #61 merged 2026-08-11 (no contract mismatch, nothing requested of backend), low-end Android **emulator gate PASS** (PR #64, physical handset carried forward), Sentry crash monitoring added **Flutter/Dart only** (PR #65), and closure PR #69 opened today asserting the **I1 technical gate PASSED** — but **external beta is NOT AUTHORIZED** and Sentry distribution beyond the internal engineering group is **BLOCKED pending DPA acceptance**. **Open for the engineering lead: this backend still has no crash/error reporting** — an I1-scope item answered mobile-side and not revisited here. PR #28 is stale and conflicting; recommend closing it unmerged.
+
+2026-08-31 — **Nationwide facilities candidate delivered in the knowledge base, and blocked.** KB PR #40 (unmerged) builds `facilities` v2.0 from a supplied CSV: 31,274 records, 30,961,471 bytes, deterministic generator, schema, quality/quarantine/comparison/mobile-compatibility reports and a dry-run plan with every operation flag false. Digests and record counts recomputed here from its committed bytes; `facilities` 1.1 confirmed byte-identical to what `/config` serves. **The three things the brief assumed are not true of the data:** the file names no organisation, so "NHF" is unattributed; **no licence or terms of use accompanied it**, which blocks publication outright until reuse permission is obtained in writing; and it is **not nationwide** — 33 of 36 states plus FCT, with Adamawa, Kebbi and Sokoto absent, and 682 of 774 LGAs. It is also **~18× the size** of the artifact it would replace, which needs sizing against the low-end Android budget before v2.0 is treated as a drop-in. The knowledge base measured mobile compatibility by porting the real locator service rather than asserting it. No backend change is possible or appropriate yet.
+
+2026-08-31 — **I3 Steps 2B and 3 delivered, reviewed and merged; progress log brought current.** PR #34 (`bbaeadd6`) corrected an approval-scope substitution that would have let a _display-wording_ decision satisfy artifact-publication Product approval once unrelated conditions lifted, made `decision_scope` first-class, versioned the manifest contract **1.0.0 → 1.1.0**, and resolved "Vocabulary 2.0" to the stable artifact id `token_dictionary` from knowledge-base evidence. PR #35 (`2485ce0`) added the inactive ingestion and registry foundation — ten pipeline stages, compare-and-swap activation and rollback, three provenance states, deterministic redacted audit, signing failing closed — pinned to knowledge base `1f1b8dd0`. **Each PR's own review caught real fail-open defects before merge:** #34 had silently retained contract version `1.0.0` while invalidating every existing descriptor, and its compatibility tests read git history that CI's shallow checkout does not have; #35 accepted both a future and a superseded envelope minor version, and would have written unbounded payloads and environment-secret assignments into the audit log. All were fixed on the branch. 653 tests, up from 387 at the start of the phase. `/config` unchanged throughout, in the repository and live on staging. **Staging deploy failure on 2026-08-28 traced to the third Supabase pause, not to the merge** — `/health` had been failing for 2h20m before PR #34 merged, and the previous build kept serving `/config` and `/version` throughout; the engineering lead restored the database on 2026-08-29. Progress PRs #31 and #28 are superseded by this one and should be closed unmerged.
+
+2026-08-28 — **I3 Step 1 delivered and merged.** Baseline frozen from `origin/develop` tip `1c0fd16` with repository/deployed/inferred/unavailable evidence kept apart and a CI drift check; inactive manifest contract v1.0.0 added (`src/manifest/`, schema drift-checked against the TS source of truth); Vocabulary 2.0 and Question Flow 1.1 modeled as synthetic, permanently ineligible fixtures bound to KB commit `c1b07944`; 86 new tests (387 total). PR #32 reviewed against pinned head `ed83cda` (clean-worktree validation, hash recomputation of the schema, handoffs, canonical `/config` and all four R2 artifacts) and merged as `fc40ac3`; post-merge CI green and staging `/config` byte-identical. **Staging DB paused for the third time** — observed degraded `/health` before and after the merge; left for the engineering lead to restore. Nothing runtime-facing changed; no upload, no deployment, no new env var or dependency.\_
