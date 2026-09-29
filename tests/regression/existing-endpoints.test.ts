@@ -28,10 +28,10 @@ const FROZEN_ARTIFACTS = {
     release_date: '2026-07-26',
   },
   facilities: {
-    version: '1.2',
-    file: 'facilities.ng.v1.2.json',
-    hash: 'sha256:94f162e492fa91f7d9d3cf2ca33fcf0598a031a2510aa900aa717a581bdb7788',
-    release_date: '2026-09-29',
+    version: '1.0',
+    file: 'facilities.ng.v1.0.json',
+    hash: 'sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e',
+    release_date: '2026-04-06',
   },
 };
 
