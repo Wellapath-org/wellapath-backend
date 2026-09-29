@@ -118,7 +118,7 @@ describe('production profile — database disabled', () => {
     expect(response.json()).toEqual({ version: '0.1.0', environment: 'production' });
   });
 
-  it('GET /config is byte-identical to the frozen Facilities 1.2 baseline', async () => {
+  it('GET /config is byte-identical to the frozen Facilities 1.0 baseline', async () => {
     const response = await app.server.inject({ method: 'GET', url: '/config' });
 
     expect(response.statusCode).toBe(200);
