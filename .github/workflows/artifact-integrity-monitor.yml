@@ -1,0 +1,20 @@
+name: Live artifact integrity monitor
+
+# Hourly read-only check that production /config names reachable artifacts whose
+# bytes match the published sha256. A failed run notifies repository watchers.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify production artifacts
+        run: scripts/verify-live-artifacts.sh https://api.wellapath.org/config
