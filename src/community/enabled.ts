@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { createCommunityAuth } from './auth';
 import { CommunityEnabledConfig } from './config';
 import { CommunityContext } from './context';
+import { assertVerifyFull } from './db-url';
 import { Hasher } from './crypto';
 import { EmailSender, FileOutbox, MemoryOutbox } from './email';
 import { AuthEvents } from './events';
@@ -34,7 +35,8 @@ export const registerEnabledCommunity = async (
   options: EnabledOptions,
 ): Promise<void> => {
   const pool = new Pool({
-    connectionString: config.databaseUrl,
+    // B5, enforced here too so a programmatic config cannot bypass loadCommunityConfig.
+    connectionString: assertVerifyFull(config.databaseUrl, 'COMMUNITY_DATABASE_URL'),
     max: 10,
     idleTimeoutMillis: 30000,
     // Fail fast: an unreachable Community DB must answer 503 quickly, not hang requests.

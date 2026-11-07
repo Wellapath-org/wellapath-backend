@@ -18,6 +18,7 @@
  */
 import { randomBytes } from 'crypto';
 import { Pool } from 'pg';
+import { forceVerifyFull } from './db-url';
 
 export interface BootstrapResult {
   accountId: string;
@@ -110,7 +111,10 @@ if (require.main === module) {
     process.stderr.write('Usage: bootstrap-admin --email <address>\n');
     process.exit(1);
   }
-  const pool = new Pool({ connectionString: url });
+  // B5: owner connections to a non-local host always use sslmode=verify-full.
+  const pool = new Pool({
+    connectionString: forceVerifyFull(url, 'COMMUNITY_OWNER_DATABASE_URL'),
+  });
   bootstrapAdmin(pool, email)
     .then(result => {
       // The email is not echoed; record the account id in the ops log.

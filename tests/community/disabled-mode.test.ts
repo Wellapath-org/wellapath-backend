@@ -37,7 +37,7 @@ const ENABLED_ENV = {
   COMMUNITY_MODE: 'internal',
   BETTER_AUTH_SECRET: 'x'.repeat(40),
   COMMUNITY_REFRESH_PEPPERS: `1:${'p'.repeat(40)}`,
-  COMMUNITY_DATABASE_URL: 'postgres://x',
+  COMMUNITY_DATABASE_URL: 'postgres://x@127.0.0.1/x',
 };
 
 describe('Community disabled (default)', () => {

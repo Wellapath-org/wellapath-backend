@@ -7,6 +7,7 @@
  * `DATABASE_ENABLED` / `DB_*` semantics are untouched; Community uses its own
  * `COMMUNITY_DATABASE_URL` and never the artifact/ops database.
  */
+import { assertVerifyFull } from './db-url';
 import type { LimitOverrides } from './limiter';
 
 export const COMMUNITY_MODES = ['disabled', 'internal', 'closed_beta', 'public'] as const;
@@ -167,7 +168,11 @@ export const loadCommunityConfig = (env: Env = process.env): CommunityConfig => 
 
   return {
     mode,
-    databaseUrl: required(env, 'COMMUNITY_DATABASE_URL'),
+    // B5: a non-local runtime URL without an explicit sslmode=verify-full refuses to boot.
+    databaseUrl: assertVerifyFull(
+      required(env, 'COMMUNITY_DATABASE_URL'),
+      'COMMUNITY_DATABASE_URL',
+    ),
     authSecrets,
     refreshPeppers,
     baseUrl: env.COMMUNITY_BASE_URL ?? `http://localhost:${env.PORT ?? '3000'}`,
