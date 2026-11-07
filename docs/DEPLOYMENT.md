@@ -345,6 +345,9 @@ repeat steps 5–7.
 
 ### 7.4 Backend (code) rollback
 
+Operator runbook (boundary table, Render dashboard commit identification, checklist):
+`OPERATIONS_RENDER_ROLLBACK.md`.
+
 - **Do not use Render "Rollback to previous deploy" to any production deploy older than
   `fd7190b`.** Those deploys (e.g. `6cf642f`) serve facilities **v1.1**, whose URL is now 404 —
   fresh installs would fail to obtain facilities. The same applies to reverting PR #39.
