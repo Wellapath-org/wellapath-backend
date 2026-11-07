@@ -13,6 +13,8 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
+import { loadCommunityConfig } from './community/config';
+import { registerCommunity, RegisterCommunityOptions } from './community';
 import dbPlugin from './plugins/db';
 import errorHandlerPlugin from './plugins/error-handler';
 import metricsPlugin from './plugins/metrics';
@@ -41,6 +43,11 @@ export interface BuildAppOptions {
   registerDatabase?: boolean;
   /** Injectable clock for the telemetry pipeline. */
   now?: () => number;
+  /**
+   * Community PoC wiring. Omitted → configuration is read from `COMMUNITY_MODE` (default
+   * `disabled`, which registers only the constant `GET /v1/features`).
+   */
+  community?: Partial<RegisterCommunityOptions>;
 }
 
 export interface BuiltApp {
@@ -178,6 +185,13 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
       sink: sink.name,
       contractVersion: TELEMETRY_CONTRACT_VERSION,
     },
+  });
+
+  // Community (ADR-001 PoC). Registered after the core routes and independent of them: its own
+  // config, its own pool, no effect on /config, /health or /version.
+  await registerCommunity(server, {
+    ...options.community,
+    config: options.community?.config ?? loadCommunityConfig(),
   });
 
   server.addHook('onClose', async () => {
