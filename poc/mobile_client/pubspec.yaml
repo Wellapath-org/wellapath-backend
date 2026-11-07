@@ -1,0 +1,7 @@
+name: wellapath_community_poc_client
+description: >-
+  PoC only. Dart CLI standing in for the Flutter app's Community auth flow (ADR-001). Uses
+  dart:io only, so it needs no package downloads. Not shipped.
+publish_to: none
+environment:
+  sdk: ^3.5.0

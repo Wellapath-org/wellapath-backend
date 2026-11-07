@@ -38,3 +38,37 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  community-poc:
+    # Community auth/data PROOF OF CONCEPT (ADR-001). Runs the Community database suites against
+    # a throwaway Postgres service container. No secrets: the database and roles exist only for
+    # the life of this job, and every auth secret is generated inside the tests.
+    name: Community PoC (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: ci-only-throwaway
+      COMMUNITY_TEST_DATABASE_URL: postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_community_test
+      COMMUNITY_TEST_APP_DATABASE_URL: postgres://community_app:ci-app@127.0.0.1:5432/wellapath_community_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create throwaway roles and database
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_owner LOGIN PASSWORD 'ci-owner'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_app LOGIN PASSWORD 'ci-app'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_community_test OWNER community_owner"
+      - name: Run Community suites
+        run: npm run test:community
