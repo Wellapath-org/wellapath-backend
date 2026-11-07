@@ -32,20 +32,23 @@ conflict), `community_api_v1.openapi.yaml` (copied verbatim, sha-pinned, to
 
 ## Environment variables (none is read when `COMMUNITY_MODE` is unset)
 
-| Variable                                             | Meaning                                                                                                                                                                                                           |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COMMUNITY_MODE`                                     | `disabled` (default) / `internal` / `closed_beta` / `public`. A typo refuses to boot. `public` is not permitted until the PUBLIC gate                                                                             |
-| `COMMUNITY_DATABASE_URL`                             | Community Postgres, **runtime role** (`community_app`), pooled URL on Neon. Never the `DB_*` database. A non-local host without an explicit `sslmode=verify-full` refuses to boot (B5; the value is never echoed) |
-| `COMMUNITY_DATABASE_URL_DIRECT`                      | **Not used at runtime.** Owner role, direct (non-pooled) URL, for `community:migrate`, `community:provision-runtime-role` and dumps only. Never set it on Render                                                  |
-| `BETTER_AUTH_SECRETS`                                | `"<version>:<secret>,…"` (≥ 32 chars each, newest = highest version). Encrypts the JWKS private key and TOTP secrets. `BETTER_AUTH_SECRET` (single) is accepted as version 1                                      |
-| `COMMUNITY_REFRESH_PEPPERS`                          | `"<version>:<secret>,…"`, **required**, distinct from the auth secrets. Keys the refresh-token HMAC (and, derived, the email/IP/bucket HMACs)                                                                     |
-| `COMMUNITY_ALLOWLIST`                                | Comma-separated account ids allowed in `internal` / `closed_beta` (moderators/admins are implicitly allowed)                                                                                                      |
-| `COMMUNITY_BASE_URL`                                 | Public base URL (Better Auth origin checks)                                                                                                                                                                       |
-| `COMMUNITY_EMAIL_SINK`, `COMMUNITY_EMAIL_OUTBOX_DIR` | **Test sinks only** (`outbox-file` / `memory`). The Resend sender is not implemented; an enabled Community refuses to boot under `NODE_ENV=production`                                                            |
-| `COMMUNITY_ACCESS_TOKEN_TTL_SECONDS`                 | Default and maximum 900                                                                                                                                                                                           |
-| `COMMUNITY_STEP_UP_TTL_SECONDS`                      | TOTP step-up freshness, default and maximum 12 h                                                                                                                                                                  |
-| `COMMUNITY_OTP_REQUEST_MIN_MS`                       | Response-time padding of `otp/request`, default 400 ms                                                                                                                                                            |
-| `TRUST_PROXY_HOPS`                                   | App-wide. Measured hop count; unset until measured on staging                                                                                                                                                     |
+| Variable                                 | Meaning                                                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COMMUNITY_MODE`                         | `disabled` (default) / `internal` / `closed_beta` / `public`. A typo refuses to boot. `public` is not permitted until the PUBLIC gate                                                                                                                                              |
+| `COMMUNITY_DATABASE_URL`                 | Community Postgres, **runtime role** (`community_app`), pooled URL on Neon. Never the `DB_*` database. A non-local host without an explicit `sslmode=verify-full` refuses to boot (B5; the value is never echoed)                                                                  |
+| `COMMUNITY_DATABASE_URL_DIRECT`          | **Not used at runtime.** Direct (non-pooled) URL for the operator tools only: `community_migrator` for `community:migrate`, `community:bootstrap-admin` and dumps (`--role=community_owner`); the Neon branch owner for `community:provision-runtime-role`. Never set it on Render |
+| `BETTER_AUTH_SECRETS`                    | `"<version>:<secret>,…"` (≥ 32 chars each, newest = highest version). Encrypts the JWKS private key and TOTP secrets. `BETTER_AUTH_SECRET` (single) is accepted as version 1                                                                                                       |
+| `COMMUNITY_REFRESH_PEPPERS`              | `"<version>:<secret>,…"`, **required**, distinct from the auth secrets. Keys the refresh-token HMAC (and, derived, the email/IP/bucket HMACs)                                                                                                                                      |
+| `COMMUNITY_ALLOWLIST`                    | Comma-separated account ids allowed in `internal` / `closed_beta` (moderators/admins are implicitly allowed)                                                                                                                                                                       |
+| `COMMUNITY_BASE_URL`                     | Public base URL (Better Auth origin checks)                                                                                                                                                                                                                                        |
+| `COMMUNITY_EMAIL_PROVIDER`               | `resend` (real sender) / `outbox-file` / `memory` (test sinks; legacy name `COMMUNITY_EMAIL_SINK`). Under `NODE_ENV=production` an enabled Community refuses to boot unless it is `resend`                                                                                         |
+| `RESEND_API_KEY`, `COMMUNITY_EMAIL_FROM` | Required with `resend`; validated at boot (key shape `re_…`, sender `Name <addr@domain>`), never logged or echoed. `COMMUNITY_EMAIL_TIMEOUT_MS` default 5000 (1000–15000). One attempt per OTP, no retry                                                                           |
+| `COMMUNITY_EMAIL_OUTBOX_DIR`             | Directory of the `outbox-file` test sink                                                                                                                                                                                                                                           |
+| `COMMUNITY_AUTH_PURGE_INTERVAL_SECONDS`  | Sign-in retention purge interval, default 900 (60–3600). Pending OTP rows go once expired and after 23 h at the latest                                                                                                                                                             |
+| `COMMUNITY_ACCESS_TOKEN_TTL_SECONDS`     | Default and maximum 900                                                                                                                                                                                                                                                            |
+| `COMMUNITY_STEP_UP_TTL_SECONDS`          | TOTP step-up freshness, default and maximum 12 h                                                                                                                                                                                                                                   |
+| `COMMUNITY_OTP_REQUEST_MIN_MS`           | Response-time padding of `otp/request`, default 400 ms                                                                                                                                                                                                                             |
+| `TRUST_PROXY_HOPS`                       | App-wide. Measured hop count; unset until measured on staging                                                                                                                                                                                                                      |
 
 ## Running the tests
 
@@ -54,15 +57,18 @@ conflict), `community_api_v1.openapi.yaml` (copied verbatim, sha-pinned, to
 source ~/.nvm/nvm.sh && nvm use
 npm test                                   # no Community DB: DB suites are SKIPPED (and say so)
 
-# With a disposable LOCAL PostgreSQL 18 (B1: same major as Neon). Owner with CREATEROLE (like
-# Neon's owner); community_app created by the provisioning script (or pre-created NOINHERIT):
-#   initdb -D <scratch> -U postgres --auth=trust; pg_ctl -D <scratch> -o "-p 55818" start
-#   psql -h 127.0.0.1 -p 55818 -U postgres -c "CREATE ROLE community_owner LOGIN CREATEROLE"
-#   psql ... -c "CREATE DATABASE wellapath_community_test OWNER community_owner"
-#   COMMUNITY_DATABASE_URL_DIRECT=postgres://community_owner@127.0.0.1:55818/wellapath_community_test \
-#     npm run community:provision-runtime-role -- --runtime-env-out <scratch>/local.runtime.env --verify
-export COMMUNITY_TEST_DATABASE_URL=postgres://community_owner@127.0.0.1:55818/wellapath_community_test
-export COMMUNITY_TEST_APP_DATABASE_URL=postgres://community_app@127.0.0.1:55818/wellapath_community_test
+# With a disposable LOCAL PostgreSQL 18 (B1: same major as Neon), provisioned with the
+# three-role model exactly as on Neon. `neondb_owner` is a local stand-in for Neon's branch owner:
+#   initdb -D <scratch> -U postgres --auth=trust; pg_ctl -D <scratch> -o "-p 55818 -k ''" start
+#   psql -h 127.0.0.1 -p 55818 -U postgres -c "CREATE ROLE neondb_owner LOGIN CREATEROLE CREATEDB"
+#   psql ... -c "CREATE DATABASE wellapath_community_test OWNER neondb_owner"
+#   COMMUNITY_DATABASE_URL_DIRECT=postgres://neondb_owner@127.0.0.1:55818/wellapath_community_test \
+#     npm run community:provision-runtime-role -- --runtime-env-out <scratch>/local.runtime.env \
+#       --migrator-env-out <scratch>/local.migrator.env --with-readonly
+export COMMUNITY_TEST_DATABASE_URL=<COMMUNITY_DATABASE_URL_DIRECT of local.migrator.env>
+export COMMUNITY_TEST_APP_DATABASE_URL=<COMMUNITY_DATABASE_URL of local.runtime.env>
+export COMMUNITY_TEST_ADMIN_DATABASE_URL=postgres://neondb_owner@127.0.0.1:55818/wellapath_community_test
+export COMMUNITY_TEST_OWNER_ROLE=community_owner
 export PG_DUMP_BIN=/opt/homebrew/opt/postgresql@18/bin/pg_dump
 npx jest --runInBand                       # everything, serially (DB suites share one database)
 ```
@@ -72,30 +78,46 @@ read `DB_*`. Secrets in tests are random per process.
 
 ## Runbook notes
 
-- **Roles (B2).** The owner role owns the schema and runs migrations (`npm run community:migrate
--- up` with `COMMUNITY_DATABASE_URL_DIRECT` = the **direct, owner** URL). `community_app` is the
-  runtime role, provisioned once per branch with `npm run community:provision-runtime-role --
---runtime-env-out <private path> --verify` (idempotent; the generated password goes only to
-  that mode-600 file). Privileges: DML on ordinary tables, **SELECT + INSERT only** on
+- **Roles (B2, three-role model).** `community_owner` (NOLOGIN, no attributes, member of nothing)
+  owns the schema and every table, sequence, function and trigger. `community_migrator` (LOGIN,
+  NOINHERIT; its only membership is `community_owner` WITH INHERIT FALSE, SET TRUE) has no
+  privilege of its own: `community:migrate` connects as it over the **direct** URL (a `-pooler`
+  host is refused) and issues `SET ROLE community_owner` per migration transaction, `RESET ROLE`
+  after. `community_app` is the runtime role and a member of no role, so it cannot reach the owner
+  (SET ROLE, DISABLE/DROP TRIGGER, TRUNCATE, CREATE all answer 42501). All three are created once
+  per branch, as the **Neon branch owner** (`neondb_owner`), by `npm run
+community:provision-runtime-role -- --runtime-env-out <private>/<branch>.runtime.env
+--migrator-env-out <private>/<branch>.migrator.env --verify` (idempotent; each generated password
+  goes only to its new mode-600 file). It also transfers ownership of everything the branch owner
+  owns in the schema (and the schema) to `community_owner` and sets default privileges FOR ROLE
+  community_owner. Runtime privileges: DML on ordinary tables, **SELECT + INSERT only** on
   `moderation_actions` and `auth_events` (also trigger-protected for every role), SELECT only on
   `spaces` and `community_schema_migrations`, USAGE/SELECT on sequences, no DDL, TRUNCATE,
-  REFERENCES, TRIGGER, TEMP or CREATE anywhere, no role attributes, no memberships. `migrate up`
-  re-applies every grant and **fails** on a table not classified in `src/community/db-roles.ts`
-  (which then has no runtime privilege). Optional `--with-readonly` defines `community_readonly`
-  (NOLOGIN, column-limited SELECT, no auth/session/token tables, no email, no reasons/evidence,
-  no author/reporter ids). Full matrix: `DATABASE_ACCESS_MATRIX.md` (engineering repo). Keep the
-  owner credential out of Render.
+  REFERENCES, TRIGGER, TEMP or CREATE anywhere. `migrate up` re-applies every grant (as the owner)
+  and **fails** on a table not classified in `src/community/db-roles.ts`. `neondb_owner` stays a
+  Neon-managed break-glass admin (BYPASSRLS, `neon_superuser`, ADMIN on the three roles, SET on
+  the owner): the ownership model cannot constrain it, so its credential stays off Render and out
+  of routine use. `--with-readonly` (`community_readonly`) is for local databases only and is
+  refused against any non-local host. Full matrix: `DATABASE_ACCESS_MATRIX.md` (engineering repo).
+- **Sign-in retention.** Pending email-OTP `verification` rows (identifier embeds the address)
+  are deleted by `src/community/purge.ts`, as `community_app`: once expired, and after 23 h
+  whatever their expiry, in indexed batches (0009), every
+  `COMMUNITY_AUTH_PURGE_INTERVAL_SECONDS` (default 15 min) inside the plugin and on demand with
+  `node dist/community/purge.js` (runtime URL). Expired rate-limit windows and test-outbox
+  entries go too. No full email address appears in logs: Pino scrubs every line
+  (`j***@example.com`, `src/community/log-safety.ts`).
 - **TLS (B5).** Runtime: `COMMUNITY_DATABASE_URL` must carry `sslmode=verify-full` for any
   non-local host or the service refuses to start. Owner tools (`community:migrate`,
   `community:bootstrap-admin`, `community:provision-runtime-role`, the Neon script) **force**
   `sslmode=verify-full` for non-local hosts in their connection config, so a console-issued URL
   with `sslmode=require` works unedited. Local hosts (localhost, 127.0.0.0/8, ::1, sockets) are
   exempt.
-- **First admin (bootstrap CLI).** There is no bootstrap endpoint. As the migration owner:
+- **First admin (bootstrap CLI).** There is no bootstrap endpoint. As the migrator (it runs
+  the transaction under `SET LOCAL ROLE community_owner`):
 
   ```sh
-  COMMUNITY_OWNER_DATABASE_URL=<direct owner URL> \
-    npm run community:bootstrap-admin -- --email founder@example.org
+  DOTENV_CONFIG_QUIET=true DOTENV_CONFIG_PATH=<private>/neon/<branch>.migrator.env \
+    node -r dotenv/config -r ts-node/register src/community/bootstrap-admin.ts --email founder@example.org
   # or COMMUNITY_BOOTSTRAP_ADMIN_EMAIL=founder@example.org
   ```
 
@@ -113,7 +135,7 @@ bootstrap-cli`). Record the printed account id in the ops log. The admin then si
   15 minutes. Lost authenticator: backup code, then admin `totp-reset`, then re-enrol.
 - **Secret rotation.** Add a new version to `BETTER_AUTH_SECRETS` / `COMMUNITY_REFRESH_PEPPERS`
   (newest first); keep the old one until every family issued under it has expired (30 days).
-- **Backup (B1).** `pg_dump -Fc --no-owner -d <direct, non-pooled URL> -f community.dump` with
+- **Backup (B1).** `pg_dump -Fc --no-owner --role=community_owner -d <direct, non-pooled migrator URL> -f community.dump` with
   **PostgreSQL 18** client tools (`pg_dump`/`pg_restore` 18.x; the Neon server is 18.6 and an
   older `pg_dump` refuses to dump it). macOS: `/opt/homebrew/opt/postgresql@18/bin`; Debian/
   Ubuntu: `postgresql-client-18` (`/usr/lib/postgresql/18/bin`). CI uses `postgres:18`.
@@ -128,7 +150,7 @@ throwaway branch only):
 
 ```sh
 COMMUNITY_DATABASE_URL=<branch pooled URL, community_app, sslmode=verify-full> \
-COMMUNITY_DATABASE_URL_DIRECT=<branch direct URL, owner role> \
+COMMUNITY_DATABASE_URL_DIRECT=<branch direct URL: migrator (with COMMUNITY_MIGRATION_OWNER_ROLE=community_owner) or a scratch branch's owner> \
 COMMUNITY_RESTORE_CHECK_URL=<empty scratch database, direct URL> \
 NEON_POC_CONFIRM_BRANCH=yes PG_BIN=<PostgreSQL 18 client bin dir> \
   npm run community:neon-poc -- --runs 50 --out neon-connectivity-report.md
