@@ -17,6 +17,10 @@ const EMAIL =
   /^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9-]*\.)+[A-Za-z]{2,}$/;
 
 const MAX_TOTP_FAILURES = 5;
+
+/** The A3 refresh-token shape, shared by A4 logout. */
+const REFRESH_TOKEN = /^wprt_[A-Za-z0-9_-]{43,}$/;
+const REFRESH_TOKEN_MAX = 256;
 const TOTP_LOCKOUT_SECONDS = 15 * 60;
 
 const apiErrorCode = (error: unknown): string | undefined =>
@@ -276,41 +280,99 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
   );
 
   // ------------------------------------------------------------------ A4 logout
+  /**
+   * Sign out this device (contract A4, P6 approved 2026-11-07). Two credentials are accepted:
+   *
+   * - No `Authorization` header: `{ refresh_token }` is required and is the credential. Every
+   *   well-formed token gets the same 204 (same headers, empty body), whether it revoked a family,
+   *   tripped reuse detection or matched nothing, so the route is no token or account oracle.
+   * - A bearer access token (an expired-but-validly-signed one is accepted, for this route only):
+   *   its family is revoked. An optional `refresh_token` naming a different live family the
+   *   caller holds (its current token) is revoked too; anything else in the body is ignored.
+   *
+   * Only the body's shape (and whether a bearer was sent) can produce a 400, never stored state.
+   * A bearer that is not a validly signed access token is still 401: that is the caller's own
+   * credential being wrong, and it says nothing about any refresh token.
+   */
   server.post('/v1/auth/logout', async (request, reply) => {
     const body = request.body as Record<string, unknown> | undefined | null;
+    const hasBearer = request.headers.authorization !== undefined;
     if (body !== undefined && body !== null) {
       if (typeof body !== 'object' || Array.isArray(body)) throw validation('body', 'type');
       for (const k of Object.keys(body)) {
         if (k !== 'refresh_token') throw validation(k, 'unknown_field');
       }
-      if (body.refresh_token !== undefined && typeof body.refresh_token !== 'string') {
-        throw validation('refresh_token', 'type');
-      }
     }
-    let principal: Principal;
-    try {
-      principal = await ctx.authenticate(request, reply, {
-        allowExpired: true,
-        defaultLimit: false,
+    const presented = body?.refresh_token;
+    if (presented === undefined) {
+      if (!hasBearer) throw validation('refresh_token', 'required');
+    } else if (typeof presented !== 'string') {
+      throw validation('refresh_token', 'type');
+    } else if (presented.length > REFRESH_TOKEN_MAX) {
+      throw validation('refresh_token', 'max_length');
+    } else if (!REFRESH_TOKEN.test(presented)) {
+      throw validation('refresh_token', 'pattern');
+    }
+    const ip = ctx.ip(request);
+    let revoked = false;
+
+    let principal: Principal | undefined;
+    if (hasBearer) {
+      try {
+        principal = await ctx.authenticate(request, reply, {
+          allowExpired: true,
+          defaultLimit: false,
+        });
+      } catch (error) {
+        // Idempotent: a family that is already gone is already signed out.
+        const reason = error instanceof ApiError ? error.details?.reason : undefined;
+        if (reason !== 'session_revoked' && reason !== 'session_expired') throw error;
+      }
+      if (principal) {
+        await ctx.limit(reply, [{ name: 'session_routes_account', key: principal.userId }], {
+          endpoint: 'logout',
+          accountId: principal.userId,
+        });
+        await s.tokens.revokeFamily(principal.familyId, 'logout');
+        await s.events.record('logout', {
+          accountId: principal.userId,
+          familyId: principal.familyId,
+          ip,
+          detail: { outcome: 'revoked', credential: 'bearer' },
+        });
+        revoked = true;
+      }
+    } else {
+      // No account is known before the lookup: limit on the trusted-proxy IP (visible) and the
+      // token's hash (hidden), before touching any token state.
+      await ctx.limit(reply, [{ name: 'logout_ip', key: ip }], { endpoint: 'logout', ip });
+    }
+
+    if (typeof presented === 'string') {
+      await ctx.limit(
+        reply,
+        [{ name: 'logout_token', key: s.hasher.refreshHash(presented) as string, hidden: true }],
+        { endpoint: 'logout', ip },
+      );
+      const result = await s.tokens.revokeByRefreshToken(presented, {
+        ip,
+        exceptFamilyId: principal?.familyId,
       });
-    } catch (error) {
-      // Idempotent: a family that is already gone is already signed out.
-      const reason = error instanceof ApiError ? error.details?.reason : undefined;
-      if (reason === 'session_revoked' || reason === 'session_expired') {
-        return reply.status(204).send();
+      if (result.outcome === 'revoked') {
+        await s.events.record('logout', {
+          accountId: result.userId,
+          familyId: result.familyId,
+          ip,
+          detail: { outcome: 'revoked', credential: 'refresh_token' },
+        });
       }
-      throw error;
+      // reuse_detected is audited (refresh_reuse_detected + family_revoked) by the token service.
+      if (result.outcome !== 'noop') revoked = true;
     }
-    await ctx.limit(reply, [{ name: 'session_routes_account', key: principal.userId }], {
-      endpoint: 'logout',
-      accountId: principal.userId,
-    });
-    const presented = body?.refresh_token as string | undefined;
-    if (presented && (await s.tokens.familyOf(presented)) !== principal.familyId) {
-      throw validation('refresh_token', 'not_allowed_value');
+    if (!revoked) {
+      // Nothing was signed out. No account id: the caller has not proved one.
+      await s.events.record('logout', { ip, detail: { outcome: 'noop' } });
     }
-    await s.tokens.revokeFamily(principal.familyId, 'logout');
-    await s.events.record('logout', { accountId: principal.userId, familyId: principal.familyId });
     return reply.status(204).send();
   });
 

@@ -357,6 +357,67 @@ export class TokenService {
   }
 
   /**
+   * Refresh-token sign-out (contract A4, P6). The caller holds no other credential, so the result
+   * is never surfaced to it: the route answers the same 204 whatever happens here.
+   *
+   * - The hash lookup always runs, for every well-formed token.
+   * - The family's current (unrotated) token, family live ⇒ the family is revoked as `logout`.
+   * - A superseded (already rotated) token of a live family ⇒ reuse (ADR-001 A2): the family is
+   *   revoked as `reuse_detected` and `refresh_reuse_detected` is audited, exactly as on refresh.
+   *   D-019's 10 s same-device window does not apply: logout carries no `device_id`, so the
+   *   same-device condition can never be shown, and revoking is what the caller asked for anyway.
+   *   `within_race_window` is recorded so a lost-response retry can be told apart in the audit.
+   * - Unknown, expired, or already-revoked family ⇒ nothing changes (`noop`).
+   * - `exceptFamilyId`: a family the caller has already signed out by bearer (skipped).
+   */
+  async revokeByRefreshToken(
+    refreshToken: string,
+    opts: { ip?: string; exceptFamilyId?: string } = {},
+  ): Promise<{
+    outcome: 'revoked' | 'reuse_detected' | 'noop';
+    userId?: string;
+    familyId?: string;
+  }> {
+    const candidates = this.hasher.refreshHashCandidates(refreshToken);
+    const { rows } = await this.pool.query<{
+      used_at: Date | null;
+      used_recently: boolean;
+      family_id: string;
+      user_id: string;
+      revoked_at: Date | null;
+      expired: boolean;
+    }>(
+      `SELECT t.used_at,
+              (t.used_at IS NOT NULL AND t.used_at > now() - make_interval(secs => $2)) AS used_recently,
+              f.id AS family_id, f.user_id, f.revoked_at,
+              (f.absolute_expires_at <= now() OR f.idle_expires_at <= now()) AS expired
+         FROM refresh_tokens t
+         JOIN refresh_token_families f ON f.id = t.family_id
+        WHERE t.token_hash = ANY($1::text[])
+        LIMIT 1`,
+      [candidates.map(c => c.hash), RACE_WINDOW_SECONDS],
+    );
+    const row = rows[0];
+    if (!row || row.revoked_at || row.expired || row.family_id === opts.exceptFamilyId) {
+      return { outcome: 'noop' };
+    }
+    const ids = { userId: row.user_id, familyId: row.family_id };
+    if (row.used_at) {
+      await this.events.record('refresh_reuse_detected', {
+        accountId: row.user_id,
+        familyId: row.family_id,
+        ip: opts.ip,
+        detail: { endpoint: 'logout', within_race_window: row.used_recently },
+      });
+      await this.revokeFamily(row.family_id, 'reuse_detected');
+      return { outcome: 'reuse_detected', ...ids };
+    }
+    // Compare-and-set inside revokeFamily: a concurrent sign-out of the same family wins once.
+    if (!(await this.revokeFamily(row.family_id, 'logout'))) return { outcome: 'noop' };
+    return { outcome: 'revoked', ...ids };
+  }
+
+  /**
    * Rotates a refresh token. Returns the new refresh token and the family's account, or throws
    * the contract error.
    */

@@ -148,6 +148,19 @@ describe('OpenAPI copy', () => {
     }
   });
 
+  it('logout (A4, P6): bearer OR no credential, body required only without a bearer, no 403', () => {
+    const op = spec.paths['/v1/auth/logout'].post;
+    expect(op.security).toEqual([{ bearerAuth: [] }, {}]);
+    expect(op.requestBody.required).toBe(false);
+    expect(op.requestBody.description).toMatch(/Required .* when no Authorization header/);
+    expect(Object.keys(op.responses).sort()).toEqual(['204', '400', '401', '429', '503']);
+    expect(spec.components.schemas.LogoutRequest.properties.refresh_token).toEqual({
+      type: 'string',
+      pattern: spec.components.schemas.RefreshRequest.properties.refresh_token.pattern,
+      maxLength: 256,
+    });
+  });
+
   it('declares 52 operations with unique operationIds', () => {
     expect(operations).toHaveLength(52);
     expect(new Set(operations.map(o => o.id)).size).toBe(52);
@@ -523,9 +536,20 @@ describeDb('OpenAPI conformance (every operation)', () => {
       expect: 204,
     });
     await call('logout', { user: alice, body: { refresh_token: alice.refreshToken }, expect: 204 });
+    // P6: refresh-token-only logout (no Authorization header), and its neutral no-op.
+    const dana = await signIn(app, uniqueEmail('contract-p6'));
+    await call('logout', { body: { refresh_token: dana.refreshToken }, expect: 204 });
+    await call('logout', { body: { refresh_token: `wprt_${'y'.repeat(43)}` }, expect: 204 });
+    await call('refreshTokens', {
+      body: { refresh_token: dana.refreshToken, device_id: dana.deviceId },
+      expect: 401,
+    });
 
     // ---------------------------------------------------------------- representative errors
     await call('getMe', { expect: 401 });
+    await call('logout', { body: {}, expect: 400 }); // no bearer ⇒ refresh_token required
+    await call('logout', { body: { refresh_token: 'nope' }, invalid: true, expect: 400 });
+    await call('logout', { headers: { authorization: 'Bearer nope' }, body: {}, expect: 401 });
     await call('getPost', { user: bob, params: { post_id: 'nope' }, expect: 404 });
     await call('createPost', {
       user: bob,

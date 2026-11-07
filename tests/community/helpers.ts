@@ -89,6 +89,7 @@ export const RELAXED_LIMITS: LimitOverrides = {
   otp_request_ip: { max: 100000, interimMax: 100000 },
   otp_verify_ip: { max: 100000, interimMax: 100000 },
   refresh_ip: { max: 100000, interimMax: 100000 },
+  logout_ip: { max: 100000, interimMax: 100000 },
   create_post_hour: { max: 1000 },
   create_post_day: { max: 1000 },
   create_comment_hour: { max: 1000 },

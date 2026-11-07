@@ -6,7 +6,7 @@
  *   bucket, with TRUST_PROXY_HOPS unset (socket peer, interim GLOBAL ceilings) or set to 1.
  * - The per-email limit uses the normalised email (case, +tag, Gmail dots).
  * - 429 has Retry-After and the contract envelope, identically for unknown emails, and is
- *   audited. TOTP brute force is stopped (5 failures ⇒ session revoked + 15-minute lockout).
+ *   audited. Refresh-token-only logout is limited per IP and per token hash (P6). TOTP brute force is stopped (5 failures ⇒ session revoked + 15-minute lockout).
  */
 import { randomUUID } from 'crypto';
 import { LightMyRequestResponse } from 'fastify';
@@ -24,6 +24,7 @@ import {
   requestOtp,
   resetDatabase,
   RELAXED_LIMITS,
+  signIn,
   stepUp,
   totp,
   uniqueEmail,
@@ -63,6 +64,8 @@ describeDb('WellaPath rate limiter (A3)', () => {
     expect(LIMITS.otp_verify_ip).toEqual({ max: 60, windowSeconds: 3600, interimMax: 1200 });
     expect(LIMITS.refresh_ip).toEqual({ max: 120, windowSeconds: 60, interimMax: 3000 });
     expect(LIMITS.features_ip).toEqual({ max: 60, windowSeconds: 60, interimMax: 6000 });
+    expect(LIMITS.logout_ip).toEqual({ max: 60, windowSeconds: 60, interimMax: 3000 });
+    expect(LIMITS.logout_token).toEqual({ max: 10, windowSeconds: 60 });
   });
 
   describe('per-email OTP limit (3 / 15 min)', () => {
@@ -176,6 +179,75 @@ describeDb('WellaPath rate limiter (A3)', () => {
     });
   });
 
+  describe('refresh-token-only logout (P6): per trusted-proxy IP and per token hash', () => {
+    const logout = (
+      app: CommunityTestApp,
+      refreshToken: string,
+      headers: Record<string, string> = {},
+    ): Promise<LightMyRequestResponse> =>
+      app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/logout',
+        payload: { refresh_token: refreshToken },
+        headers,
+      });
+
+    it('per token hash: the 4th logout of one token is 429 whatever its state; others are unaffected', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        config: { limitOverrides: { ...RELAXED_LIMITS, logout_token: { max: 3 } } },
+      });
+      try {
+        const known = (await signIn(app, uniqueEmail('lo-tok'))).refreshToken;
+        const unknown = `wprt_${'U'.repeat(43)}`;
+        for (const token of [known, unknown]) {
+          for (let i = 0; i < 3; i += 1) {
+            const ok = await logout(app, token, SPOOF_HEADERS(i));
+            expect(ok.statusCode).toBe(204);
+            // The per-token bucket is hidden: RateLimit-* shows the (relaxed) IP bucket only.
+            expect(ok.headers['ratelimit-limit']).toBe('100000');
+          }
+          // Same 429 for a real (now revoked) token and an unknown one: no oracle.
+          expect429(await logout(app, token, SPOOF_HEADERS(9)));
+        }
+        expect((await logout(app, `wprt_${'V'.repeat(43)}`)).statusCode).toBe(204);
+        const audited = (await ownerQuery(
+          `SELECT detail FROM auth_events WHERE event = 'rate_limited'`,
+        )) as { detail: Record<string, string> }[];
+        expect(audited.map(a => a.detail)).toEqual(
+          expect.arrayContaining([{ dimension: 'logout_token', endpoint: 'logout' }]),
+        );
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('per IP (interim global): spoofed client headers cannot escape the bucket', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        config: { limitOverrides: { ...RELAXED_LIMITS, logout_ip: { max: 3, interimMax: 3 } } },
+      });
+      try {
+        for (let i = 0; i < 3; i += 1) {
+          const res = await logout(app, `wprt_${String(i).repeat(43)}`, SPOOF_HEADERS(i));
+          expect(res.statusCode).toBe(204);
+          expect(res.headers['ratelimit-limit']).toBe('3');
+        }
+        expect429(await logout(app, `wprt_${'9'.repeat(43)}`, SPOOF_HEADERS(99)));
+        // A bearer logout is limited per account instead, so it still works.
+        const user = await signIn(app, uniqueEmail('lo-ip'));
+        const res = await app.server.inject({
+          method: 'POST',
+          url: '/v1/auth/logout',
+          headers: bearer(user.accessToken),
+        });
+        expect(res.statusCode).toBe(204);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
   describe('per-account content limits', () => {
     it('create post: 5 / hour per account, 429 with Retry-After', async () => {
       await resetDatabase();
@@ -222,7 +294,6 @@ describeDb('WellaPath rate limiter (A3)', () => {
         expect(gone.statusCode).toBe(401);
 
         // A fresh session cannot continue guessing — even the correct code is refused.
-        const { signIn } = await import('./helpers');
         const again = { ...mod, ...(await signIn(app, mod.email)) };
         const locked = await stepUp(app, again, { code: totp(mod.totpSecret) });
         expect429(locked);

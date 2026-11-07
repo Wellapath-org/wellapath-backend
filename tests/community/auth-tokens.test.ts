@@ -4,6 +4,7 @@
  * - refresh rotation, reuse ⇒ whole family revoked, device mismatch ⇒ revoked, the 10 s
  *   same-device race window (F1: one winner, no revocation)
  * - session lifetimes per role (absolute + idle), sign-out, recovery (sessions, revoke-others)
+ * - refresh-token-only logout (P6): neutral 204, reuse detection, bearer + other family, scope
  * - suspended ⇒ next request 401; expired / forged access tokens rejected
  * - Better Auth's own handler is not reachable; nothing secret reaches the logs.
  */
@@ -20,6 +21,7 @@ import {
   refresh,
   requestOtp,
   resetDatabase,
+  setRole,
   signIn,
   uniqueEmail,
   verifyOtp,
@@ -415,6 +417,386 @@ describeDb('auth facade (A2)', () => {
       const verify = await verifyOtp(app, user.email, preSuspensionCode);
       expect(verify.statusCode).toBe(403);
       expect(verify.json().error.code).toBe('account_suspended');
+    });
+  });
+
+  describe('refresh-token-only logout (A4, P6)', () => {
+    const logout = (
+      payload: unknown,
+      headers: Record<string, string> = {},
+    ): Promise<LightMyRequestResponse> =>
+      app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/logout',
+        headers,
+        ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
+      });
+
+    const familyRow = async (familyId: string): Promise<{ revoke_reason: string | null }> =>
+      (
+        (await ownerQuery(`SELECT revoke_reason FROM refresh_token_families WHERE id = $1`, [
+          familyId,
+        ])) as { revoke_reason: string | null }[]
+      )[0];
+
+    /** Everything but the per-request id and the limiter's counter/clock. */
+    const stable = (res: LightMyRequestResponse): Record<string, unknown> => {
+      const headers = { ...res.headers };
+      // (x-ratelimit-* is the app-wide per-IP limiter, also a request counter.)
+      for (const k of [
+        'x-request-id',
+        'ratelimit-remaining',
+        'ratelimit-reset',
+        'x-ratelimit-remaining',
+        'x-ratelimit-reset',
+        'date',
+      ]) {
+        delete headers[k];
+      }
+      return { status: res.statusCode, headers, body: res.body };
+    };
+
+    it('staging E2E run 1: refresh-token-only logout revokes the family (204, then refresh 401)', async () => {
+      // 1. admin signs in (OTP).
+      const first = await signIn(app, uniqueEmail('stagingadmin'));
+      await setRole(first.userId, 'admin');
+      const admin = await signIn(app, first.email);
+      expect((await me(app, admin.accessToken)).json().role).toBe('admin');
+      // 2. logout with NO Authorization header, body { refresh_token } (was 401 unauthenticated).
+      const res = await logout({ refresh_token: admin.refreshToken });
+      expect(res.statusCode).toBe(204);
+      expect(res.body).toBe('');
+      // 3. refresh with that token (was 200): now 401, and the family's access token is dead.
+      const again = await refresh(app, admin.refreshToken, admin.deviceId);
+      expect(again.statusCode).toBe(401);
+      expect(again.json().error.code).toBe('unauthenticated');
+      expect(reasonOf(again)).toBe('session_revoked');
+      const after = await me(app, admin.accessToken);
+      expect(after.statusCode).toBe(401);
+      expect(reasonOf(after)).toBe('session_revoked');
+      expect(await familyRow(admin.familyId)).toEqual({ revoke_reason: 'logout' });
+      // The Better Auth session went with it.
+      const sessions = (await ownerQuery(
+        `SELECT count(*)::int AS n FROM "session" s JOIN refresh_token_families f
+            ON f.ba_session_id = s."id" WHERE f.id = $1`,
+        [admin.familyId],
+      )) as { n: number }[];
+      expect(sessions[0].n).toBe(0);
+      const events = (await ownerQuery(
+        `SELECT account_id, family_id, ip_hash, detail FROM auth_events
+          WHERE event = 'logout' AND family_id = $1`,
+        [admin.familyId],
+      )) as { account_id: string; ip_hash: string | null; detail: Record<string, string> }[];
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        account_id: admin.userId,
+        detail: { outcome: 'revoked', credential: 'refresh_token' },
+      });
+      expect(events[0].ip_hash).toEqual(expect.any(String));
+    });
+
+    it('every token of the family is refused afterwards, including a rotated-away one', async () => {
+      const user = await signIn(app, uniqueEmail('p6family'));
+      const rotated = (await refresh(app, user.refreshToken, user.deviceId)).json();
+      expect((await logout({ refresh_token: rotated.refresh_token })).statusCode).toBe(204);
+      for (const token of [user.refreshToken, rotated.refresh_token]) {
+        expect((await refresh(app, token, user.deviceId)).statusCode).toBe(401);
+      }
+      for (const access of [user.accessToken, rotated.access_token]) {
+        expect((await me(app, access)).statusCode).toBe(401);
+      }
+    });
+
+    it('neutral: unknown, expired, already-revoked and other-account tokens look exactly like a success', async () => {
+      const ok = await signIn(app, uniqueEmail('p6ok'));
+      const success = await logout({ refresh_token: ok.refreshToken });
+      expect(success.statusCode).toBe(204);
+      expect(Number(success.headers['ratelimit-limit'])).toBeGreaterThan(0);
+
+      const expired = await signIn(app, uniqueEmail('p6exp'));
+      await ownerQuery(
+        `UPDATE refresh_token_families SET idle_expires_at = now() - interval '1 second' WHERE id = $1`,
+        [expired.familyId],
+      );
+      const other = await signIn(app, uniqueEmail('p6other'));
+      const caller = await signIn(app, uniqueEmail('p6caller'));
+      const cases: [string, () => Promise<LightMyRequestResponse>][] = [
+        ['unknown', () => logout({ refresh_token: `wprt_${'Q'.repeat(43)}` })],
+        [
+          'unknown, longer',
+          () => logout({ refresh_token: `wprt_${randomUUID()}${'x'.repeat(20)}` }),
+        ],
+        ['expired family', () => logout({ refresh_token: expired.refreshToken })],
+        ['already revoked (second logout)', () => logout({ refresh_token: ok.refreshToken })],
+        [
+          'other account, with a bearer',
+          () => logout({ refresh_token: other.refreshToken }, bearer(caller.accessToken)),
+        ],
+      ];
+      const remaining: number[] = [Number(success.headers['ratelimit-remaining'])];
+      for (const [label, run] of cases) {
+        const res = await run();
+        if (label.includes('bearer')) {
+          // A different limiter dimension (per account) on the bearer path; status/body agree.
+          expect({ label, status: res.statusCode, body: res.body }).toEqual({
+            label,
+            status: 204,
+            body: '',
+          });
+          continue;
+        }
+        expect({ label, ...stable(res) }).toEqual({ label, ...stable(success) });
+        remaining.push(Number(res.headers['ratelimit-remaining']));
+      }
+      // The visible limiter counts requests from this IP, not token state.
+      for (let i = 1; i < remaining.length; i += 1) {
+        expect(remaining[i]).toBe(Math.max(0, remaining[i - 1] - 1));
+      }
+      // The expired family is left as it was (it is already unusable).
+      expect(await familyRow(expired.familyId)).toEqual({ revoke_reason: null });
+    });
+
+    it('a neutral no-op is audited as logout without an account (ip_hash only, outcome noop)', async () => {
+      const token = `wprt_${randomUUID().replace(/-/g, '')}${'n'.repeat(12)}`;
+      const [{ max }] = (await ownerQuery(
+        `SELECT coalesce(max(id), 0)::bigint AS max FROM auth_events`,
+      )) as { max: string }[];
+      expect((await logout({ refresh_token: token })).statusCode).toBe(204);
+      const rows = (await ownerQuery(`SELECT * FROM auth_events WHERE id > $1 ORDER BY id`, [
+        max,
+      ])) as Record<string, unknown>[];
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        event: 'logout',
+        account_id: null,
+        family_id: null,
+        email_hmac: null,
+        detail: { outcome: 'noop' },
+      });
+      expect(rows[0].ip_hash).toEqual(expect.any(String));
+      expect(JSON.stringify(rows)).not.toContain(token);
+    });
+
+    it('400 validation_failed depends only on the body shape, never on stored state', async () => {
+      const live = await signIn(app, uniqueEmail('p6shape'));
+      const cases: [unknown, string, string][] = [
+        [undefined, 'refresh_token', 'required'],
+        [{}, 'refresh_token', 'required'],
+        [{ refresh_token: 42 }, 'refresh_token', 'type'],
+        [{ refresh_token: null }, 'refresh_token', 'type'],
+        [{ refresh_token: 'nope' }, 'refresh_token', 'pattern'],
+        [{ refresh_token: `wprt_${'a'.repeat(42)}` }, 'refresh_token', 'pattern'],
+        [{ refresh_token: `wprt_${'a'.repeat(300)}` }, 'refresh_token', 'max_length'],
+        // A LIVE token with an unknown field is still a 400, and nothing is revoked.
+        [
+          { refresh_token: live.refreshToken, device_id: randomUUID() },
+          'device_id',
+          'unknown_field',
+        ],
+        [[live.refreshToken], 'body', 'type'],
+      ];
+      for (const [payload, field, rule] of cases) {
+        const res = await logout(payload);
+        expect({ payload, status: res.statusCode, error: res.json().error }).toMatchObject({
+          payload,
+          status: 400,
+          error: { code: 'validation_failed', details: { field, rule } },
+        });
+      }
+      expect((await me(app, live.accessToken)).statusCode).toBe(200);
+      expect(await familyRow(live.familyId)).toEqual({ revoke_reason: null });
+    });
+
+    it('reuse: a superseded token at logout revokes the family as reuse_detected, still 204', async () => {
+      const user = await signIn(app, uniqueEmail('p6reuse'));
+      const rotated = (await refresh(app, user.refreshToken, user.deviceId)).json();
+      await ownerQuery(
+        `UPDATE refresh_tokens SET used_at = now() - interval '11 seconds' WHERE family_id = $1 AND used_at IS NOT NULL`,
+        [user.familyId],
+      );
+      const res = await logout({ refresh_token: user.refreshToken });
+      expect(res.statusCode).toBe(204);
+      expect(res.body).toBe('');
+      expect(await familyRow(user.familyId)).toEqual({ revoke_reason: 'reuse_detected' });
+      // The legitimate holder's newer pair is dead too; refresh reports the reuse.
+      const victim = await refresh(app, rotated.refresh_token, user.deviceId);
+      expect(victim.statusCode).toBe(401);
+      expect(reasonOf(victim)).toBe('refresh_reused');
+      expect((await me(app, rotated.access_token)).statusCode).toBe(401);
+      const events = (await ownerQuery(
+        `SELECT event, account_id, detail FROM auth_events WHERE family_id = $1 ORDER BY id`,
+        [user.familyId],
+      )) as { event: string; account_id: string; detail: Record<string, unknown> }[];
+      expect(events.find(e => e.event === 'refresh_reuse_detected')).toMatchObject({
+        account_id: user.userId,
+        detail: { endpoint: 'logout', within_race_window: false },
+      });
+      expect(events.find(e => e.event === 'family_revoked')?.detail).toEqual({
+        reason: 'reuse_detected',
+      });
+      // Not double-counted as a plain logout.
+      expect(events.filter(e => e.event === 'logout')).toHaveLength(0);
+    });
+
+    it('D-019: a superseded token inside the 10 s window still revokes at logout (no device_id to prove the race)', async () => {
+      const user = await signIn(app, uniqueEmail('p6race'));
+      const rotated = (await refresh(app, user.refreshToken, user.deviceId)).json();
+      // Within the window, the refresh path would answer 409 refresh_race without revoking …
+      const race = await refresh(app, user.refreshToken, user.deviceId);
+      expect(race.statusCode).toBe(409);
+      expect(await familyRow(user.familyId)).toEqual({ revoke_reason: null });
+      // … but logout revokes: the caller asked to be signed out.
+      expect((await logout({ refresh_token: user.refreshToken })).statusCode).toBe(204);
+      expect(await familyRow(user.familyId)).toEqual({ revoke_reason: 'reuse_detected' });
+      expect((await refresh(app, rotated.refresh_token, user.deviceId)).statusCode).toBe(401);
+      const [reuse] = (await ownerQuery(
+        `SELECT detail FROM auth_events WHERE family_id = $1 AND event = 'refresh_reuse_detected'`,
+        [user.familyId],
+      )) as { detail: Record<string, unknown> }[];
+      expect(reuse.detail).toEqual({ endpoint: 'logout', within_race_window: true });
+    });
+
+    it('bearer + a refresh token of a different live family the caller holds: both revoked', async () => {
+      const phone = await signIn(app, uniqueEmail('p6two'));
+      const tablet = await signIn(app, phone.email);
+      expect(tablet.familyId).not.toBe(phone.familyId);
+      const res = await logout({ refresh_token: tablet.refreshToken }, bearer(phone.accessToken));
+      expect(res.statusCode).toBe(204);
+      expect(await familyRow(phone.familyId)).toEqual({ revoke_reason: 'logout' });
+      expect(await familyRow(tablet.familyId)).toEqual({ revoke_reason: 'logout' });
+      expect((await me(app, tablet.accessToken)).statusCode).toBe(401);
+      expect((await refresh(app, tablet.refreshToken, tablet.deviceId)).statusCode).toBe(401);
+      const events = (await ownerQuery(
+        `SELECT family_id, detail FROM auth_events WHERE event = 'logout' AND account_id = $1`,
+        [phone.userId],
+      )) as { family_id: string; detail: { credential: string } }[];
+      expect(events.map(e => [e.family_id, e.detail.credential]).sort()).toEqual(
+        [
+          [phone.familyId, 'bearer'],
+          [tablet.familyId, 'refresh_token'],
+        ].sort(),
+      );
+    });
+
+    it('bearer + anything else in the body is ignored: the bearer family is revoked, 204', async () => {
+      const user = await signIn(app, uniqueEmail('p6ignore'));
+      const bystander = await signIn(app, user.email);
+      const revokedElsewhere = await signIn(app, uniqueEmail('p6gone'));
+      expect((await logout({ refresh_token: revokedElsewhere.refreshToken })).statusCode).toBe(204);
+      for (const token of [`wprt_${'Z'.repeat(43)}`, revokedElsewhere.refreshToken]) {
+        const caller = await signIn(app, uniqueEmail('p6ignorecaller'));
+        const res = await logout({ refresh_token: token }, bearer(caller.accessToken));
+        expect(res.statusCode).toBe(204);
+        expect(res.body).toBe('');
+        expect(await familyRow(caller.familyId)).toEqual({ revoke_reason: 'logout' });
+      }
+      // The bearer's own token in the body is the ordinary A4 call (no second revocation).
+      const caller = await signIn(app, user.email);
+      expect(
+        (await logout({ refresh_token: caller.refreshToken }, bearer(caller.accessToken)))
+          .statusCode,
+      ).toBe(204);
+      // A family not named in the body is untouched.
+      expect((await me(app, bystander.accessToken)).statusCode).toBe(200);
+    });
+
+    it('a bearer that is not a validly signed access token is still 401, even with a live refresh token', async () => {
+      const user = await signIn(app, uniqueEmail('p6badbearer'));
+      for (const header of [{ authorization: 'Bearer garbage' }, { authorization: 'Basic YTpi' }]) {
+        const res = await logout({ refresh_token: user.refreshToken }, header);
+        expect(res.statusCode).toBe(401);
+        expect(res.json().error.code).toBe('unauthenticated');
+      }
+      expect((await me(app, user.accessToken)).statusCode).toBe(200);
+    });
+
+    it('idempotent without a bearer: a second logout is 204 too', async () => {
+      const user = await signIn(app, uniqueEmail('p6idem'));
+      const first = await logout({ refresh_token: user.refreshToken });
+      const second = await logout({ refresh_token: user.refreshToken });
+      expect([first.statusCode, second.statusCode]).toEqual([204, 204]);
+      expect(stable(second)).toEqual(stable(first));
+    });
+
+    it('concurrent logouts of the same token: one revocation, every caller 204', async () => {
+      const user = await signIn(app, uniqueEmail('p6concurrent'));
+      const results = await Promise.all(
+        [1, 2, 3].map(() => logout({ refresh_token: user.refreshToken })),
+      );
+      expect(results.map(r => r.statusCode)).toEqual([204, 204, 204]);
+      const revoked = (await ownerQuery(
+        `SELECT count(*)::int AS n FROM auth_events WHERE event = 'family_revoked' AND family_id = $1`,
+        [user.familyId],
+      )) as { n: number }[];
+      expect(revoked[0].n).toBe(1);
+    });
+
+    it('no weakening elsewhere: a refresh token as bearer, or no bearer, is 401 on protected routes', async () => {
+      const user = await signIn(app, uniqueEmail('p6scope'));
+      const routes: ['GET' | 'POST', string, Record<string, unknown> | undefined][] = [
+        ['GET', '/v1/community/me', undefined],
+        ['GET', '/v1/auth/sessions', undefined],
+        ['POST', '/v1/auth/sessions/revoke-others', {}],
+      ];
+      for (const [method, url, payload] of routes) {
+        for (const headers of [{}, bearer(user.refreshToken)]) {
+          const res = await app.server.inject({ method, url, headers, payload });
+          expect({ url, status: res.statusCode, code: res.json().error.code }).toEqual({
+            url,
+            status: 401,
+            code: 'unauthenticated',
+          });
+        }
+        // A refresh token in the BODY is not a credential on these routes either.
+        if (method === 'POST') {
+          const res = await app.server.inject({
+            method,
+            url,
+            payload: { refresh_token: user.refreshToken },
+          });
+          expect([400, 401]).toContain(res.statusCode);
+        }
+      }
+      // The session survived all of that.
+      expect((await me(app, user.accessToken)).statusCode).toBe(200);
+    });
+
+    it('the expired-access-token acceptance stays scoped to logout', async () => {
+      const short = await createCommunityApp({ config: { accessTokenTtlSeconds: 1 } });
+      try {
+        const user = await signIn(short, uniqueEmail('p6expscope'));
+        await new Promise(resolve => setTimeout(resolve, 2100));
+        for (const [method, url, payload] of [
+          ['GET', '/v1/community/me', undefined],
+          ['GET', '/v1/auth/sessions', undefined],
+          ['POST', '/v1/auth/sessions/revoke-others', {}],
+        ] as ['GET' | 'POST', string, Record<string, unknown> | undefined][]) {
+          const res = await short.server.inject({
+            method,
+            url,
+            headers: bearer(user.accessToken),
+            payload,
+          });
+          expect({ url, status: res.statusCode, code: res.json().error.code }).toEqual({
+            url,
+            status: 401,
+            code: 'token_expired',
+          });
+        }
+      } finally {
+        await short.close();
+      }
+    });
+
+    it('never logs the refresh token presented at logout', async () => {
+      app.logs.clear();
+      const user = await signIn(app, uniqueEmail('p6logs'));
+      await logout({ refresh_token: user.refreshToken });
+      await logout({ refresh_token: `wprt_${'L'.repeat(43)}` });
+      const text = app.logs.text();
+      expect(text).not.toContain(user.refreshToken);
+      expect(text).not.toContain('L'.repeat(43));
+      expect(text).not.toContain(user.email);
     });
   });
 

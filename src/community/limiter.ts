@@ -35,6 +35,10 @@ export const LIMITS = {
   otp_verify_ip: { max: 60, windowSeconds: HOUR, interimMax: 1200 },
   refresh_family: { max: 10, windowSeconds: MIN },
   refresh_ip: { max: 120, windowSeconds: MIN, interimMax: 3000 },
+  // Refresh-token-only logout (P6): no account is known before the lookup, so the dimensions are
+  // the trusted-proxy IP and the presented token's hash. Never a client header.
+  logout_ip: { max: 60, windowSeconds: MIN, interimMax: 3000 },
+  logout_token: { max: 10, windowSeconds: MIN },
   totp_attempts_account: { max: 20, windowSeconds: HOUR },
   totp_enrol_account: { max: 5, windowSeconds: HOUR },
   session_routes_account: { max: 30, windowSeconds: MIN },
