@@ -3,3 +3,4 @@ dist
 build
 coverage
 docs/contracts
+docs/community/community_api_v1.openapi.yaml

@@ -21,7 +21,10 @@
     "test:privacy": "jest tests/privacy",
     "test:regression": "jest tests/regression",
     "test:performance": "jest tests/performance",
-    "test:community": "jest --runInBand tests/community"
+    "test:community": "jest --runInBand tests/community",
+    "community:migrate": "ts-node src/community/migrate.ts",
+    "community:bootstrap-admin": "ts-node src/community/bootstrap-admin.ts",
+    "community:neon-poc": "ts-node scripts/community/neon-connectivity-poc.ts"
   },
   "repository": {
     "type": "git",

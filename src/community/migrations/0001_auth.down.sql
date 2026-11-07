@@ -4,6 +4,7 @@ DROP TABLE IF EXISTS "verification";
 DROP TABLE IF EXISTS "account";
 DROP TABLE IF EXISTS "session";
 DROP TABLE IF EXISTS "user";
+DROP FUNCTION IF EXISTS session_strip_client_metadata();
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'community_app') THEN

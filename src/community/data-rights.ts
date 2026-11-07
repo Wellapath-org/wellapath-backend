@@ -1,18 +1,23 @@
 /**
- * Per-user export and deletion (ADR-001 R5, NDPA 2023).
+ * Per-user export and deletion (ADR-001 R5, NDPA 2023, contract §7 M7/M8).
  *
- * Deletion policy implemented by the PoC (retention periods still need legal input):
- * - PII is erased: email, name, image, profile, professional claims, sessions, linked accounts,
- *   TOTP secrets, pending OTPs and notifications.
- * - The `user` row stays as a tombstone (`deletedAt` set, email replaced by an unroutable
- *   placeholder) so foreign keys from content, reports and the moderation log stay valid.
- * - Posts and comments are tombstoned: body erased, status `tombstoned`, shown as anonymous.
+ * Deletion policy (retention periods still need legal input, PoC P11):
+ * - PII is erased: email (unroutable placeholder), name, image, profile, professional claims,
+ *   notifications.
+ * - Every session, refresh family, refresh token, TOTP secret, lockout and pending OTP is
+ *   deleted.
+ * - The `user` row stays as a tombstone (`deletedAt`) so foreign keys from content, reports and
+ *   the moderation log stay valid.
+ * - Posts and comments are tombstoned: body NULL, status `tombstoned`, display mode
+ *   pseudonymous. They are never shown to members again.
  * - Moderation evidence is kept: `moderation_actions` is append-only and already snapshots what
- *   was acted on. Content that was reported but not yet actioned is snapshotted into the
- *   `delete_account` audit row before the body is erased, so an open report is not destroyed by
- *   its author deleting their account.
+ *   was acted on. Content under an OPEN report is snapshotted into the `delete_account` row
+ *   before its body is erased, so an open report is not destroyed by its author leaving.
+ * - The same email can later create a new, unrelated account.
  */
 import { Pool, PoolClient } from 'pg';
+import { ts } from './http';
+import { TokenService } from './tokens';
 
 export interface UserExport {
   format: 'wellapath-community-export';
@@ -29,17 +34,24 @@ export interface UserExport {
   restrictions: Record<string, unknown>[];
 }
 
-export const exportUser = async (pool: Pool, userId: string): Promise<UserExport | null> => {
-  const one = async (sql: string): Promise<Record<string, unknown>[]> =>
-    (await pool.query(sql, [userId])).rows;
+const isoRow = (row: Record<string, unknown>): Record<string, unknown> => {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(row)) out[k] = v instanceof Date ? ts(v) : v;
+  return out;
+};
 
-  const [account] = await one(
-    `SELECT "id", "email", "name", "emailVerified", "role", "twoFactorEnabled", "createdAt"
+export const exportUser = async (pool: Pool, userId: string): Promise<UserExport | null> => {
+  const all = async (sql: string): Promise<Record<string, unknown>[]> =>
+    (await pool.query(sql, [userId])).rows.map(isoRow);
+
+  const [account] = await all(
+    `SELECT "id", "email", "role", "twoFactorEnabled" AS two_factor_enabled,
+            "createdAt" AS created_at
        FROM "user" WHERE "id" = $1 AND "deletedAt" IS NULL`,
   );
   if (!account) return null;
-  const [profile] = await one(
-    'SELECT display_name, is_pseudonymous, created_at FROM profiles WHERE user_id = $1',
+  const [profile] = await all(
+    'SELECT display_name, created_at, updated_at FROM profiles WHERE user_id = $1',
   );
   return {
     format: 'wellapath-community-export',
@@ -47,31 +59,34 @@ export const exportUser = async (pool: Pool, userId: string): Promise<UserExport
     exported_at: new Date().toISOString(),
     account,
     profile: profile ?? null,
-    professional_verifications: await one(
-      `SELECT profession, specialty, status, verified_at, created_at
-         FROM professional_verifications WHERE user_id = $1 ORDER BY id`,
+    professional_verifications: await all(
+      `SELECT id, profession, specialty, status, verified_at, created_at
+         FROM professional_verifications WHERE user_id = $1 ORDER BY created_at`,
     ),
-    posts: await one(
-      `SELECT id, space_slug, display_mode, body, status, created_at
+    // Own content, including non-visible items, with bodies where they still exist.
+    posts: await all(
+      `SELECT id, space_id, display_mode, body, status, created_at, updated_at
          FROM posts WHERE author_id = $1 ORDER BY created_at`,
     ),
-    comments: await one(
-      `SELECT id, post_id, display_mode, body, status, created_at
+    comments: await all(
+      `SELECT id, post_id, display_mode, body, status, created_at, updated_at
          FROM comments WHERE author_id = $1 ORDER BY created_at`,
     ),
-    reports_filed: await one(
+    reports_filed: await all(
       `SELECT id, target_type, target_id, reason, note, status, created_at
          FROM reports WHERE reporter_id = $1 ORDER BY created_at`,
     ),
-    notifications: await one(
-      `SELECT kind, payload, read_at, created_at
+    notifications: await all(
+      `SELECT id, type, post_id, comment_id, notice, read_at, created_at
          FROM notifications WHERE user_id = $1 ORDER BY created_at`,
     ),
-    // Session tokens are credentials and are never exported.
-    sessions: await one(
-      `SELECT "createdAt", "expiresAt", "userAgent" FROM "session" WHERE "userId" = $1`,
+    // Device label and timestamps only: no tokens, no hashes.
+    sessions: await all(
+      `SELECT device_label, created_at, last_used_at, absolute_expires_at, revoked_at
+         FROM refresh_token_families WHERE user_id = $1 ORDER BY created_at`,
     ),
-    restrictions: await one(
+    // The user's own restrictions; the restricting moderator's identity is not exported.
+    restrictions: await all(
       `SELECT kind, reason, created_at, expires_at, lifted_at
          FROM account_restrictions WHERE user_id = $1 ORDER BY id`,
     ),
@@ -95,51 +110,56 @@ const snapshotOpenReports = async (
 };
 
 /** Erases a user's PII and tombstones their content. Returns false if no such live user. */
-export const deleteUser = async (pool: Pool, userId: string, reason: string): Promise<boolean> => {
+export const deleteUser = async (
+  pool: Pool,
+  tokens: TokenService,
+  userId: string,
+): Promise<boolean> => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rows } = await client.query(
-      `SELECT "id" FROM "user" WHERE "id" = $1 AND "deletedAt" IS NULL FOR UPDATE`,
+    const { rows } = await client.query<{ email: string }>(
+      `SELECT "email" FROM "user" WHERE "id" = $1 AND "deletedAt" IS NULL FOR UPDATE`,
       [userId],
     );
     if (rows.length === 0) {
       await client.query('ROLLBACK');
       return false;
     }
+    const email = rows[0].email;
 
     const reported = await snapshotOpenReports(client, userId);
     await client.query(
-      `INSERT INTO moderation_actions (actor_id, action, target_type, target_id, reason, evidence)
-       VALUES ($1, 'delete_account', 'user', $1, $2, $3)`,
-      [userId, reason, JSON.stringify({ reported_content: reported })],
+      `INSERT INTO moderation_actions
+         (actor_account_id, action, target_type, target_id, reason, evidence)
+       VALUES ($1, 'delete_account', 'account', $1, 'user-requested account deletion', $2)`,
+      [userId, JSON.stringify({ author_account_id: userId, reported_content: reported })],
     );
 
     for (const table of ['posts', 'comments']) {
       await client.query(
-        `UPDATE ${table} SET body = NULL, status = 'tombstoned', display_mode = 'anonymous',
+        `UPDATE ${table} SET body = NULL, status = 'tombstoned', display_mode = 'pseudonymous',
                 updated_at = now()
           WHERE author_id = $1`,
         [userId],
       );
     }
 
-    const { rows: emailRows } = await client.query<{ email: string }>(
-      `SELECT "email" FROM "user" WHERE "id" = $1`,
-      [userId],
-    );
-    const email = emailRows[0].email;
-    // Pending OTPs are keyed by email in the identifier.
+    await tokens.revokeAllForUser(userId, 'account_deleted', client);
+    await client.query('DELETE FROM refresh_token_families WHERE user_id = $1', [userId]);
+    // Pending OTPs are keyed by `sign-in-otp-<email>` style identifiers.
     await client.query(`DELETE FROM "verification" WHERE "identifier" LIKE '%' || $1`, [email]);
     await client.query('DELETE FROM notifications WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM professional_verifications WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM profiles WHERE user_id = $1', [userId]);
+    await client.query('DELETE FROM idempotency_keys WHERE account_id = $1', [userId]);
+    await client.query('DELETE FROM totp_lockouts WHERE user_id = $1', [userId]);
     await client.query(`DELETE FROM "twoFactor" WHERE "userId" = $1`, [userId]);
     await client.query(`DELETE FROM "account" WHERE "userId" = $1`, [userId]);
     await client.query(`DELETE FROM "session" WHERE "userId" = $1`, [userId]);
     await client.query(
       `UPDATE "user"
-          SET "email" = 'deleted+' || "id" || '@deleted.invalid', "name" = 'Deleted user',
+          SET "email" = 'deleted+' || "id" || '@deleted.invalid', "name" = '',
               "image" = NULL, "emailVerified" = false, "twoFactorEnabled" = false,
               "role" = 'member', "deletedAt" = now(), "updatedAt" = now()
         WHERE "id" = $1`,

@@ -3,6 +3,8 @@ const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
 
 module.exports = [
+  // Build output keeps source comments (eslint-disable lines for TS rules); never lint it.
+  { ignores: ['dist/**', 'coverage/**'] },
   {
     files: ['src/**/*.ts'],
     languageOptions: { parser: tsParser },

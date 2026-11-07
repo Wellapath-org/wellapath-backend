@@ -44,6 +44,20 @@ CREATE TABLE "session" (
   "userId" text NOT NULL REFERENCES "user" ("id") ON DELETE CASCADE
 );
 CREATE INDEX "session_userId_idx" ON "session" ("userId");
+-- Contract §14: the session's IP address and user agent must never come from client-controlled
+-- headers. The facade passes Better Auth no request headers, and this trigger forces both
+-- columns to NULL anyway, so a library change cannot start recording them silently.
+CREATE FUNCTION session_strip_client_metadata() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  NEW."ipAddress" := NULL;
+  NEW."userAgent" := NULL;
+  RETURN NEW;
+END
+$$;
+CREATE TRIGGER session_strip_client_metadata
+  BEFORE INSERT OR UPDATE ON "session"
+  FOR EACH ROW EXECUTE FUNCTION session_strip_client_metadata();
 
 CREATE TABLE "account" (
   "id" text NOT NULL PRIMARY KEY,

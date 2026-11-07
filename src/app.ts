@@ -13,6 +13,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
+import { parseTrustProxyHops } from './config/trust-proxy';
 import { loadCommunityConfig } from './community/config';
 import { registerCommunity, RegisterCommunityOptions } from './community';
 import dbPlugin from './plugins/db';
@@ -48,6 +49,11 @@ export interface BuildAppOptions {
    * `disabled`, which registers only the constant `GET /v1/features`).
    */
   community?: Partial<RegisterCommunityOptions>;
+  /**
+   * Trusted proxy hop count. Omitted → `TRUST_PROXY_HOPS` (unset ⇒ no proxy trusted, so
+   * `request.ip` is the socket peer). Never `true` (ADR-001 A3).
+   */
+  trustProxyHops?: number;
 }
 
 export interface BuiltApp {
@@ -68,7 +74,18 @@ export interface BuiltApp {
 const ALLOWED_ORIGINS = config.nodeEnv === 'production' ? ['https://wellapath.org'] : true;
 
 export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp> => {
+  const trustProxyHops =
+    'trustProxyHops' in options
+      ? options.trustProxyHops
+      : parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
   const server = Fastify({
+    // An explicit integer hop count, or nothing. With a hop count, Fastify takes the address that
+    // many positions from the right of X-Forwarded-For; client-written values on the left cannot
+    // change it. Applies to the app-wide limiter too (contract §15 F3).
+    // Expressed as proxy-addr's hop-count predicate (the integer form) so the type is explicit.
+    ...(trustProxyHops !== undefined
+      ? { trustProxy: (_address: string, hop: number): boolean => hop < trustProxyHops }
+      : {}),
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
       transport:
@@ -192,6 +209,7 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   await registerCommunity(server, {
     ...options.community,
     config: options.community?.config ?? loadCommunityConfig(),
+    trustProxyConfigured: trustProxyHops !== undefined,
   });
 
   server.addHook('onClose', async () => {

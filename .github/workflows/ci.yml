@@ -43,7 +43,7 @@ jobs:
     # Community auth/data PROOF OF CONCEPT (ADR-001). Runs the Community database suites against
     # a throwaway Postgres service container. No secrets: the database and roles exist only for
     # the life of this job, and every auth secret is generated inside the tests.
-    name: Community PoC (Postgres)
+    name: Community (Postgres 17, contract suites)
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -79,6 +79,18 @@ jobs:
         env:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
         run: npm run test:community
+      # A4 readiness script, exercised against this job's LOCAL Postgres (not Neon: no WellaPath
+      # Neon organisation exists yet). Proves the script itself works; it is not Neon evidence.
+      - name: Neon connectivity PoC script (local Postgres only)
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_neon_poc_branch OWNER community_owner"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_restore_check OWNER community_owner"
+          COMMUNITY_DATABASE_URL=postgres://community_app:ci-app@127.0.0.1:5432/wellapath_neon_poc_branch \
+          COMMUNITY_DATABASE_URL_DIRECT=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_neon_poc_branch \
+          COMMUNITY_RESTORE_CHECK_URL=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_restore_check \
+          NEON_POC_CONFIRM_BRANCH=yes PG_BIN=/usr/lib/postgresql/17/bin \
+            npm run community:neon-poc -- --runs 10 --out neon-connectivity-report.md
+          cat neon-connectivity-report.md >> "$GITHUB_STEP_SUMMARY"
 
   sbom:
     name: SBOM (CycloneDX, production dependencies)

@@ -12,17 +12,22 @@ import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { bearer, emailOTP, jwt, twoFactor } from 'better-auth/plugins';
 import { Pool } from 'pg';
+import { VersionedSecret } from './config';
 import { EmailSender, OtpPurpose } from './email';
 
+/**
+ * Better Auth is the identity and session store ONLY (contract §3.1). Its HTTP handler is never
+ * mounted: every `/v1/auth/*` route is a WellaPath facade (./routes/auth.ts) calling
+ * `auth.api.*` server-side, so the Better Auth session token never leaves the server.
+ */
 export interface CommunityAuthOptions {
   pool: Pool;
-  secret: string;
+  secrets: VersionedSecret[];
   baseUrl: string;
   email: EmailSender;
   accessTokenTtlSeconds: number;
+  /** Upper bound for the Better Auth session; the refresh family's own limits are stricter. */
   sessionTtlSeconds: number;
-  /** Better Auth's own per-IP rate limiter. Tests turn it off to run many flows quickly. */
-  rateLimitEnabled?: boolean;
 }
 
 export const AUTH_BASE_PATH = '/v1/auth';
@@ -35,7 +40,9 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
     appName: 'WellaPath Community',
     basePath: AUTH_BASE_PATH,
     baseURL: options.baseUrl,
-    secret: options.secret,
+    // Versioned from day one (PoC P4): they encrypt the JWKS private key and TOTP secrets.
+    secret: options.secrets[0].value,
+    secrets: options.secrets,
     database: options.pool,
     trustedOrigins: [options.baseUrl],
     // Better Auth ships anonymous usage telemetry; Community must not phone home.
@@ -73,20 +80,17 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
     },
     session: {
       expiresIn: options.sessionTtlSeconds,
-      updateAge: 60 * 60 * 24,
+      // Never extended by Better Auth: the refresh family owns absolute and idle limits.
+      updateAge: options.sessionTtlSeconds,
       // No cookie cache: revocation must take effect on the next request.
       cookieCache: { enabled: false },
     },
-    rateLimit: {
-      enabled: options.rateLimitEnabled ?? true,
-      storage: 'memory',
-      window: 60,
-      max: 60,
-      customRules: {
-        '/email-otp/send-verification-otp': { window: 60, max: 3 },
-        '/sign-in/email-otp': { window: 60, max: 5 },
-        '/two-factor/*': { window: 10, max: 3 },
-      },
+    // ADR A3: Better Auth's limiter keys on client-supplied proxy headers. It is OFF; the single
+    // WellaPath limiter (./limiter.ts) applies instead.
+    rateLimit: { enabled: false },
+    advanced: {
+      // Contract §14: no client-controlled IP / user agent on the session row.
+      ipAddress: { disableIpTracking: true },
     },
     // Endpoints the PoC does not use are switched off, so they are not attack surface.
     disabledPaths: [
@@ -102,12 +106,14 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
       '/email-otp/change-email',
     ],
     plugins: [
-      // Mobile: `Authorization: Bearer <session token>` instead of cookies.
+      // Internal only: server-side `auth.api.*` calls authenticate with the session token as a
+      // bearer header. Clients never see that token.
       bearer(),
       emailOTP({
         otpLength: 6,
         expiresIn: 300,
-        allowedAttempts: 3,
+        // Contract A2/§4.2: 5 verify attempts per issued code, then the code is invalidated.
+        allowedAttempts: 5,
         storeOTP: 'hashed',
         async sendVerificationOTP({ email, otp, type }) {
           await options.email.sendOtp({
@@ -118,13 +124,14 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
           });
         },
       }),
-      // Short-lived access token. `sid` lets the API reject a token whose session was revoked.
+      // EdDSA signing keys (JWKS). Access tokens are minted server-side by ./tokens.ts through
+      // `auth.api.signJWT` with sub, sid (refresh family id), jti, iat and exp.
       jwt({
+        jwks: { keyPairConfig: { alg: 'EdDSA', crv: 'Ed25519' } },
         jwt: {
           issuer: ACCESS_TOKEN_ISSUER,
           audience: ACCESS_TOKEN_AUDIENCE,
           expirationTime: `${options.accessTokenTtlSeconds}s`,
-          definePayload: ({ session }) => ({ sid: session.id }),
         },
       }),
       twoFactor({
