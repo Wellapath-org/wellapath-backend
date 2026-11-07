@@ -11,7 +11,7 @@ import {
 } from '../../src/community/migrate';
 import { describeDb, ownerPool } from './helpers';
 
-const ALL = [1, 2, 3, 4, 5, 6, 7, 8];
+const ALL = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 const EXPECTED_TABLES = [
   'account',
@@ -44,6 +44,14 @@ const tables = async (pool: Pool): Promise<string[]> =>
         AND tablename <> 'community_schema_migrations' ORDER BY tablename`,
     )
   ).rows.map(r => r.tablename);
+
+const indexes = async (pool: Pool, table: string): Promise<string[]> =>
+  (
+    await pool.query<{ i: string }>(
+      `SELECT indexname AS i FROM pg_indexes WHERE schemaname = 'public' AND tablename = $1`,
+      [table],
+    )
+  ).rows.map(r => r.i);
 
 describe('migration files', () => {
   it('are numbered contiguously and every up has a down and a rollback note', () => {
@@ -90,11 +98,16 @@ describeDb('migrations against Postgres', () => {
   });
 
   it('steps down one migration at a time and back', async () => {
+    expect(await migrateDown(pool, 1)).toEqual([9]);
+    expect(await indexes(pool, 'verification')).not.toContain('verification_expires_at_idx');
     expect(await migrateDown(pool, 1)).toEqual([8]);
     expect(await tables(pool)).not.toContain('rate_limit_counters');
     expect(await migrateDown(pool, 1)).toEqual([7]);
     expect(await tables(pool)).not.toContain('auth_events');
-    expect(await migrateUp(pool)).toEqual([7, 8]);
+    expect(await migrateUp(pool)).toEqual([7, 8, 9]);
+    expect(await indexes(pool, 'verification')).toEqual(
+      expect.arrayContaining(['verification_expires_at_idx', 'verification_created_at_idx']),
+    );
   });
 
   it('seeds exactly the two approved spaces, with descriptions', async () => {

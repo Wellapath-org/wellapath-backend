@@ -5,7 +5,9 @@
  * or token.
  */
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { otpDelivery, OtpDeliverySlot } from '../auth';
 import { CommunityContext, MeDto } from '../context';
+import { EmailUnavailableError } from '../email';
 import { normaliseEmail } from '../crypto';
 import { ApiError, conflict, invalidState, tsRequired, validation } from '../http';
 import { hasRole, Principal } from '../tokens';
@@ -107,18 +109,37 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
         [email],
       );
       const suppressed = rows[0]?.suspended === true;
+      const delivery: OtpDeliverySlot = { attempted: false };
       if (!suppressed) {
-        await s.auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } });
+        await otpDelivery.run(delivery, () =>
+          s.auth.api.sendVerificationOTP({ body: { email, type: 'sign-in' } }),
+        );
       }
+      const failed = delivery.error !== undefined;
       await s.events.record('otp_requested', {
         accountId: rows[0]?.id ?? null,
         email: key,
         ip,
-        detail: { outcome: suppressed ? 'suppressed' : 'sent' },
+        detail: { outcome: suppressed ? 'suppressed' : failed ? 'email_unavailable' : 'sent' },
       });
       // Pad the response so the outcome (sent / suppressed / new) is not observable.
       const elapsed = Date.now() - started;
       if (elapsed < s.config.otpRequestMinMs) await sleep(s.config.otpRequestMinMs - elapsed);
+      if (failed) {
+        // No retry here (a retry after an ambiguous failure could deliver two codes); the client
+        // retries later. Logged without the address, key or provider response.
+        const error = delivery.error;
+        request.log.warn(
+          {
+            event: 'community_email_unavailable',
+            provider: s.email.name,
+            reason: error instanceof EmailUnavailableError ? error.reason : 'sender_error',
+            status: error instanceof EmailUnavailableError ? error.status : undefined,
+          },
+          'Community OTP email could not be sent',
+        );
+        throw new ApiError('community_unavailable', { reason: 'email_unavailable' });
+      }
       return reply.status(202).send({});
     },
   );

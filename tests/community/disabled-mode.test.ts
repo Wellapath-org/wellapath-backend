@@ -124,7 +124,7 @@ describe('Community configuration', () => {
     ).toThrow(/COMMUNITY_ACCESS_TOKEN_TTL_SECONDS/);
   });
 
-  it('refuses to boot enabled Community under NODE_ENV=production (PoC has only test sinks)', () => {
+  it('refuses to boot enabled Community under NODE_ENV=production without the resend provider', () => {
     expect(() => loadCommunityConfig({ ...ENABLED_ENV, NODE_ENV: 'production' })).toThrow(
       /Refusing to boot/,
     );

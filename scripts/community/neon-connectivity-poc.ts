@@ -201,6 +201,7 @@ const failureHandling = async (): Promise<Step> => {
         baseUrl: 'http://localhost:3000',
         allowlist: new Set(),
         emailSink: 'memory',
+        authPurgeIntervalSeconds: 0,
         accessTokenTtlSeconds: 900,
         memberLifetimes: cfg.DEFAULT_MEMBER_LIFETIMES,
         privilegedLifetimes: cfg.DEFAULT_PRIVILEGED_LIFETIMES,

@@ -9,12 +9,13 @@ import { CommunityEnabledConfig } from './config';
 import { CommunityContext } from './context';
 import { assertVerifyFull } from './db-url';
 import { Hasher } from './crypto';
-import { EmailSender, FileOutbox, MemoryOutbox } from './email';
+import { EmailSender, FileOutbox, MemoryOutbox, ResendSender } from './email';
 import { AuthEvents } from './events';
 import { ApiError, applyContractHeaders, isDatabaseUnavailable, sendApiError } from './http';
 import { IdempotencyStore } from './idempotency';
 import { RateLimiter } from './limiter';
 import { communityPlugin } from './plugin';
+import { AuthRetentionJob } from './purge';
 import { TokenService } from './tokens';
 
 declare module 'fastify' {
@@ -28,6 +29,17 @@ export interface EnabledOptions {
   /** Whether TRUST_PROXY_HOPS is configured (selects per-IP vs interim global ceilings). */
   trustProxyConfigured: boolean;
 }
+
+const createSender = (config: CommunityEnabledConfig): EmailSender => {
+  if (config.emailSink === 'resend') {
+    if (!config.resend) throw new Error('Resend configuration missing');
+    return new ResendSender(config.resend);
+  }
+  if (config.emailSink === 'outbox-file') {
+    return new FileOutbox(config.emailOutboxDir ?? './.community-outbox');
+  }
+  return new MemoryOutbox();
+};
 
 export const registerEnabledCommunity = async (
   server: FastifyInstance,
@@ -46,11 +58,9 @@ export const registerEnabledCommunity = async (
   // serves /config.
   pool.on('error', error => server.log.error({ err: error.message }, 'Community pool error'));
 
-  const email =
-    options.email ??
-    (config.emailSink === 'outbox-file'
-      ? new FileOutbox(config.emailOutboxDir ?? './.community-outbox')
-      : new MemoryOutbox());
+  const email = options.email ?? createSender(config);
+  // Only the provider name is logged: never the key, the sender address or any recipient.
+  server.log.info({ event: 'community_email_provider', provider: email.name }, 'Community email');
 
   const auth = createCommunityAuth({
     pool,
@@ -59,6 +69,7 @@ export const registerEnabledCommunity = async (
     email,
     accessTokenTtlSeconds: config.accessTokenTtlSeconds,
     sessionTtlSeconds: config.memberLifetimes.absoluteSeconds,
+    logger: server.log,
   });
   const hasher = new Hasher(config.refreshPeppers);
   const events = new AuthEvents(pool, hasher);
@@ -116,7 +127,12 @@ export const registerEnabledCommunity = async (
 
   await server.register(communityPlugin, { ctx });
 
+  // Sign-in retention: pending OTP rows (they contain the address) are gone within 24 h.
+  const retention = new AuthRetentionJob(pool, server.log, config.authPurgeIntervalSeconds, email);
+  server.addHook('onReady', async () => retention.start());
+
   server.addHook('onClose', async () => {
+    await retention.stop();
     await pool.end();
   });
 };

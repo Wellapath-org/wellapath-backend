@@ -16,6 +16,7 @@ import { config } from './config/env';
 import { parseTrustProxyHops } from './config/trust-proxy';
 import { loadCommunityConfig } from './community/config';
 import { registerCommunity, RegisterCommunityOptions } from './community';
+import { scrubbingStream, scrubLogArgs, scrubLogValue } from './community/log-safety';
 import dbPlugin from './plugins/db';
 import errorHandlerPlugin from './plugins/error-handler';
 import metricsPlugin from './plugins/metrics';
@@ -94,7 +95,14 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
           : undefined,
       // Centralized redaction — built from the same prohibited-key list the telemetry
       // validator uses, so the two cannot drift apart.
-      redact: buildLogRedactionPaths(),
+      redact: [...buildLogRedactionPaths(), 'email', '*.email', 'recipient', '*.recipient'],
+      // No full email address in any log line (sign-in retention rule): every merged log object
+      // and every message string is scrubbed (`j***@example.com`). See community/log-safety.ts.
+      formatters: {
+        log: (object: Record<string, unknown>): Record<string, unknown> =>
+          scrubLogValue(object) as Record<string, unknown>,
+      },
+      hooks: { logMethod: scrubLogArgs },
       serializers: {
         /**
          * Fastify's default request serializer logs `req.url` in full. No endpoint on this
@@ -110,7 +118,13 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
         }),
         res: (reply: { statusCode: number }) => ({ statusCode: reply.statusCode }),
       },
-      ...(options.logDestination ? { stream: options.logDestination } : {}),
+      // Every serialized line passes the email scrubber (the pino-pretty transport, used only
+      // in local development, gets the object/message scrubbing above).
+      ...(options.logDestination
+        ? { stream: scrubbingStream(options.logDestination) }
+        : process.env.NODE_ENV === 'production'
+          ? { stream: scrubbingStream(process.stdout) }
+          : {}),
     },
   });
 

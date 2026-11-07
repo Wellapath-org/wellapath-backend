@@ -8,12 +8,27 @@
  * its types without a tsconfig change. Jest needs the ESM packages transformed; see
  * jest.config.js. Recorded as a PoC finding in POC_COMMUNITY_AUTH_RESULTS.md.
  */
+import { AsyncLocalStorage } from 'async_hooks';
 import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { bearer, emailOTP, jwt, twoFactor } from 'better-auth/plugins';
+import { FastifyBaseLogger } from 'fastify';
 import { Pool } from 'pg';
 import { VersionedSecret } from './config';
-import { EmailSender, OtpPurpose } from './email';
+import { EmailSender, OTP_TTL_SECONDS, OtpPurpose } from './email';
+import { scrubLogValue } from './log-safety';
+
+/**
+ * Better Auth runs `sendVerificationOTP` through `runInBackgroundOrAwait`, which catches and
+ * only logs a failure, so the facade would answer 202 for a code that was never sent. The
+ * facade therefore opens a delivery slot around the call; the sender records its outcome in it
+ * and the facade answers 503 `email_unavailable` (routes/auth.ts).
+ */
+export interface OtpDeliverySlot {
+  error?: unknown;
+  attempted: boolean;
+}
+export const otpDelivery = new AsyncLocalStorage<OtpDeliverySlot>();
 
 /**
  * Better Auth is the identity and session store ONLY (contract §3.1). Its HTTP handler is never
@@ -28,6 +43,8 @@ export interface CommunityAuthOptions {
   accessTokenTtlSeconds: number;
   /** Upper bound for the Better Auth session; the refresh family's own limits are stricter. */
   sessionTtlSeconds: number;
+  /** Better Auth's own log lines go to Pino (scrubbed), never straight to the console. */
+  logger?: FastifyBaseLogger;
 }
 
 export const AUTH_BASE_PATH = '/v1/auth';
@@ -47,6 +64,17 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
     trustedOrigins: [options.baseUrl],
     // Better Auth ships anonymous usage telemetry; Community must not phone home.
     telemetry: { enabled: false },
+    // Its console logger would bypass Pino's redaction; route it through Pino instead.
+    logger: {
+      level: 'warn',
+      disableColors: true,
+      log: (level, message, ...args): void => {
+        const log = options.logger;
+        if (!log) return;
+        const method = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
+        log[method]({ event: 'better_auth', args: scrubLogValue(args) }, message);
+      },
+    },
     // Passwords are off: sign-in and recovery are email OTP only (ADR-001 R2.1).
     emailAndPassword: { enabled: false },
     user: {
@@ -111,17 +139,25 @@ export const createCommunityAuth = (options: CommunityAuthOptions) =>
       bearer(),
       emailOTP({
         otpLength: 6,
-        expiresIn: 300,
+        expiresIn: OTP_TTL_SECONDS,
         // Contract A2/§4.2: 5 verify attempts per issued code, then the code is invalidated.
         allowedAttempts: 5,
         storeOTP: 'hashed',
         async sendVerificationOTP({ email, otp, type }) {
-          await options.email.sendOtp({
-            to: email.toLowerCase(),
-            otp,
-            purpose: type as OtpPurpose,
-            sentAt: new Date().toISOString(),
-          });
+          const slot = otpDelivery.getStore();
+          if (slot) slot.attempted = true;
+          try {
+            await options.email.sendOtp({
+              to: email.toLowerCase(),
+              otp,
+              purpose: type as OtpPurpose,
+              sentAt: new Date().toISOString(),
+            });
+          } catch (error) {
+            // Recorded for the facade; not rethrown, so Better Auth logs nothing about it.
+            if (slot) slot.error = error;
+            else throw error;
+          }
         },
       }),
       // EdDSA signing keys (JWKS). Access tokens are minted server-side by ./tokens.ts through

@@ -24,7 +24,7 @@ import {
   DEFAULT_MEMBER_LIFETIMES,
   DEFAULT_PRIVILEGED_LIFETIMES,
 } from '../../src/community/config';
-import { MemoryOutbox } from '../../src/community/email';
+import { EmailSender, MemoryOutbox } from '../../src/community/email';
 import { LimitOverrides } from '../../src/community/limiter';
 import { MigrateOptions, migrateDown, migrateUp } from '../../src/community/migrate';
 import { LogCapture } from '../helpers/app';
@@ -116,6 +116,8 @@ export interface TestAppOptions {
   trustProxyHops?: number;
   /** Shared outbox (so a restarted app still sees earlier OTPs). */
   outbox?: MemoryOutbox;
+  /** A different sender under test (e.g. ResendSender with a mocked fetch). */
+  email?: EmailSender;
 }
 
 export const testConfig = (
@@ -128,6 +130,8 @@ export const testConfig = (
   baseUrl: 'http://localhost:3000',
   allowlist: new Set<string>(),
   emailSink: 'memory',
+  // The retention timer is exercised explicitly (purge.test.ts), not in every suite.
+  authPurgeIntervalSeconds: 0,
   accessTokenTtlSeconds: 900,
   memberLifetimes: DEFAULT_MEMBER_LIFETIMES,
   privilegedLifetimes: DEFAULT_PRIVILEGED_LIFETIMES,
@@ -149,7 +153,7 @@ export const createCommunityApp = async (
     telemetryEnabled: false,
     rateLimitMax: 100000,
     trustProxyHops: options.trustProxyHops,
-    community: { config, email: outbox },
+    community: { config, email: options.email ?? outbox },
   });
   await built.server.ready();
   return {

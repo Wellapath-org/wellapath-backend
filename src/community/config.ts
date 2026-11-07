@@ -13,7 +13,16 @@ import type { LimitOverrides } from './limiter';
 export const COMMUNITY_MODES = ['disabled', 'internal', 'closed_beta', 'public'] as const;
 export type CommunityMode = (typeof COMMUNITY_MODES)[number];
 
-export type EmailSinkKind = 'outbox-file' | 'memory';
+/** `resend` is the real sender; `outbox-file` and `memory` are test sinks (refused in production). */
+export type EmailSinkKind = 'resend' | 'outbox-file' | 'memory';
+export const EMAIL_PROVIDERS: readonly EmailSinkKind[] = ['resend', 'outbox-file', 'memory'];
+
+export interface ResendConfig {
+  /** Never logged or echoed. */
+  apiKey: string;
+  from: string;
+  timeoutMs: number;
+}
 
 export interface VersionedSecret {
   version: number;
@@ -44,9 +53,17 @@ export interface CommunityEnabledConfig {
   baseUrl: string;
   /** Account ids allowed to use Community in `internal` / `closed_beta`. */
   allowlist: Set<string>;
+  /** `COMMUNITY_EMAIL_PROVIDER` (legacy name `COMMUNITY_EMAIL_SINK`). */
   emailSink: EmailSinkKind;
+  /** Present when `emailSink` is `resend`. */
+  resend?: ResendConfig;
   /** Directory for the test-only outbox file sink. */
   emailOutboxDir?: string;
+  /**
+   * Sign-in retention purge interval (purge.ts), seconds. 0 disables the in-process timer (tests
+   * only; the environment accepts 60–3600 so the 24 h bound always holds).
+   */
+  authPurgeIntervalSeconds: number;
   /** Access-token (JWT) lifetime, seconds. Contract: ≤ 900. */
   accessTokenTtlSeconds: number;
   memberLifetimes: SessionLifetimes;
@@ -132,22 +149,64 @@ export const DEFAULT_PRIVILEGED_LIFETIMES: SessionLifetimes = {
   idleSeconds: HOUR,
 };
 
+/** Resend API keys are `re_` + an opaque token. Validated without ever echoing the value. */
+const RESEND_KEY = /^re_[A-Za-z0-9_-]{16,200}$/;
+/** `Name <local@domain.tld>` or `local@domain.tld`. */
+const FROM_ADDRESS =
+  /^(?:[^<>\r\n@]{1,64} <)?[A-Za-z0-9._%+-]{1,64}@(?:[A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}>?$/;
+
+const parseResendConfig = (env: Env): ResendConfig => {
+  const apiKey = required(env, 'RESEND_API_KEY');
+  if (!RESEND_KEY.test(apiKey)) {
+    throw new Error('RESEND_API_KEY is malformed (expected a Resend API key starting with re_)');
+  }
+  const from = required(env, 'COMMUNITY_EMAIL_FROM').trim();
+  const bracketed = from.includes('<');
+  if (!FROM_ADDRESS.test(from) || bracketed !== from.endsWith('>')) {
+    throw new Error(
+      'COMMUNITY_EMAIL_FROM is malformed (expected "Name <address@domain>" or "address@domain")',
+    );
+  }
+  return {
+    apiKey,
+    from,
+    timeoutMs: int(env, 'COMMUNITY_EMAIL_TIMEOUT_MS', 5000, 1000, 15000),
+  };
+};
+
 export const loadCommunityConfig = (env: Env = process.env): CommunityConfig => {
   const mode = parseCommunityMode(env.COMMUNITY_MODE);
   if (mode === 'disabled') return { mode };
 
   const nodeEnv = env.NODE_ENV ?? 'development';
-  const emailSinkRaw = env.COMMUNITY_EMAIL_SINK ?? 'outbox-file';
-  if (emailSinkRaw !== 'outbox-file' && emailSinkRaw !== 'memory') {
-    throw new Error('Invalid value for COMMUNITY_EMAIL_SINK: expected outbox-file or memory');
+  const provider = env.COMMUNITY_EMAIL_PROVIDER || undefined;
+  const legacySink = env.COMMUNITY_EMAIL_SINK || undefined;
+  if (provider && legacySink && provider !== legacySink) {
+    throw new Error('COMMUNITY_EMAIL_PROVIDER and COMMUNITY_EMAIL_SINK disagree; set only one');
   }
-  // No real email provider (Resend) is wired yet. The outbox sinks write OTPs somewhere a test
-  // can read them, which must never happen in production.
-  if (nodeEnv === 'production') {
+  const emailSinkRaw =
+    provider ?? legacySink ?? (nodeEnv === 'production' ? undefined : 'outbox-file');
+  if (emailSinkRaw === undefined) {
     throw new Error(
-      'COMMUNITY_MODE is enabled with NODE_ENV=production, but only test email sinks exist. Refusing to boot.',
+      'COMMUNITY_MODE is enabled with NODE_ENV=production but COMMUNITY_EMAIL_PROVIDER is not set: ' +
+        'set COMMUNITY_EMAIL_PROVIDER=resend. Refusing to boot.',
     );
   }
+  if (!(EMAIL_PROVIDERS as readonly string[]).includes(emailSinkRaw)) {
+    throw new Error(
+      `Invalid value for COMMUNITY_EMAIL_PROVIDER: expected one of ${EMAIL_PROVIDERS.join(', ')}`,
+    );
+  }
+  const emailSink = emailSinkRaw as EmailSinkKind;
+  // The outbox sinks write OTPs somewhere a test can read them, which must never happen in
+  // production. Production accepts only the real sender.
+  if (nodeEnv === 'production' && emailSink !== 'resend') {
+    throw new Error(
+      'COMMUNITY_MODE is enabled with NODE_ENV=production, but the email provider is a test sink. ' +
+        'Set COMMUNITY_EMAIL_PROVIDER=resend. Refusing to boot.',
+    );
+  }
+  const resend = emailSink === 'resend' ? parseResendConfig(env) : undefined;
 
   let authSecrets: VersionedSecret[];
   if (env.BETTER_AUTH_SECRETS) {
@@ -182,8 +241,10 @@ export const loadCommunityConfig = (env: Env = process.env): CommunityConfig => 
         .map(id => id.trim())
         .filter(Boolean),
     ),
-    emailSink: emailSinkRaw,
+    emailSink,
+    resend,
     emailOutboxDir: env.COMMUNITY_EMAIL_OUTBOX_DIR,
+    authPurgeIntervalSeconds: int(env, 'COMMUNITY_AUTH_PURGE_INTERVAL_SECONDS', 900, 60, 3600),
     accessTokenTtlSeconds: int(env, 'COMMUNITY_ACCESS_TOKEN_TTL_SECONDS', 900, 1, 900),
     memberLifetimes: DEFAULT_MEMBER_LIFETIMES,
     privilegedLifetimes: DEFAULT_PRIVILEGED_LIFETIMES,

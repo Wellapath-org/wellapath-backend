@@ -25,7 +25,8 @@
     "community:migrate": "ts-node src/community/migrate.ts",
     "community:bootstrap-admin": "ts-node src/community/bootstrap-admin.ts",
     "community:neon-poc": "ts-node scripts/community/neon-connectivity-poc.ts",
-    "community:provision-runtime-role": "ts-node scripts/community/provision-runtime-role.ts"
+    "community:provision-runtime-role": "ts-node scripts/community/provision-runtime-role.ts",
+    "community:purge-auth": "ts-node src/community/purge.ts"
   },
   "repository": {
     "type": "git",
