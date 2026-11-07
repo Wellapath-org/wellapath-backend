@@ -1,12 +1,26 @@
 # Production Provisioning — Audit and Runbook (Build 211 Soft Launch)
 
-> **Status: BLOCKED on founder/engineering-lead actions. Nothing was provisioned.**
-> Audit performed 2026-09-21 for the `0.3.0+211` public soft-launch candidate
-> (mobile PR #80). This document records what exists, what is missing, the exact
-> steps to provision production, and the verification checklist to run afterwards.
-> No credential available to the auditing session had access to any WellaPath
-> hosting, DNS or database account, so every provisioning step below is a
-> founder/engineering-lead action.
+> **Status (re-verified 2026-11-07): PROVISIONED and LIVE.** Production is
+> `wellapath-backend-production` on Render, serving `https://api.wellapath.org`
+> from the `production` branch (created 2026-09-21T14:00:49Z at `6cf642f`;
+> fast-forwarded 2026-09-29T12:50:01Z to `fd7190b`, the PR #39 merge — identical
+> to `develop`). Live: `/version` `0.3.0`/`production`, `/health` 200 with
+> `database: "disabled"`, `/config` facilities **1.2**. Current state, deploy
+> mechanics and rollback live in `DEPLOYMENT.md` §3 and §7.
+>
+> Everything below the line is the **original 2026-09-21 audit and runbook, kept
+> as a historical record**. Where it names facilities **v1.1**, read it as the
+> state on that date: v1.1 was superseded by v1.2 on 2026-09-29 and **deleted
+> from R2** the same day (now 404). §5 and §6 have been updated to the v1.2
+> values so the checklist can still be re-run. The "Production source commit"
+> row records the audit's recommendation (`2485ce0`); production actually
+> launched from `6cf642f`.
+>
+> _Original header (2026-09-21):_ "BLOCKED on founder/engineering-lead actions.
+> Nothing was provisioned." — audit performed for the `0.3.0+211` public
+> soft-launch candidate (mobile PR #80). No credential available to the auditing
+> session had access to any WellaPath hosting, DNS or database account, so every
+> provisioning step below was a founder/engineering-lead action.
 >
 > **Revised same day:** production launches **database-independent**
 > (`DATABASE_ENABLED=false`). The backend stores no user or telemetry data, and the
@@ -112,10 +126,11 @@ includeSubDomains` in production only (a host-scoped browser commitment made
    must not pretend it ran); `GET /version` → `0.3.0` / `production`;
    `GET /config` → 200.
 3. `/config` body: exactly four artifacts (`token_dictionary` 1.1,
-   `knowledge_base` 2.4, `rules` 2.2, `facilities` 1.1), **no `facilities_v2`
-   key**, no staging hostname anywhere in the body.
-4. Download `facilities.ng.v1.1.json` from the URL in `/config`; verify
-   1,695,844 bytes and sha256 `25684c71…982398`.
+   `knowledge_base` 2.4, `rules` 2.2, `facilities` 1.2), **no `facilities_v2`
+   key**, no staging hostname anywhere in the body. (Originally `facilities`
+   1.1; updated 2026-11-07.)
+4. Download `facilities.ng.v1.2.json` from the URL in `/config`; verify
+   1,698,125 bytes and sha256 `94f162e4…b7788`. (v1.1 is retired — 404.)
 5. `POST /v1/telemetry/events` → 503 `telemetry_disabled`;
    `GET /internal/metrics` → 404 standard envelope.
 6. Rate-limit headers present; security headers present (`strict-transport-security`,
@@ -124,21 +139,25 @@ includeSubDomains` in production only (a host-scoped browser commitment made
 7. Restart the service from the Render dashboard; verify recovery. Confirm
    "Rollback to previous deploy" is available and that env vars are recorded in
    a secure location for configuration recovery.
-8. Staging non-regression: staging `/config` body sha256 still
-   `183a15bd…45d3b`; staging service and env untouched.
+8. Staging non-regression: staging service and env untouched. (The
+   2026-09-21 staging body sha256 was `183a15bd…45d3b`; since PR #39 staging
+   and production serve an identical body, `bbf8024c…2d7b` on 2026-11-07.)
 
 ## 6. Mobile handoff package (to be filled only after §5 passes)
 
 - Production API base URL: `https://api.wellapath.org` (pending DNS)
 - Artifact base URL: `https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev`
 - `/config` response fingerprint: record live body sha256 at verification time
-- Facilities identity: v1.1, `facilities.ng.v1.1.json`, sha256
-  `25684c714367abf2f3c305c8a5597b5f7eb0d11baaf658c5b9e2f8f5e2982398`,
-  1,695,844 bytes
+- Facilities identity (current, since 2026-09-29): v1.2,
+  `facilities.ng.v1.2.json`, sha256
+  `94f162e492fa91f7d9d3cf2ca33fcf0598a031a2510aa900aa717a581bdb7788`,
+  1,698,125 bytes. (The 2026-09-21 package named v1.1, which is now retired.)
 - Required non-secret build flags: production API base URL only; no telemetry
   flag (backend intake is disabled), no Sentry DSN for the backend
-- Rollback: Render "Rollback to previous deploy" (service owner), artifact
-  rollback via `/config` PR per `DEPLOYMENT.md` §7; contact — engineering lead
+- Rollback: per `DEPLOYMENT.md` §7 — facilities rollback target is **v1.0**
+  (PR #40), never v1.1. Render "Rollback to previous deploy" must not go to a
+  deploy older than `fd7190b` (those name the deleted v1.1). Contact —
+  engineering lead
 
 **Do not compile build 211 against staging, and do not build or upload it until
 this handoff is issued with live verification results.**

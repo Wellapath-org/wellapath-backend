@@ -46,7 +46,8 @@ The backend's job is to verify and distribute.
 - [ ] **Update `_metadata.release_date`**, and add a patch note describing what changed
 - [ ] **Generate the SHA256 hash** — `shasum -a 256 <file>`
 - [ ] **Upload as a new file — never overwrite an existing object**
-- [ ] **Confirm the previous version still returns HTTP 200** on R2
+- [ ] **Confirm the previous version still returns HTTP 200** on R2 (unless it has been formally
+      retired — see §7)
 - [ ] **Report the version, URL, hash, and release date to the engineering lead**
 
 ### Engineering lead
@@ -62,7 +63,7 @@ The backend's job is to verify and distribute.
 - [ ] **Recompute the SHA256 locally** and confirm it matches the supplied hash **exactly** —
       never copy a hash into `config.ts` without independently reproducing it
 - [ ] **Confirm every prior version still returns HTTP 200** with its original hash — proves no
-      overwrite occurred
+      overwrite occurred (formally retired versions excepted; they must return 404, see §7)
 - [ ] **Diff the new version against the previous one** and confirm the change matches what was
       described — nothing else changed silently
 - [ ] **Validate referential integrity** — every token referenced by the KB or rules must exist
@@ -72,6 +73,8 @@ The backend's job is to verify and distribute.
 - [ ] Open a PR against `develop` recording the verification evidence in the description
 - [ ] Merge once CI is green, then **verify staging `/config`** returns the new version with the
       matching hash
+- [ ] Production: fast-forward `production` to the verified `develop` commit, deploy, and verify
+      production `/config` the same way (founder action — see `DEPLOYMENT.md` §3)
 - [ ] Confirm back to the engineering lead
 - [ ] Update `PROGRESS.md`
 
@@ -108,6 +111,7 @@ This is not ceremony. Each check below exists because of a specific incident:
 | Diff against the previous file | **`rules` v2.2 (E8).** The file was _larger_ after a release that removed a rule. Benign once explained (an added metadata note), but chasing it produced the diff that confirmed the other 75 rules were byte-identical and nothing rode along.                                                                      |
 | Validate token references      | **`rf_004`.** A red-flag rule referenced the token `unconsciousness`, which was absent from the token dictionary — a dead rule that could never fire. Caught by validation and removed.                                                                                                                               |
 | Verify staging after deploy    | Merging is not shipping. `/config` is confirmed live before the release is reported complete.                                                                                                                                                                                                                         |
+| Re-verify rollback targets     | **2026-11-07 audit.** `DEPLOYMENT.md` listed `facilities` 1.1 and `kb` 2.1 as rollback targets "verified HTTP 200". v1.1 had been deleted from R2 on 2026-09-29 (404), and `kb.ng.v2.1.json` on R2 no longer matches the hash `/config` served for it (edited in place by knowledge-base commit `2a8ffaf`). See §7.   |
 
 ---
 
@@ -127,18 +131,43 @@ was unchanged: wire `/config` once the data engineer delivers the verified hash.
 
 ---
 
-## 7. Release History
+## 7. Rollback Targets and Retirement
 
-| Release                                    | PR  | Note                                              |
-| ------------------------------------------ | --- | ------------------------------------------------- |
-| `facilities` v1.0                          | #15 | E5 — facilities added to `/config`                |
-| `kb`/`rules` v2.0                          | #16 | E7 — later found to be an overwrite error         |
-| `token_dictionary` v1.1, `kb`/`rules` v2.1 | #17 | E7 medical review fixes; corrected the v2.0 error |
-| `kb` v2.2                                  | #18 | Red flag mirror fix                               |
-| `kb` v2.3                                  | #19 | Malaria explanation template, Case 04 policy      |
-| `facilities` v1.1                          | #20 | 45 Lagos facility phone numbers                   |
-| `rules` v2.2                               | #22 | Dead rule `rf_147` removed (76 → 75)              |
-| `kb` v2.4                                  | #23 | E8.2 calibration — `headache` token at weight 6   |
+> **Rule: a version may be documented or used as a rollback target only if it exists on R2 and
+> has been re-verified — HTTP 200 and a locally recomputed sha256 equal to the hash `/config`
+> served for that version — at the time it is documented, and again immediately before it is
+> used.** "It returned 200 last time" is not evidence. A 200 with the wrong bytes is not a valid
+> target either.
 
-**Frozen for beta at:** `knowledge_base` v2.4 · `rules` v2.2 · `token_dictionary` v1.1 ·
-`facilities` v1.1.
+- Record the verification date next to every rollback target you document (`DEPLOYMENT.md` §7.2).
+- When a version is **retired** (deleted from R2 deliberately, e.g. for licensing), in the same
+  change: remove it from every rollback-target list, record who/when/why, and confirm the URL
+  returns 404 after the CDN cache window. No `/config` commit that still names it may be
+  redeployed (this includes Render "Rollback to previous deploy").
+- Retirement stops new downloads only. Devices cache artifacts by version and keep their copy
+  until the app's data is cleared.
+
+Current status (re-verified 2026-11-07): `facilities` **1.1 retired** (404) — rollback target is
+**1.0**. `kb` 2.1 and 2.0, `rules` 2.0: on R2 but **hash mismatch** against what `/config`
+served — not valid targets. Full table in `DEPLOYMENT.md` §7.2.
+
+---
+
+## 8. Release History
+
+| Release                                    | PR  | Note                                                                                                 |
+| ------------------------------------------ | --- | ---------------------------------------------------------------------------------------------------- |
+| `facilities` v1.0                          | #15 | E5 — facilities added to `/config`                                                                   |
+| `kb`/`rules` v2.0                          | #16 | E7 — later found to be an overwrite error                                                            |
+| `token_dictionary` v1.1, `kb`/`rules` v2.1 | #17 | E7 medical review fixes; corrected the v2.0 error                                                    |
+| `kb` v2.2                                  | #18 | Red flag mirror fix                                                                                  |
+| `kb` v2.3                                  | #19 | Malaria explanation template, Case 04 policy                                                         |
+| `facilities` v1.1                          | #20 | 45 Lagos facility phone numbers                                                                      |
+| `rules` v2.2                               | #22 | Dead rule `rf_147` removed (76 → 75)                                                                 |
+| `kb` v2.4                                  | #23 | E8.2 calibration — `headache` token at weight 6                                                      |
+| **`facilities` v1.2**                      | #39 | 2026-09-29, FACILITIES-V1.2-ACTIVATION-2026-09-29 — removes the 45 NHFR-derived numbers (no licence) |
+| `facilities` v1.1 **retired**              | —   | 2026-09-29 13:41Z, deleted from R2 by the founder; URL 404. Not a rollback target                    |
+| `facilities` v1.0 rollback (prepared)      | #40 | Draft, unmerged, base `develop`. Merge only if a rollback is needed (`DEPLOYMENT.md` §7.3)           |
+
+**Served now (staging and production):** `knowledge_base` v2.4 · `rules` v2.2 ·
+`token_dictionary` v1.1 · `facilities` v1.2.

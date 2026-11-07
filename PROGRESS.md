@@ -8,9 +8,42 @@
 
 ## Current Status
 
-**Phase:** I1 — Observability & Baseline · W1 — Privacy-Safe Product Analytics. **I1 is OPEN.** The backend staging-enablement gate has passed; the phase has not.
-**Sprint:** E8/E9 complete. I1/W1 backend contract merged (PR #29) and **staging-enablement gate PASSED 2026-08-11**
-**Stage:** Artifacts **frozen for beta** (E9.1) — `token_dictionary` v1.1, `knowledge_base` v2.4, `rules` v2.2, `facilities` v1.1, all verified live on staging. No artifact changes past this point without engineering lead approval.
+**As of 2026-11-07 (re-verified live):**
+
+| Item                  | State                                                                                                                                                 |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production            | **Live** — `https://api.wellapath.org` (Render `wellapath-backend-production`), `/version` `0.3.0`/`production`, `/health` 200 `database: "disabled"` |
+| Branches              | `origin/production` == `origin/develop` == **`fd7190b`** (PR #39 merge). `main` stale, unused                                                         |
+| Served artifacts      | `token_dictionary` 1.1 · `knowledge_base` 2.4 · `rules` 2.2 · **`facilities` 1.2** — staging and production identical                                 |
+| `/config` body sha256 | `bbf8024c04e946d41c22be4b6b858fe0ae83ffa1720ee6802776234272fe2d7b`                                                                                    |
+| Facilities v1.1       | **Retired** — deleted from R2 2026-09-29 13:41Z (licensing: 45 NHFR-derived numbers). URL 404. Not a rollback target                                  |
+| Facilities rollback   | **v1.0**, PR #40 (draft, base `develop`, dry-run verified 2026-11-07). See `docs/DEPLOYMENT.md` §7.3                                                  |
+| Stack                 | Render + Cloudflare R2; Supabase on staging only. AWS stack decommissioned (see `docs/DEPLOYMENT.md` §2)                                              |
+| Freeze                | E9.1 artifact freeze + distribution baseline 1.1.0. No artifact change without engineering-lead approval                                              |
+
+> ### 2026-11-07 — production state reconciled, rollback re-verified
+>
+> - **Docs corrected to the verified production state.** `DEPLOYMENT.md` (§1–3, §5, §7–9),
+>   `PRODUCTION_PROVISIONING.md` header (was "BLOCKED… nothing provisioned"),
+>   `ARTIFACT_RELEASE_PROCESS.md` (v1.2 entry, rollback-target rule) and this header had still
+>   described facilities 1.1 and/or an unprovisioned production.
+> - **How production moved:** `production` branch created 2026-09-21T14:00:49Z at `6cf642f`;
+>   fast-forward pushed to `fd7190b` at 2026-09-29T12:50:01Z, 44 s after PR #39 merged to
+>   `develop` (GitHub activity log). No PR into `production`.
+> - **Facilities v1.1 is gone from R2 on purpose:** deleted by the founder 2026-09-29 13:41Z after
+>   v1.2 was verified in production, so the 45 unlicensed numbers stop being served. Devices that
+>   cached v1.1 still hold it until app data is cleared.
+> - **Rollback PR #40 retargeted** from the merged `chore/facilities-v1-2-activation` to `develop`
+>   (clean, `MERGEABLE`, only the 4 intended files). Dry run at `3262156`: 676/676 tests, local
+>   production-profile boot, `/config` facilities 1.0, all four artifact hashes recomputed and
+>   matching. Not merged, not deployed.
+> - **New finding — invalid rollback targets:** `kb.ng.v2.1.json` on R2 hashes to `f90d5df6…`, not
+>   the `e5d9fd82…` that `/config` served for v2.1 (edited in place by KB commit `2a8ffaf`,
+>   2026-07-22); `kb`/`rules` v2.0 likewise mismatch (PR #16 incident). Removed from the
+>   rollback-target list. Valid targets: facilities 1.0, kb 2.3/2.2, rules 2.1, token_dictionary 1.0.
+> - **`CLAUDE.md` rewritten** to the current stack (Render, macOS, branches, database-optional)
+>   with **no AWS identifiers**; the AWS block was also removed from this file. Those identifiers
+>   **remain in Git history** of this public repo — history remediation is a founder decision.
 
 > ### ✅ I1 / W1 backend staging-enablement gate — PASSED (2026-08-11)
 >
@@ -225,7 +258,7 @@
 - [x] `src/artifacts/kb.ng.v1.0.json` — placeholder knowledge base artifact (`version: 1.0.0, status: placeholder, data: []`)
 - [x] `src/artifacts/rules.ng.v1.0.json` — placeholder rules artifact
 - [x] `src/artifacts/facilities.ng.v1.0.json` — placeholder facilities artifact
-- [x] All three artifacts uploaded to S3 (`wellapath-artifacts-staging`) and verified via CloudFront (`https://d179u2ex0g66o3.cloudfront.net`)
+- [x] All three artifacts uploaded to S3 (`wellapath-artifacts-staging`) and verified via CloudFront (AWS era; decommissioned)
 - [x] `GET /config` returns correct CloudFront URLs pointing to verified artifacts
 
 ### E5 — Facilities Integration
@@ -309,7 +342,7 @@ Delivered in PR #24. Written from what was verified against the repo and live st
 **Issues found while writing, documented rather than silently fixed:**
 
 - [x] **CI type check could not fail** — fixed separately in PR #25 (see below)
-- [ ] `CLAUDE.md` §1 still documents decommissioned AWS infrastructure (ECS/RDS/S3/CloudFront/Secrets Manager, with account IDs and ARNs). Corrected in `DEPLOYMENT.md` §2 rather than edited in place — `CLAUDE.md` is locked build law and needs **founder + engineering lead approval** to change
+- [x] `CLAUDE.md` §1 documented decommissioned AWS infrastructure with account IDs and ARNs — **rewritten 2026-11-07** (founder-authorised Sprint 1) with no AWS identifiers; the values remain in Git history
 - [ ] DB TLS uses `rejectUnauthorized: false` — encrypted but chain unverified. Fine for staging; **production gate** alongside certificate pinning
 - [ ] CORS production allowlist still references `api-staging.wellapath.org`, a superseded domain. Not the active branch today; correct before production
 - [ ] `.gitignore` byte defect — `.claude/` appended in UTF-16LE with no preceding newline. Git still parses it correctly (`git check-ignore` confirms `coverage/`, `.claude/`, and `.env` all ignored), so no exposure — housekeeping only
@@ -398,15 +431,15 @@ CORS headers confirmed active (`vary: Origin`).
 ## Key Config Values (Quick Reference)
 
 ```
-Server port:         3000 (must match ECS security group)
-ECS cluster:         wellapath-staging
-ECR repo:            812527292522.dkr.ecr.us-east-1.amazonaws.com/wellapath-backend
-CloudFront:          https://d179u2ex0g66o3.cloudfront.net
-API domain:          https://api-staging.wellapath.org
-RDS endpoint:        wellapath-staging-db.cclsme0gujar.us-east-1.rds.amazonaws.com
-DB secret ARN:       arn:aws:secretsmanager:us-east-1:812527292522:secret:wellapath/staging/db-dgHN1G
-App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellapath/staging/app-0rFlFx
+Server port:         3000 (PORT env var)
+Production API:      https://api.wellapath.org  (Render: wellapath-backend-production, branch production)
+Staging API:         https://wellapath-backend-staging.onrender.com  (branch develop)
+Artifact base URL:   https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev
+Production DB:       none (DATABASE_ENABLED=false)
 ```
+
+The earlier AWS values (ECS/ECR/RDS/Secrets Manager) were removed 2026-11-07; the stack is
+decommissioned. See `docs/DEPLOYMENT.md` §2.
 
 ---
 
@@ -432,9 +465,7 @@ App secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellap
 
 ## Session Notes
 
-- Windows 11 machine, VS Code + Claude Code + Git Bash
-- Always use Git Bash for git commands — never PowerShell or CMD
-- `curl` in PowerShell works for testing endpoints but uses `Invoke-WebRequest` format
+- Development now happens on **macOS** (zsh). The earlier Windows 11 / Git Bash notes no longer apply
 - dotenv v17 active — shows injection tip on startup, this is normal not an error
 
 ---
