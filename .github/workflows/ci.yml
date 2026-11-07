@@ -79,3 +79,41 @@ jobs:
         env:
           PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
         run: npm run test:community
+
+  sbom:
+    name: SBOM (CycloneDX, production dependencies)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # SOUP / SBOM evidence (REGULATORY_ENGINEERING_READINESS §3 item 4). Lists the
+      # production dependency tree from package-lock.json; dev dependencies are omitted.
+      # The generator is pinned and run through npx so it is not a project dependency.
+      - name: Generate CycloneDX SBOM
+        run: |
+          npx --yes @cyclonedx/cyclonedx-npm@6.0.1 \
+            --omit dev \
+            --spec-version 1.6 \
+            --output-reproducible \
+            --output-format JSON \
+            --output-file sbom.cdx.json
+          node -e "const b=require('./sbom.cdx.json'); if (b.bomFormat!=='CycloneDX'||!Array.isArray(b.components)||b.components.length===0) { console.error('SBOM is empty or malformed'); process.exit(1); } console.log('CycloneDX ' + b.specVersion + ': ' + b.components.length + ' components');"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-backend-${{ github.sha }}
+          path: sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 90
