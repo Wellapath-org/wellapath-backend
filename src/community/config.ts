@@ -245,7 +245,8 @@ export const loadCommunityConfig = (env: Env = process.env): CommunityConfig => 
     resend,
     emailOutboxDir: env.COMMUNITY_EMAIL_OUTBOX_DIR,
     authPurgeIntervalSeconds: int(env, 'COMMUNITY_AUTH_PURGE_INTERVAL_SECONDS', 900, 60, 3600),
-    accessTokenTtlSeconds: int(env, 'COMMUNITY_ACCESS_TOKEN_TTL_SECONDS', 900, 1, 900),
+    // P5 (founder-approved 2026-11-08): TokenPair.expires_in is 60–900.
+    accessTokenTtlSeconds: int(env, 'COMMUNITY_ACCESS_TOKEN_TTL_SECONDS', 900, 60, 900),
     memberLifetimes: DEFAULT_MEMBER_LIFETIMES,
     privilegedLifetimes: DEFAULT_PRIVILEGED_LIFETIMES,
     stepUpTtlSeconds: int(env, 'COMMUNITY_STEP_UP_TTL_SECONDS', 12 * HOUR, 1, 12 * HOUR),

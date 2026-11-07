@@ -2,15 +2,15 @@
 # Canonical source: WELLAPATH_ENGINEERING/community_api_v1.openapi.yaml (v1.0.0-draft),
 #   companion of WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md. On any conflict the MARKDOWN wins.
 # Do not edit here: change the canonical files by PR, then re-copy (the contract test
-# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (Appendix P decisions), unmodified below this header.
-# canonical-sha256: 58b255df128713e6420203fcb50581223a6eb7cdb43977dd20d5f4515cd1dac5
+# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (all Appendix P approvals), unmodified below this header.
+# canonical-sha256: 07e9c5afe4be0a564c1bda30959eb26c0c25b7b92e1bb7f4075a4e316b1f9d31
 
 # WellaPath Community API v1.0-draft (CANONICAL, pending founder sign-off). Must stay consistent with COMMUNITY_API_CONTRACT.md (markdown wins). Change only via PR to both files.
 openapi: "3.1.0"
 info:
   title: "WellaPath Community API"
   version: "1.0.0-draft"
-  description: "CANONICAL v1.0-draft; every Appendix P item decided (P1, P8, C3, C7, C8, D-019 approved by the founder 2026-11-08; C1, C6 as proposed); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/*: methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
+  description: "CANONICAL v1.0-draft; every Appendix P item approved by the founder (P6 2026-11-07; all others 2026-11-08); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/*: methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
   contact:
     name: "WellaPath engineering lead (API architect)"
   license:
@@ -388,7 +388,11 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "422":
-          $ref: "#/components/responses/Unprocessable"
+          description: "invalid_state, reason not_enrolled (no enrolment started) | already_in_state (TOTP already enrolled; C2, approved 2026-11-08)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -711,6 +715,7 @@ paths:
                 properties:
                   items:
                     type: "array"
+                    description: "P10 (approved and kept 2026-11-08): exactly general_health and pregnancy_maternal until a third space is explicitly approved"
                     minItems: 2
                     maxItems: 2
                     items:
@@ -1991,7 +1996,11 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          $ref: "#/components/responses/Unprocessable"
+          description: "invalid_state, reason not_pending: the verification is neither pending nor verified (C5, approved 2026-11-08)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -2396,13 +2405,17 @@ components:
           type: "string"
         expires_in:
           type: "integer"
+          minimum: 60
           maximum: 900
+          description: "P5 (approved 2026-11-08): access-token lifetime in seconds, min 60 / max 900"
         access_token_expires_at:
           type: "string"
           format: "date-time"
           description: "RFC 3339 UTC (Z), server clock"
         refresh_token:
           type: "string"
+          pattern: "^wprt_[A-Za-z0-9_-]{43,}$"
+          description: "P5 (approved 2026-11-08): opaque single-use refresh token"
         refresh_token_expires_at:
           type: "string"
           format: "date-time"
@@ -2582,6 +2595,21 @@ components:
     ProfessionalVerification:
       type: "object"
       additionalProperties: false
+      description: "P4 (approved 2026-11-08): verified_at is a timestamp only when status is verified, otherwise null"
+      if:
+        properties:
+          status:
+            const: "verified"
+        required:
+          - "status"
+      then:
+        properties:
+          verified_at:
+            type: "string"
+      else:
+        properties:
+          verified_at:
+            type: "null"
       required:
         - "id"
         - "profession"
@@ -2866,6 +2894,8 @@ components:
           $ref: "#/components/schemas/ReportTargetType"
         target_id:
           type: "string"
+          maxLength: 64
+          description: "P9 (approved 2026-11-08, with 64)"
         reason:
           $ref: "#/components/schemas/ReportReason"
         note:
@@ -2890,6 +2920,21 @@ components:
     Notification:
       type: "object"
       additionalProperties: false
+      description: "P4 (approved 2026-11-08): notice is a ModerationNotice only when type is moderation_notice, otherwise null"
+      if:
+        properties:
+          type:
+            const: "moderation_notice"
+        required:
+          - "type"
+      then:
+        properties:
+          notice:
+            $ref: "#/components/schemas/ModerationNotice"
+      else:
+        properties:
+          notice:
+            type: "null"
       required:
         - "id"
         - "type"
@@ -3223,6 +3268,21 @@ components:
     VerificationQueueItem:
       type: "object"
       additionalProperties: false
+      description: "P4 (approved 2026-11-08): verified_at is a timestamp only when status is verified, otherwise null"
+      if:
+        properties:
+          status:
+            const: "verified"
+        required:
+          - "status"
+      then:
+        properties:
+          verified_at:
+            type: "string"
+      else:
+        properties:
+          verified_at:
+            type: "null"
       required:
         - "id"
         - "account_id"

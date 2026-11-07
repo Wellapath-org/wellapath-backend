@@ -109,6 +109,7 @@ const requestSchema = (op: Operation): unknown | undefined =>
   op.op.requestBody?.content?.['application/json']?.schema;
 
 const errorValidator = compileRef({ $ref: '#/components/schemas/Error' });
+const NOW = '2026-11-08T10:15:00.000Z';
 
 // ------------------------------------------------------------------ the tests
 
@@ -166,6 +167,76 @@ describe('OpenAPI copy', () => {
     expect(refs).toHaveLength(14);
     expect(new Set(refs)).toEqual(new Set(['#/components/schemas/ModerationActionResult']));
     expect(JSON.stringify(spec.paths)).not.toContain('allOf');
+  });
+
+  it('P4 (approved): verified_at only when verified, notice only on moderation notices', () => {
+    const pv = compileRef({ $ref: '#/components/schemas/ProfessionalVerification' });
+    const base = { id: randomUUID(), profession: 'Midwife', specialty: null, created_at: NOW };
+    expect(pv({ ...base, status: 'verified', verified_at: NOW })).toBe(true);
+    expect(pv({ ...base, status: 'pending', verified_at: null })).toBe(true);
+    expect(pv({ ...base, status: 'verified', verified_at: null })).toBe(false);
+    expect(pv({ ...base, status: 'pending', verified_at: NOW })).toBe(false);
+    expect(pv({ ...base, status: 'revoked', verified_at: NOW })).toBe(false);
+    const queue = compileRef({ $ref: '#/components/schemas/VerificationQueueItem' });
+    const item = {
+      ...base,
+      account_id: 'acct',
+      display_name: null,
+      verified_by_account_id: null,
+    };
+    expect(queue({ ...item, status: 'pending', verified_at: null })).toBe(true);
+    expect(queue({ ...item, status: 'pending', verified_at: NOW })).toBe(false);
+    const note = compileRef({ $ref: '#/components/schemas/Notification' });
+    const n = { id: randomUUID(), post_id: null, comment_id: null, created_at: NOW, read_at: null };
+    expect(note({ ...n, type: 'moderation_notice', notice: 'content_hidden' })).toBe(true);
+    expect(note({ ...n, type: 'comment_reply', notice: null })).toBe(true);
+    expect(note({ ...n, type: 'moderation_notice', notice: null })).toBe(false);
+    expect(note({ ...n, type: 'reply_to_post', notice: 'content_hidden' })).toBe(false);
+  });
+
+  it('P5 (approved, min 60 / max 900): TokenPair bounds and the wprt_ pattern', () => {
+    const pair = compileRef({ $ref: '#/components/schemas/TokenPair' });
+    const me = {
+      account_id: 'acct',
+      email: 'a@b.ng',
+      role: 'member',
+      status: 'active',
+      restricted_until: null,
+      two_factor_enabled: false,
+      community_allowed: true,
+      created_at: NOW,
+      profile: null,
+    };
+    const ok = {
+      token_type: 'Bearer',
+      access_token: 'eyJ.x.y',
+      expires_in: 900,
+      access_token_expires_at: NOW,
+      refresh_token: `wprt_${'A'.repeat(43)}`,
+      refresh_token_expires_at: NOW,
+      account_created: false,
+      account: me,
+    };
+    expect(pair(ok)).toBe(true);
+    expect(pair({ ...ok, expires_in: 60 })).toBe(true);
+    expect(pair({ ...ok, expires_in: 59 })).toBe(false);
+    expect(pair({ ...ok, expires_in: 901 })).toBe(false);
+    expect(pair({ ...ok, refresh_token: 'rt_' + 'A'.repeat(43) })).toBe(false);
+    expect(pair({ ...ok, refresh_token: `wprt_${'A'.repeat(42)}` })).toBe(false);
+  });
+
+  it('P9 (approved, with 64), P10 (kept), C2 and C5 are in the spec', () => {
+    expect(spec.components.schemas.ReportCreate.properties.target_id.maxLength).toBe(64);
+    const spaces =
+      spec.paths['/v1/community/spaces'].get.responses['200'].content['application/json'].schema;
+    expect([spaces.properties.items.minItems, spaces.properties.items.maxItems]).toEqual([2, 2]);
+    expect(spec.paths['/v1/auth/totp/enrol/confirm'].post.responses['422'].description).toMatch(
+      /already_in_state/,
+    );
+    expect(
+      spec.paths['/v1/community/admin/verifications/{verification_id}/revoke'].post.responses['422']
+        .description,
+    ).toMatch(/not_pending/);
   });
 
   it('declares 52 operations with unique operationIds', () => {
@@ -517,6 +588,9 @@ describeDb('OpenAPI conformance (every operation)', () => {
     });
     await call('listVerifications', { user: admin, query: 'status=verified', expect: 200 });
     await call('getMe', { user: alice, expect: 200 }); // verified professional in Me
+    // P4: the verified branch of the if/then (verified_at is a timestamp).
+    const verified = await call('getProfessionalClaim', { user: alice, expect: 200 });
+    expect(verified.json()).toMatchObject({ status: 'verified', verified_at: expect.any(String) });
     await call('getPost', { user: bob, params: { post_id: postId }, expect: 200 }); // badge
     await call('revokeProfessional', {
       user: admin,
@@ -524,6 +598,13 @@ describeDb('OpenAPI conformance (every operation)', () => {
       body: R,
       expect: 200,
     });
+    // P4: the other branch (revoked ⇒ verified_at null), and both Notification branches.
+    const revoked = await call('getProfessionalClaim', { user: alice, expect: 200 });
+    expect(revoked.json()).toMatchObject({ status: 'revoked', verified_at: null });
+    await call('listVerifications', { user: admin, query: 'status=revoked', expect: 200 });
+    const aliceNotes = await call('listNotifications', { user: alice, expect: 200 });
+    const types = new Set(aliceNotes.json().items.map((n: { type: string }) => n.type));
+    expect([...types]).toEqual(expect.arrayContaining(['reply_to_post', 'moderation_notice']));
     await call('claimProfession', {
       user: alice,
       headers: idem(),

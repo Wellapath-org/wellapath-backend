@@ -147,11 +147,32 @@ describeDb('member surface', () => {
       ['bad!char', 'pattern'],
       ['call 0803123456', 'not_allowed_value'],
       ['john.doe.gmail.com', 'not_allowed_value'],
+      // P7 boundaries (founder-approved 2026-11-08), identical in the mobile client.
+      ['Mum1234567', 'not_allowed_value'], // 7 digits together
+      ['M1u2m3 4x5y6z7', 'not_allowed_value'], // 7 digits spread out
+      ['0 8 0 1 2 3 4', 'not_allowed_value'],
+      ['me@example.com', 'not_allowed_value'], // email-like wins over the pattern
+      ['a@b', 'not_allowed_value'],
+      ['sunny.NG', 'not_allowed_value'],
+      ['mum.app', 'not_allowed_value'],
     ])('rejects display_name %p (%s)', async (name, rule) => {
-      const res = await setProfile(app, alice, name);
+      // A fresh account per case: PUT /me/profile is limited to 10/h per account.
+      const user = await signIn(app, uniqueEmail('dn'));
+      app.config.allowlist.add(user.userId);
+      const res = await setProfile(app, user, name);
       expect(res.statusCode).toBe(400);
       expect(res.json().error.details).toEqual({ field: 'display_name', rule });
     });
+
+    it.each(['Mum123456', 'M1u2m3 4x5y6', 'Dr. Ada', 'ada.lovelace', 'cool.company x', '.com fan'])(
+      'P7: accepts %p (6 digits or fewer, not email-like)',
+      async name => {
+        const user = await signIn(app, uniqueEmail('p7ok'));
+        app.config.allowlist.add(user.userId);
+        const res = await setProfile(app, user, name);
+        expect(res.statusCode).toBe(200);
+      },
+    );
 
     it('display names are unique case-insensitively: 409 conflict display_name_taken', async () => {
       const res = await setProfile(app, bob, 'sunnymum');
@@ -534,6 +555,23 @@ describeDb('member surface', () => {
         note: string | null;
       }[];
       expect(row.note).toBeNull();
+    });
+
+    it('P9: target_id is capped at 64 characters (400 max_length); 64 passes the cap', async () => {
+      const long = await report(carol, {
+        target_type: 'post',
+        target_id: 'a'.repeat(65),
+        reason: 'spam',
+      });
+      expect(long.statusCode).toBe(400);
+      expect(long.json().error.details).toEqual({ field: 'target_id', rule: 'max_length' });
+      // 64 characters is within the cap; not a UUID, so the target is simply not found.
+      const atCap = await report(carol, {
+        target_type: 'post',
+        target_id: 'a'.repeat(64),
+        reason: 'spam',
+      });
+      expect(atCap.statusCode).toBe(404);
     });
 
     it('duplicate open report by the same account ⇒ 409 duplicate_report', async () => {

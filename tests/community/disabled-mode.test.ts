@@ -118,10 +118,19 @@ describe('Community configuration', () => {
     ).toThrow(/COMMUNITY_REFRESH_PEPPERS/);
   });
 
-  it('caps the access-token lifetime at 15 minutes (contract §3.2)', () => {
-    expect(() =>
-      loadCommunityConfig({ ...ENABLED_ENV, COMMUNITY_ACCESS_TOKEN_TTL_SECONDS: '901' }),
-    ).toThrow(/COMMUNITY_ACCESS_TOKEN_TTL_SECONDS/);
+  it('bounds the access-token lifetime to 60–900 s (contract §3.2, P5)', () => {
+    for (const bad of ['901', '59', '1']) {
+      expect(() =>
+        loadCommunityConfig({ ...ENABLED_ENV, COMMUNITY_ACCESS_TOKEN_TTL_SECONDS: bad }),
+      ).toThrow(/COMMUNITY_ACCESS_TOKEN_TTL_SECONDS/);
+    }
+    for (const ok of ['60', '900']) {
+      const config = loadCommunityConfig({
+        ...ENABLED_ENV,
+        COMMUNITY_ACCESS_TOKEN_TTL_SECONDS: ok,
+      });
+      expect(config.mode !== 'disabled' && config.accessTokenTtlSeconds).toBe(Number(ok));
+    }
   });
 
   it('refuses to boot enabled Community under NODE_ENV=production without the resend provider', () => {

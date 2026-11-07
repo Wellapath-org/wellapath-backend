@@ -145,6 +145,13 @@ describeDb('moderation and admin', () => {
       const res = await call(mod, 'POST', '/v1/auth/totp/enrol', {});
       expect(res.statusCode).toBe(409);
       expect(res.json().error.details).toEqual({ reason: 'totp_already_enrolled' });
+      // C2 (founder-approved 2026-11-08): confirming when already enrolled is 422 already_in_state.
+      const confirm = await call(mod, 'POST', '/v1/auth/totp/enrol/confirm', { code: '123456' });
+      expect(confirm.statusCode).toBe(422);
+      expect(confirm.json().error).toMatchObject({
+        code: 'invalid_state',
+        details: { reason: 'already_in_state' },
+      });
       // There is no self-service role field anywhere.
       const put = await app.server.inject({
         method: 'PUT',
@@ -626,6 +633,21 @@ describeDb('moderation and admin', () => {
         reason: 'licence lapsed per council',
       });
       expect(revoke.json().target_status).toBe('revoked');
+      // C5 (founder-approved 2026-11-08): neither pending nor verified ⇒ 422 not_pending, no row.
+      const again = await call(admin, 'POST', `/v1/community/admin/verifications/${vid}/revoke`, {
+        reason: 'licence lapsed per council',
+      });
+      expect(again.statusCode).toBe(422);
+      expect(again.json().error).toMatchObject({
+        code: 'invalid_state',
+        details: { reason: 'not_pending' },
+      });
+      const revokeRows = (await ownerQuery(
+        `SELECT count(*)::int AS n FROM moderation_actions
+          WHERE action = 'revoke_professional' AND target_id = $1`,
+        [vid],
+      )) as { n: number }[];
+      expect(revokeRows[0].n).toBe(1);
       const after = await call(nurse, 'GET', `/v1/community/posts/${p.json().id}`);
       expect(after.json().author.badge).toBeNull();
       const notices = (await call(nurse, 'GET', '/v1/community/notifications')).json().items;

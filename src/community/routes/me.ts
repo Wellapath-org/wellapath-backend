@@ -10,15 +10,26 @@ import { ApiError, conflict, invalidState, notFound, validation } from '../http'
 import { hasRole } from '../tokens';
 
 const DISPLAY_NAME = /^[A-Za-z0-9 _.-]+$/;
-const EMAIL_LIKE = /[A-Za-z0-9]\.(com|net|org|ng|io|co|uk|edu|gov|info|me|app)$/i;
+/**
+ * Contract §7.2 (P7, founder-approved 2026-11-08), identical in the mobile client: a name is
+ * email-like if it contains `@` or ends with `<letter|digit>.<common TLD>`.
+ */
+export const EMAIL_LIKE = /@|[A-Za-z0-9]\.(com|net|org|ng|io|co|uk|edu|gov|info|me|app)$/i;
+/** 7 or more digits in total, anywhere in the name, reads as a phone number. */
+export const MAX_DISPLAY_NAME_DIGITS = 6;
 
-/** Contract §7.2 display_name rules beyond the schema (pattern, 3–30). */
-const checkDisplayName = (name: string): void => {
+/**
+ * Contract §7.2 display_name rules beyond the schema's 3–30 length, in the contract's order:
+ * contact-detail check (400 not_allowed_value) first, then the character pattern (400 pattern).
+ */
+export const checkDisplayName = (name: string): void => {
+  const digits = (name.match(/[0-9]/g) ?? []).length;
+  if (digits > MAX_DISPLAY_NAME_DIGITS || EMAIL_LIKE.test(name)) {
+    throw validation('display_name', 'not_allowed_value');
+  }
   if (name !== name.trim() || / {2,}/.test(name) || !DISPLAY_NAME.test(name)) {
     throw validation('display_name', 'pattern');
   }
-  const digits = (name.match(/\d/g) ?? []).length;
-  if (digits >= 7 || EMAIL_LIKE.test(name)) throw validation('display_name', 'not_allowed_value');
 };
 
 export const registerMeRoutes = (server: FastifyInstance, ctx: CommunityContext): void => {
@@ -52,7 +63,8 @@ export const registerMeRoutes = (server: FastifyInstance, ctx: CommunityContext)
               type: 'string',
               minLength: 3,
               maxLength: 30,
-              pattern: '^[A-Za-z0-9 _.-]+$',
+              // The character pattern is checked in checkDisplayName, after the email-like
+              // check, so an email address is `not_allowed_value` (P7), not `pattern`.
             },
           },
         },
