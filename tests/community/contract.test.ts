@@ -589,8 +589,11 @@ describeDb('OpenAPI conformance (every operation)', () => {
     await call('listVerifications', { user: admin, query: 'status=verified', expect: 200 });
     await call('getMe', { user: alice, expect: 200 }); // verified professional in Me
     // P4: the verified branch of the if/then (verified_at is a timestamp).
-    const verified = await call('getProfessionalClaim', { user: alice, expect: 200 });
-    expect(verified.json()).toMatchObject({ status: 'verified', verified_at: expect.any(String) });
+    const verifiedClaim = await call('getProfessionalClaim', { user: alice, expect: 200 });
+    expect(verifiedClaim.json()).toMatchObject({
+      status: 'verified',
+      verified_at: expect.any(String),
+    });
     await call('getPost', { user: bob, params: { post_id: postId }, expect: 200 }); // badge
     await call('revokeProfessional', {
       user: admin,
