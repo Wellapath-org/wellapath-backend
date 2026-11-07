@@ -119,6 +119,8 @@ export interface TestAppOptions {
   outbox?: MemoryOutbox;
   /** A different sender under test (e.g. ResendSender with a mocked fetch). */
   email?: EmailSender;
+  /** C8: the website origin granted CORS on the Community paths. Default: none. */
+  websiteOrigin?: string | null;
 }
 
 export const testConfig = (
@@ -154,6 +156,7 @@ export const createCommunityApp = async (
     telemetryEnabled: false,
     rateLimitMax: 100000,
     trustProxyHops: options.trustProxyHops,
+    websiteOrigin: options.websiteOrigin ?? null,
     community: { config, email: options.email ?? outbox },
   });
   await built.server.ready();

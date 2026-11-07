@@ -103,6 +103,7 @@ Record in `DATABASE_ACCESS_MATRIX.md`: branch `staging`, date, the `--verify` bo
 | `COMMUNITY_REFRESH_PEPPERS`             | versioned: `1:<≥ 32 random chars>`, distinct from the auth secrets                                                                                              |
 | `COMMUNITY_BASE_URL`                    | the staging service's public base URL                                                                                                                           |
 | `COMMUNITY_ALLOWLIST`                   | comma-separated account ids of the internal testers (empty at first; add ids after their first sign-in)                                                         |
+| `COMMUNITY_WEBSITE_ORIGIN`              | leave **unset**: website `/admin` calls the API from its Next server, so no browser grant is needed (C8)                                                        |
 | `COMMUNITY_EMAIL_PROVIDER`              | `resend`. The image runs `NODE_ENV=production`, where an enabled Community refuses the test sinks and boots only with `resend`. Do **not** override `NODE_ENV`  |
 | `RESEND_API_KEY`                        | from `resend/staging.env`. Validated at boot (shape only), never logged or echoed                                                                               |
 | `COMMUNITY_EMAIL_FROM`                  | from `resend/staging.env`, e.g. `WellaPath <no-reply@…>` on the verified domain                                                                                 |

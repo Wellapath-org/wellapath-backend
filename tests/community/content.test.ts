@@ -385,6 +385,72 @@ describeDb('member surface', () => {
       ).toHaveLength(1);
     });
 
+    it('C7(d): comment_reply skips suspended, deleted and hidden-comment authors (restricted still told)', async () => {
+      const op = await memberWithProfile(app, 'c7op', 'C7Poster');
+      const target = (await post(op, { body: 'C7(d) thread', display_mode: 'named' })).json()
+        .id as string;
+      const commenters: Record<string, SignedIn> = {};
+      for (const label of [
+        'visible',
+        'hidden',
+        'ownDeleted',
+        'suspended',
+        'deleted',
+        'restricted',
+      ]) {
+        commenters[label] = await memberWithProfile(app, `c7${label}`, `C7${label}`);
+      }
+      const commentIds: Record<string, string> = {};
+      for (const [label, user] of Object.entries(commenters)) {
+        const res = await comment(user, target, { body: `from ${label}`, display_mode: 'named' });
+        expect(res.statusCode).toBe(201);
+        commentIds[label] = res.json().id;
+      }
+      // Each earlier commenter got their own reply notifications while the thread grew; start clean.
+      await ownerQuery(`DELETE FROM notifications WHERE post_id = $1`, [target]);
+      await ownerQuery(`UPDATE comments SET status = 'hidden' WHERE id = $1`, [commentIds.hidden]);
+      const del = await app.server.inject({
+        method: 'DELETE',
+        url: `/v1/community/comments/${commentIds.ownDeleted}`,
+        headers: bearer(commenters.ownDeleted.accessToken),
+      });
+      expect(del.statusCode).toBe(204);
+      for (const [label, kind] of [
+        ['suspended', 'suspended'],
+        ['restricted', 'restricted'],
+      ] as const) {
+        await ownerQuery(
+          `INSERT INTO account_restrictions (user_id, kind, reason, created_by)
+           VALUES ($1, $2, 'C7(d) test restriction', $3)`,
+          [commenters[label].userId, kind, op.userId],
+        );
+      }
+      const gone = await app.server.inject({
+        method: 'POST',
+        url: '/v1/community/me/delete',
+        headers: bearer(commenters.deleted.accessToken),
+        payload: { confirm: 'DELETE MY ACCOUNT' },
+      });
+      expect(gone.statusCode).toBe(204);
+
+      const newcomer = await memberWithProfile(app, 'c7new', 'C7Newcomer');
+      expect(
+        (await comment(newcomer, target, { body: 'late reply', display_mode: 'named' })).statusCode,
+      ).toBe(201);
+      const notified = (
+        (await ownerQuery(
+          `SELECT user_id FROM notifications WHERE post_id = $1 AND type = 'comment_reply'`,
+          [target],
+        )) as { user_id: string }[]
+      ).map(r => r.user_id);
+      expect(notified.sort()).toEqual(
+        [commenters.visible.userId, commenters.restricted.userId].sort(),
+      );
+      // The post author still gets reply_to_post; the newcomer is never told about their own reply.
+      expect(notified).not.toContain(op.userId);
+      expect(notified).not.toContain(newcomer.userId);
+    });
+
     it('mark-read (own only, idempotent), unread-count and read-all', async () => {
       const list = (await get(bob, '/v1/community/notifications')).json();
       const id = list.items[0].id;

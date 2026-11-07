@@ -229,13 +229,177 @@ describeDb('auth facade (A2)', () => {
       expect(reasonOf(res)).toBe('refresh_invalid');
     });
 
-    it('rejects a malformed refresh request body (400)', async () => {
+    it('C6: any bad refresh token is 401 refresh_invalid; only the body shape is a 400', async () => {
+      for (const token of ['nope', '', `wprt_${'A'.repeat(10)}`, `wprt_${'A'.repeat(300)}`]) {
+        const res = await refresh(app, token, randomUUID());
+        expect(res.statusCode).toBe(401);
+        expect(res.json().error.code).toBe('unauthenticated');
+        expect(reasonOf(res)).toBe('refresh_invalid');
+      }
+      for (const payload of [
+        { device_id: randomUUID() },
+        { refresh_token: 42, device_id: randomUUID() },
+        { refresh_token: `wprt_${'A'.repeat(43)}`, device_id: 'not-a-uuid' },
+        { refresh_token: `wprt_${'A'.repeat(43)}`, device_id: randomUUID(), extra: 1 },
+      ]) {
+        const res = await app.server.inject({ method: 'POST', url: '/v1/auth/refresh', payload });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('validation_failed');
+      }
+    });
+  });
+
+  describe('D-019 refresh-race window (tightened, founder 2026-11-08)', () => {
+    const familyEvents = async (
+      familyId: string,
+    ): Promise<{ event: string; detail: Record<string, unknown> }[]> =>
+      (await ownerQuery(
+        `SELECT event, detail FROM auth_events
+          WHERE family_id = $1 AND event IN ('refresh_race', 'refresh_reuse_detected') ORDER BY id`,
+        [familyId],
+      )) as { event: string; detail: Record<string, unknown> }[];
+    const familyRevoked = async (familyId: string): Promise<string | null> =>
+      (
+        (await ownerQuery(`SELECT revoke_reason FROM refresh_token_families WHERE id = $1`, [
+          familyId,
+        ])) as { revoke_reason: string | null }[]
+      )[0].revoke_reason;
+
+    /** A signed-in user whose first token was just rotated: the old token is "used", < 10 s. */
+    const rotatedOnce = async (
+      label: string,
+    ): Promise<{ user: SignedIn; next: { refresh_token: string; access_token: string } }> => {
+      const user = await signIn(app, uniqueEmail(label));
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(200);
+      return { user, next: res.json() };
+    };
+
+    it('all conditions hold ⇒ 409 refresh_race, nothing revoked, and the race is logged', async () => {
+      const { user, next } = await rotatedOnce('race-ok');
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatchObject({
+        code: 'conflict',
+        details: { reason: 'refresh_race' },
+      });
+      expect(await familyRevoked(user.familyId)).toBeNull();
+      expect(await familyEvents(user.familyId)).toEqual([
+        {
+          event: 'refresh_race',
+          detail: {
+            endpoint: 'refresh',
+            outcome: 'tolerated',
+            within_race_window: true,
+            same_device: true,
+            same_family: true,
+            replacement_unused: true,
+          },
+        },
+      ]);
+      // The winner's pair still works.
+      expect((await refresh(app, next.refresh_token, user.deviceId)).statusCode).toBe(200);
+    });
+
+    it('a different device_id (inside the window, replacement unused) ⇒ revoked as reuse', async () => {
+      const { user, next } = await rotatedOnce('race-device');
+      const res = await refresh(app, user.refreshToken, randomUUID());
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('refresh_reused');
+      expect(await familyRevoked(user.familyId)).toBe('reuse_detected');
+      expect((await refresh(app, next.refresh_token, user.deviceId)).statusCode).toBe(401);
+      const [event] = await familyEvents(user.familyId);
+      expect(event).toEqual({
+        event: 'refresh_reuse_detected',
+        detail: expect.objectContaining({
+          outcome: 'revoked',
+          within_race_window: true,
+          same_device: false,
+          same_family: true,
+          replacement_unused: true,
+          device_mismatch: true,
+        }),
+      });
+    });
+
+    it('a replacement outside the token family (inside the window, same device) ⇒ revoked as reuse', async () => {
+      const { user } = await rotatedOnce('race-family');
+      const other = await signIn(app, uniqueEmail('race-family-other'));
+      // The used token's replacement pointer leaves its family (a corrupted or forged chain).
+      await ownerQuery(
+        `UPDATE refresh_tokens SET replaced_by = (
+           SELECT id FROM refresh_tokens WHERE family_id = $2 LIMIT 1)
+          WHERE family_id = $1 AND used_at IS NOT NULL`,
+        [user.familyId, other.familyId],
+      );
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('refresh_reused');
+      expect(await familyRevoked(user.familyId)).toBe('reuse_detected');
+      expect((await familyEvents(user.familyId))[0].detail).toMatchObject({
+        within_race_window: true,
+        same_device: true,
+        same_family: false,
+      });
+      // The other account's family is untouched.
+      expect(await familyRevoked(other.familyId)).toBeNull();
+    });
+
+    it('a replacement that was already used (inside the window, same device) ⇒ revoked as reuse', async () => {
+      const { user, next } = await rotatedOnce('race-used');
+      const third = await refresh(app, next.refresh_token, user.deviceId);
+      expect(third.statusCode).toBe(200);
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('refresh_reused');
+      expect(await familyRevoked(user.familyId)).toBe('reuse_detected');
+      expect((await refresh(app, third.json().refresh_token, user.deviceId)).statusCode).toBe(401);
+      expect((await familyEvents(user.familyId))[0].detail).toMatchObject({
+        within_race_window: true,
+        same_device: true,
+        same_family: true,
+        replacement_unused: false,
+      });
+    });
+
+    it('outside the 10 s window (same device, same family, replacement unused) ⇒ revoked as reuse', async () => {
+      const { user } = await rotatedOnce('race-late');
+      await ownerQuery(
+        `UPDATE refresh_tokens SET used_at = now() - interval '11 seconds'
+          WHERE family_id = $1 AND used_at IS NOT NULL`,
+        [user.familyId],
+      );
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(401);
+      expect(await familyRevoked(user.familyId)).toBe('reuse_detected');
+      expect((await familyEvents(user.familyId))[0].detail).toMatchObject({
+        within_race_window: false,
+        same_device: true,
+        same_family: true,
+        replacement_unused: true,
+      });
+    });
+
+    it('concurrent losers are judged by the same rule, and every one is logged', async () => {
+      const user = await signIn(app, uniqueEmail('race-concurrent'));
+      const results = await Promise.all(
+        [0, 1, 2].map(() => refresh(app, user.refreshToken, user.deviceId)),
+      );
+      expect(results.map(r => r.statusCode).sort()).toEqual([200, 409, 409]);
+      const events = await familyEvents(user.familyId);
+      expect(events.map(e => e.event)).toEqual(['refresh_race', 'refresh_race']);
+      expect(await familyRevoked(user.familyId)).toBeNull();
+    });
+
+    it('P6 unchanged: at logout a superseded token revokes even inside the window', async () => {
+      const { user } = await rotatedOnce('race-logout');
       const res = await app.server.inject({
         method: 'POST',
-        url: '/v1/auth/refresh',
-        payload: { refresh_token: 'nope', device_id: randomUUID() },
+        url: '/v1/auth/logout',
+        payload: { refresh_token: user.refreshToken },
       });
-      expect(res.statusCode).toBe(400);
+      expect(res.statusCode).toBe(204);
+      expect(await familyRevoked(user.familyId)).toBe('reuse_detected');
     });
   });
 

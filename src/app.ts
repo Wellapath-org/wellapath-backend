@@ -13,6 +13,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
+import { corsDelegator, parseWebsiteOrigin } from './config/cors';
 import { parseTrustProxyHops } from './config/trust-proxy';
 import { loadCommunityConfig } from './community/config';
 import { registerCommunity, RegisterCommunityOptions } from './community';
@@ -55,6 +56,11 @@ export interface BuildAppOptions {
    * `request.ip` is the socket peer). Never `true` (ADR-001 A3).
    */
   trustProxyHops?: number;
+  /**
+   * The website origin granted CORS on `/v1/community/*` and `/v1/auth/*` (C8). Omitted →
+   * `COMMUNITY_WEBSITE_ORIGIN`; `null` → none.
+   */
+  websiteOrigin?: string | null;
 }
 
 export interface BuiltApp {
@@ -128,11 +134,23 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
     },
   });
 
+  const communityConfig = options.community?.config ?? loadCommunityConfig();
+  const websiteOrigin =
+    options.websiteOrigin === null
+      ? undefined
+      : (options.websiteOrigin ??
+        parseWebsiteOrigin(process.env.COMMUNITY_WEBSITE_ORIGIN, config.nodeEnv));
+
+  // Two policies (src/config/cors.ts, contract §1 C8). App-wide: the allowlist above with
+  // GET/POST/OPTIONS (POST is required for telemetry intake), unchanged for /config and every
+  // other route. /v1/community/* and /v1/auth/*: only the configured website origin, which may
+  // also use PUT and DELETE, never with credentials.
   await server.register(cors, {
-    origin: ALLOWED_ORIGINS,
-    // POST is required for telemetry intake; it was GET-only while the service had no write
-    // surface at all. No other method is permitted.
-    methods: ['GET', 'POST', 'OPTIONS'],
+    delegator: corsDelegator({
+      appOrigin: ALLOWED_ORIGINS,
+      websiteOrigin,
+      communityEnabled: communityConfig.mode !== 'disabled',
+    }),
   });
 
   await server.register(rateLimit, {
@@ -222,7 +240,7 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   // config, its own pool, no effect on /config, /health or /version.
   await registerCommunity(server, {
     ...options.community,
-    config: options.community?.config ?? loadCommunityConfig(),
+    config: communityConfig,
     trustProxyConfigured: trustProxyHops !== undefined,
   });
 

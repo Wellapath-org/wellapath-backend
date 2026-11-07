@@ -382,6 +382,81 @@ describeDb('moderation and admin', () => {
       expect(none.json().error.details).toEqual({ reason: 'not_restricted_or_suspended' });
     });
 
+    it('C3: a repeated restrict or suspend is 422 already_in_state and writes NO audit row', async () => {
+      const carol = await memberWithProfile(app, 'c3carol', 'CarolC3');
+      const countFor = async (action: string): Promise<number> =>
+        (
+          (await ownerQuery(
+            `SELECT count(*)::int AS n FROM moderation_actions WHERE target_id = $1 AND action = $2`,
+            [carol.userId, action],
+          )) as { n: number }[]
+        )[0].n;
+      const restrictionsFor = async (): Promise<number> =>
+        (
+          (await ownerQuery(
+            `SELECT count(*)::int AS n FROM account_restrictions WHERE user_id = $1`,
+            [carol.userId],
+          )) as { n: number }[]
+        )[0].n;
+      const notices = async (): Promise<number> =>
+        (
+          (await ownerQuery(
+            `SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND type = 'moderation_notice'`,
+            [carol.userId],
+          )) as { n: number }[]
+        )[0].n;
+
+      const first = await call(mod, 'POST', `/v1/community/mod/accounts/${carol.userId}/restrict`, {
+        reason: REASON,
+      });
+      expect(first.statusCode).toBe(200);
+      expect(await countFor('restrict_account')).toBe(1);
+      const before = { restrictions: await restrictionsFor(), notices: await notices() };
+      const again = await call(mod, 'POST', `/v1/community/mod/accounts/${carol.userId}/restrict`, {
+        reason: REASON,
+      });
+      expect(again.statusCode).toBe(422);
+      expect(again.json().error).toMatchObject({
+        code: 'invalid_state',
+        details: { reason: 'already_in_state' },
+      });
+      expect(await countFor('restrict_account')).toBe(1);
+      expect({ restrictions: await restrictionsFor(), notices: await notices() }).toEqual(before);
+
+      // Suspend: the first one revokes the sessions; the repeat changes nothing at all.
+      const suspended = await call(
+        mod,
+        'POST',
+        `/v1/community/mod/accounts/${carol.userId}/suspend`,
+        { reason: REASON },
+      );
+      expect(suspended.statusCode).toBe(200);
+      expect(await countFor('suspend_account')).toBe(1);
+      const families = async (): Promise<number> =>
+        (
+          (await ownerQuery(
+            `SELECT count(*)::int AS n FROM auth_events WHERE account_id = $1 AND event = 'family_revoked'`,
+            [carol.userId],
+          )) as { n: number }[]
+        )[0].n;
+      const snapshot = {
+        restrictions: await restrictionsFor(),
+        notices: await notices(),
+        revoked: await families(),
+      };
+      const repeat = await call(mod, 'POST', `/v1/community/mod/accounts/${carol.userId}/suspend`, {
+        reason: REASON,
+      });
+      expect(repeat.statusCode).toBe(422);
+      expect(repeat.json().error.details).toEqual({ reason: 'already_in_state' });
+      expect(await countFor('suspend_account')).toBe(1);
+      expect({
+        restrictions: await restrictionsFor(),
+        notices: await notices(),
+        revoked: await families(),
+      }).toEqual(snapshot);
+    });
+
     it('a moderator cannot suspend an admin or themselves; an admin can suspend a moderator', async () => {
       const onAdmin = await call(
         mod,

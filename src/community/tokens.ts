@@ -10,8 +10,8 @@
  *   suspension and family revocation immediate.
  * - Refresh token: opaque `wprt_…`, single use, stored as HMAC-SHA-256(pepper_vN, token). Each
  *   refresh marks the presented token used with a compare-and-set and issues a new one in the
- *   same family. Presenting a used token (outside the 10 s same-device race window) or a token
- *   from another device revokes the whole family.
+ *   same family. Presenting a used token or a token from another device revokes the whole
+ *   family, except for the D-019 race: same device, same family, replacement unused, < 10 s.
  */
 import { randomUUID } from 'crypto';
 import { createLocalJWKSet, JSONWebKeySet, jwtVerify, JWTPayload } from 'jose';
@@ -56,11 +56,38 @@ declare module 'fastify' {
 
 export const RACE_WINDOW_SECONDS = 10;
 
+/** Contract §3.2: `wprt_` + base64url. Anything else is a bad refresh token (C6: 401). */
+export const REFRESH_TOKEN_FORMAT = /^wprt_[A-Za-z0-9_-]{43,}$/;
+
+interface PresentedToken {
+  token_id: string;
+  used_at: Date | null;
+  used_recently: boolean;
+  family_id: string;
+  user_id: string;
+  device_id: string;
+  revoked_at: Date | null;
+  revoke_reason: string | null;
+  expired: boolean;
+  role: Role;
+  replacement_family_id: string | null;
+  replacement_unused: boolean;
+}
+
 const ROLE_RANK: Record<Role, number> = { member: 0, moderator: 1, admin: 2 };
 export const hasRole = (actual: Role, required: Role): boolean =>
   ROLE_RANK[actual] >= ROLE_RANK[required];
 
 const unauthenticated = (reason: string): ApiError => new ApiError('unauthenticated', { reason });
+
+const revokedError = (row: { revoke_reason: string | null }): ApiError =>
+  unauthenticated(
+    row.revoke_reason === 'reuse_detected'
+      ? 'refresh_reused'
+      : row.revoke_reason === 'expired'
+        ? 'refresh_expired'
+        : 'session_revoked',
+  );
 
 /** SQL: the active restriction for `"user" u`, suspension first. */
 export const ACTIVE_RESTRICTION_SQL = `
@@ -434,6 +461,74 @@ export class TokenService {
     return { outcome: 'revoked', ...ids };
   }
 
+  /** The presented token, its family and its replacement (D-019 needs all three). */
+  private async presented(candidates: { hash: string }[]): Promise<PresentedToken | undefined> {
+    const { rows } = await this.pool.query<PresentedToken>(
+      `SELECT t.id AS token_id, t.used_at,
+              (t.used_at IS NOT NULL AND t.used_at > now() - make_interval(secs => $2)) AS used_recently,
+              f.id AS family_id, f.user_id, f.device_id::text AS device_id, f.revoked_at,
+              f.revoke_reason,
+              (f.absolute_expires_at <= now() OR f.idle_expires_at <= now()) AS expired,
+              u."role",
+              n.family_id AS replacement_family_id,
+              (n.id IS NOT NULL AND n.used_at IS NULL) AS replacement_unused
+         FROM refresh_tokens t
+         JOIN refresh_token_families f ON f.id = t.family_id
+         JOIN "user" u ON u."id" = f.user_id
+         LEFT JOIN refresh_tokens n ON n.id = t.replaced_by
+        WHERE t.token_hash = ANY($1::text[])
+        LIMIT 1`,
+      [candidates.map(c => c.hash), RACE_WINDOW_SECONDS],
+    );
+    return rows[0];
+  }
+
+  /**
+   * A used token was presented again (D-019, founder-approved 2026-11-08). It is tolerated
+   * (409 `refresh_race`, nothing revoked) only when ALL hold: it was used < 10 s ago, from the
+   * family's own `device_id`, its replacement is in the same family, and that replacement has
+   * not been used yet. Anything else is reuse: the family is revoked as `reuse_detected`. Both
+   * outcomes are written to `auth_events` with the four conditions, so every race is on record.
+   */
+  private async usedTokenPresented(
+    row: PresentedToken,
+    deviceId: string,
+    ip: string | undefined,
+  ): Promise<never> {
+    const conditions = {
+      within_race_window: row.used_recently,
+      same_device: row.device_id === deviceId,
+      same_family:
+        row.replacement_family_id !== null && row.replacement_family_id === row.family_id,
+      replacement_unused: row.replacement_unused === true,
+    };
+    if (Object.values(conditions).every(Boolean)) {
+      await this.events.record('refresh_race', {
+        accountId: row.user_id,
+        familyId: row.family_id,
+        ip,
+        detail: { endpoint: 'refresh', outcome: 'tolerated', ...conditions },
+      });
+      throw new ApiError('conflict', { reason: 'refresh_race' });
+    }
+    return this.reuseDetected(row, ip, { ...conditions, device_mismatch: !conditions.same_device });
+  }
+
+  private async reuseDetected(
+    row: PresentedToken,
+    ip: string | undefined,
+    detail: Record<string, unknown>,
+  ): Promise<never> {
+    await this.events.record('refresh_reuse_detected', {
+      accountId: row.user_id,
+      familyId: row.family_id,
+      ip,
+      detail: { endpoint: 'refresh', outcome: 'revoked', ...detail },
+    });
+    await this.revokeFamily(row.family_id, 'reuse_detected');
+    throw unauthenticated('refresh_reused');
+  }
+
   /**
    * Rotates a refresh token. Returns the new refresh token and the family's account, or throws
    * the contract error.
@@ -441,62 +536,27 @@ export class TokenService {
   async rotate(
     refreshToken: string,
     deviceId: string,
+    opts: { ip?: string } = {},
   ): Promise<{ userId: string; familyId: string; refreshToken: string; absoluteExpiresAt: Date }> {
-    const candidates = this.hasher.refreshHashCandidates(refreshToken);
-    const { rows } = await this.pool.query<{
-      token_id: string;
-      used_at: Date | null;
-      used_recently: boolean;
-      family_id: string;
-      user_id: string;
-      device_id: string;
-      revoked_at: Date | null;
-      revoke_reason: string | null;
-      expired: boolean;
-      role: Role;
-    }>(
-      `SELECT t.id AS token_id, t.used_at,
-              (t.used_at IS NOT NULL AND t.used_at > now() - make_interval(secs => $2)) AS used_recently,
-              f.id AS family_id, f.user_id, f.device_id::text AS device_id, f.revoked_at,
-              f.revoke_reason,
-              (f.absolute_expires_at <= now() OR f.idle_expires_at <= now()) AS expired,
-              u."role"
-         FROM refresh_tokens t
-         JOIN refresh_token_families f ON f.id = t.family_id
-         JOIN "user" u ON u."id" = f.user_id
-        WHERE t.token_hash = ANY($1::text[])
-        LIMIT 1`,
-      [candidates.map(c => c.hash), RACE_WINDOW_SECONDS],
-    );
-    const row = rows[0];
-    if (!row) throw unauthenticated('refresh_invalid');
-    if (row.revoked_at) {
-      throw unauthenticated(
-        row.revoke_reason === 'reuse_detected'
-          ? 'refresh_reused'
-          : row.revoke_reason === 'expired'
-            ? 'refresh_expired'
-            : 'session_revoked',
-      );
+    // C6 (approved): any bad refresh token, malformed included, is 401 refresh_invalid.
+    if (!REFRESH_TOKEN_FORMAT.test(refreshToken) || refreshToken.length > 256) {
+      throw unauthenticated('refresh_invalid');
     }
-    const reuse = async (): Promise<never> => {
-      await this.events.record('refresh_reuse_detected', {
-        accountId: row.user_id,
-        familyId: row.family_id,
-        detail: { device_mismatch: row.device_id !== deviceId },
-      });
-      await this.revokeFamily(row.family_id, 'reuse_detected');
-      throw unauthenticated('refresh_reused');
-    };
-    if (row.device_id !== deviceId) return reuse();
+    const candidates = this.hasher.refreshHashCandidates(refreshToken);
+    const row = await this.presented(candidates);
+    if (!row) throw unauthenticated('refresh_invalid');
+    if (row.revoked_at) throw revokedError(row);
+    // Another device: always reuse (A2). A used token still goes through the race rule so the
+    // event carries every condition; same_device is false, so it is never tolerated.
+    if (row.device_id !== deviceId) {
+      if (row.used_at) return this.usedTokenPresented(row, deviceId, opts.ip);
+      return this.reuseDetected(row, opts.ip, { device_mismatch: true, same_device: false });
+    }
     if (row.expired) {
       await this.revokeFamily(row.family_id, 'expired');
       throw unauthenticated('refresh_expired');
     }
-    if (row.used_at) {
-      if (row.used_recently) throw new ApiError('conflict', { reason: 'refresh_race' });
-      return reuse();
-    }
+    if (row.used_at) return this.usedTokenPresented(row, deviceId, opts.ip);
 
     const life = this.lifetimes(row.role);
     const next = newRefreshToken();
@@ -509,8 +569,13 @@ export class TokenService {
         [row.token_id],
       );
       if (cas.rowCount === 0) {
+        // Lost a truly concurrent rotation. The winner has committed by now (the row lock was
+        // held until then), so the token is judged by the same D-019 rule as any used token.
         await client.query('ROLLBACK');
-        throw new ApiError('conflict', { reason: 'refresh_race' });
+        const again = await this.presented(candidates);
+        if (!again) throw unauthenticated('refresh_invalid');
+        if (again.revoked_at) throw revokedError(again);
+        return this.usedTokenPresented(again, deviceId, opts.ip);
       }
       const inserted = await client.query<{ id: string }>(
         `INSERT INTO refresh_tokens (family_id, token_hash, pepper_version) VALUES ($1, $2, $3)

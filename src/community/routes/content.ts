@@ -250,14 +250,23 @@ export const registerContentRoutes = (server: FastifyInstance, ctx: CommunityCon
                 commentId: id,
               });
             }
-            // comment_reply: earlier commenters on the post (not the post author, not the new
-            // commenter), at most one unread per post per recipient.
+            // comment_reply (C7(d), founder-approved 2026-11-08): earlier commenters on the post
+            // whose comment there is still visible and whose account is active (not deleted, not
+            // suspended; a restricted, read-only account is still told). Never the post author or
+            // the new commenter; at most one unread per post per recipient.
             await client.query(
               `INSERT INTO notifications (user_id, type, post_id, comment_id)
                SELECT DISTINCT c.author_id, 'comment_reply', $1::uuid, $2::uuid
                  FROM comments c
                  JOIN "user" u ON u."id" = c.author_id AND u."deletedAt" IS NULL
-                WHERE c.post_id = $1 AND c.author_id <> $3 AND c.author_id <> $4
+                WHERE c.post_id = $1 AND c.status = 'visible'
+                  AND c.author_id <> $3 AND c.author_id <> $4
+                  AND NOT EXISTS (
+                    SELECT 1 FROM account_restrictions r
+                     WHERE r.user_id = c.author_id AND r.kind = 'suspended'
+                       AND r.lifted_at IS NULL
+                       AND (r.expires_at IS NULL OR r.expires_at > now())
+                  )
                   AND NOT EXISTS (
                     SELECT 1 FROM notifications n
                      WHERE n.user_id = c.author_id AND n.type = 'comment_reply'

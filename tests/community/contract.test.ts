@@ -11,12 +11,10 @@
  *    sent also validating against the operation's request schema;
  * 3. representative error responses validate against the `Error` envelope.
  *
- * Proposed contract fix (recorded in POC_COMMUNITY_AUTH_RESULTS.md, Sprint 3): the YAML models
- * a mutating moderator response as `allOf: [ModerationAction, {target_status, …}]`, but
- * `ModerationAction` has `additionalProperties: false`, so NO object with `target_status` can
- * validate — while the markdown (§12, which wins) requires `ModerationAction + target_status`.
- * The test validates those responses against the evident intent: ModerationAction's properties
- * plus the optional `target_status` / `sessions_revoked` / `target_role`, nothing else.
+ * C1 (founder-approved): every mutating moderator/admin response is `ModerationActionResult`
+ * (ModerationAction's fields plus `target_status` / `sessions_revoked` / `target_role`, nothing
+ * else). The earlier test-side workaround for the unsatisfiable `allOf` is gone: responses are
+ * validated against the spec as written.
  */
 import { createHash, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
@@ -79,36 +77,13 @@ const operations: Operation[] = Object.entries(spec.paths).flatMap(([path, item]
 
 // ------------------------------------------------------------------ schema compilation
 
-const MOD_RESULT = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'id',
-    'actor_account_id',
-    'action',
-    'target_type',
-    'target_id',
-    'reason',
-    'created_at',
-  ],
-  properties: {
-    ...spec.components.schemas.ModerationAction.properties,
-    target_status: { type: 'string' },
-    sessions_revoked: { type: 'integer' },
-    target_role: { $ref: '#/components/schemas/Role' },
-  },
-};
-
-const isModResult = (schema: { allOf?: { $ref?: string }[] }): boolean =>
-  Array.isArray(schema?.allOf) && schema.allOf[0]?.$ref === '#/components/schemas/ModerationAction';
-
 const ajv = new Ajv2020({ strict: false, allErrors: true });
 addFormats(ajv);
 ajv.addSchema({ ...spec, $id: 'openapi' });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const compileRef = (schema: any): ((data: unknown) => boolean) & { errors?: unknown } => {
-  const resolved = isModResult(schema) ? MOD_RESULT : schema;
+  const resolved = schema;
   const rewrite = (node: unknown): unknown => {
     if (Array.isArray(node)) return node.map(rewrite);
     if (node && typeof node === 'object') {
@@ -156,9 +131,41 @@ describe('OpenAPI copy', () => {
     expect(Object.keys(op.responses).sort()).toEqual(['204', '400', '401', '429', '503']);
     expect(spec.components.schemas.LogoutRequest.properties.refresh_token).toEqual({
       type: 'string',
-      pattern: spec.components.schemas.RefreshRequest.properties.refresh_token.pattern,
+      pattern: '^wprt_[A-Za-z0-9_-]{43,}$',
       maxLength: 256,
     });
+  });
+
+  it('refresh (A3, C6 approved): no token pattern in the schema; any bad token is 401', () => {
+    const token = spec.components.schemas.RefreshRequest.properties.refresh_token;
+    expect(token.type).toBe('string');
+    expect(token).not.toHaveProperty('pattern');
+    expect(token.description).toMatch(/401 unauthenticated, reason refresh_invalid, never 400/);
+    const op = spec.paths['/v1/auth/refresh'].post;
+    expect(op.responses['409'].description).toMatch(/refresh_race/);
+    expect(op['x-wellapath-audit']).toContain('refresh_race');
+  });
+
+  it('C1 (approved): every mutating moderator/admin 200 is ModerationActionResult', () => {
+    const result = spec.components.schemas.ModerationActionResult;
+    expect(result.additionalProperties).toBe(false);
+    expect(Object.keys(result.properties).sort()).toEqual(
+      [
+        ...Object.keys(spec.components.schemas.ModerationAction.properties),
+        'target_status',
+        'sessions_revoked',
+        'target_role',
+      ].sort(),
+    );
+    const mutating = operations.filter(
+      o => o.method === 'POST' && /^\/v1\/community\/(mod|admin)\//.test(o.path),
+    );
+    const refs = mutating
+      .filter(o => o.id !== 'revealIdentity')
+      .map(o => o.op.responses['200'].content['application/json'].schema.$ref);
+    expect(refs).toHaveLength(14);
+    expect(new Set(refs)).toEqual(new Set(['#/components/schemas/ModerationActionResult']));
+    expect(JSON.stringify(spec.paths)).not.toContain('allOf');
   });
 
   it('declares 52 operations with unique operationIds', () => {
@@ -550,6 +557,11 @@ describeDb('OpenAPI conformance (every operation)', () => {
     await call('logout', { body: {}, expect: 400 }); // no bearer ⇒ refresh_token required
     await call('logout', { body: { refresh_token: 'nope' }, invalid: true, expect: 400 });
     await call('logout', { headers: { authorization: 'Bearer nope' }, body: {}, expect: 401 });
+    // C6: a malformed refresh token is a bad token (401 refresh_invalid), not a 400.
+    await call('refreshTokens', {
+      body: { refresh_token: 'nope', device_id: randomUUID() },
+      expect: 401,
+    });
     await call('getPost', { user: bob, params: { post_id: 'nope' }, expect: 404 });
     await call('createPost', {
       user: bob,

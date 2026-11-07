@@ -2,15 +2,15 @@
 # Canonical source: WELLAPATH_ENGINEERING/community_api_v1.openapi.yaml (v1.0.0-draft),
 #   companion of WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md. On any conflict the MARKDOWN wins.
 # Do not edit here: change the canonical files by PR, then re-copy (the contract test
-# tests/community/contract.test.ts loads this file). Copied 2026-11-08, unmodified below this header.
-# canonical-sha256: b88749cf946edeea40031ea502d025beebd8656999eb75f7f15b150b5fcbb533
+# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (Appendix P decisions), unmodified below this header.
+# canonical-sha256: 58b255df128713e6420203fcb50581223a6eb7cdb43977dd20d5f4515cd1dac5
 
 # WellaPath Community API v1.0-draft (CANONICAL, pending founder sign-off). Must stay consistent with COMMUNITY_API_CONTRACT.md (markdown wins). Change only via PR to both files.
 openapi: "3.1.0"
 info:
   title: "WellaPath Community API"
   version: "1.0.0-draft"
-  description: "CANONICAL v1.0-draft, pending founder sign-off. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
+  description: "CANONICAL v1.0-draft; every Appendix P item decided (P1, P8, C3, C7, C8, D-019 approved by the founder 2026-11-08; C1, C6 as proposed); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/*: methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
   contact:
     name: "WellaPath engineering lead (API architect)"
   license:
@@ -139,8 +139,9 @@ paths:
       security: []
       x-wellapath-role: "none"
       x-wellapath-2fa: false
+      description: "D-019 (approved, tightened 2026-11-08): a used token presented again is tolerated (409 refresh_race, no revocation) only when ALL hold: used less than 10 s ago, the same device_id as the family, its replacement in the same token family, and that replacement not yet used. Any other reuse revokes the family as reuse_detected (401 refresh_reused). Every race event is logged in auth_events (refresh_race when tolerated, refresh_reuse_detected otherwise). C6 (approved): any bad refresh token is 401 refresh_invalid; 400 only for the body's shape."
       x-wellapath-rate-limit: "per family 10/min; per IP 120/min [interim global 3000/min]"
-      x-wellapath-audit: "auth_events refresh_rotated|refresh_reuse_detected|family_revoked"
+      x-wellapath-audit: "auth_events refresh_rotated|refresh_race|refresh_reuse_detected|family_revoked"
       requestBody:
         required: true
         content:
@@ -155,13 +156,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenPair"
         "400":
-          $ref: "#/components/responses/BadRequest"
+          description: "validation_failed, only for the body's shape (missing field, non-string refresh_token, malformed device_id, unknown field)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
-          $ref: "#/components/responses/Unauthenticated"
+          description: "unauthenticated, reason refresh_invalid (any malformed or unknown token, C6) | refresh_reused (family revoked) | refresh_expired | session_revoked"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          $ref: "#/components/responses/Conflict"
+          description: "conflict, reason refresh_race: only under the D-019 rule above; nothing was revoked and the event was logged"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -647,7 +660,8 @@ paths:
         - "self"
       security:
         - bearerAuth: []
-      x-wellapath-role: "member (privileged must be demoted first)"
+      description: "P1 (approved 2026-11-08): self-deletion is for members only. A moderator or admin gets 422 invalid_state, reason privileged_account; their account is deleted by an admin after a role handover. P8: deleting the account erases every stored device_id (the families are deleted)."
+      x-wellapath-role: "member only (moderator/admin: 422 privileged_account; deleted by an admin after a role handover)"
       x-wellapath-2fa: false
       x-wellapath-rate-limit: "3/24h per account"
       x-wellapath-audit: "moderation_actions delete_account + auth_events account_deleted"
@@ -1220,16 +1234,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1374,16 +1379,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1425,16 +1421,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1476,16 +1463,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1527,16 +1505,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1578,16 +1547,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1629,16 +1589,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1680,16 +1631,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1699,7 +1641,11 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          $ref: "#/components/responses/Unprocessable"
+          description: "invalid_state, reason already_in_state when the account is already restricted: nothing changes and NO moderation_actions row is written (C3, approved 2026-11-08); or idempotency_key_reused"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -1731,16 +1677,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1750,7 +1687,11 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          $ref: "#/components/responses/Unprocessable"
+          description: "invalid_state, reason already_in_state when the account is already suspended: nothing changes and NO moderation_actions row is written (C3, approved 2026-11-08); or idempotency_key_reused"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "503":
@@ -1782,16 +1723,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1885,16 +1817,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1936,16 +1859,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2025,16 +1939,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2076,16 +1981,7 @@ paths:
           content:
             "application/json":
               schema:
-                allOf:
-                  - $ref: "#/components/schemas/ModerationAction"
-                  - type: "object"
-                    properties:
-                      target_status:
-                        type: "string"
-                      sessions_revoked:
-                        type: "integer"
-                      target_role:
-                        $ref: "#/components/schemas/Role"
+                $ref: "#/components/schemas/ModerationActionResult"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2375,6 +2271,7 @@ components:
         - "dismissed"
     NotificationType:
       type: "string"
+      description: "comment_reply (C7(d), approved 2026-11-08) goes only to earlier commenters whose comment on the post is still visible and whose account is active (not suspended, not deleted); never the post author or the new commenter; at most one unread per post per recipient"
       enum:
         - "reply_to_post"
         - "comment_reply"
@@ -2466,7 +2363,7 @@ components:
       properties:
         refresh_token:
           type: "string"
-          pattern: "^wprt_[A-Za-z0-9_-]{43,}$"
+          description: "C6 (approved): any string passes the schema. A token that is malformed (not ^wprt_[A-Za-z0-9_-]{43,}$, or longer than 256 characters) or unknown gets 401 unauthenticated, reason refresh_invalid, never 400."
         device_id:
           type: "string"
           format: "uuid"
@@ -2543,7 +2440,7 @@ components:
         expires_at:
           type: "string"
           format: "date-time"
-          description: "RFC 3339 UTC (Z), server clock"
+          description: "RFC 3339 UTC (Z), server clock. The effective expiry: the idle limit capped by the absolute limit (C7(a))"
         current:
           type: "boolean"
     TotpEnrolment:
@@ -2653,6 +2550,7 @@ components:
         display_name:
           type: "string"
         professional:
+          description: "The active (pending or verified) claim, or null. GET /v1/community/me/professional-claim returns the latest claim of any status (C7(b))"
           oneOf:
             - $ref: "#/components/schemas/ProfessionalVerification"
             - type: "null"
@@ -3213,6 +3111,44 @@ components:
           type: "string"
           format: "date-time"
           description: "RFC 3339 UTC (Z), server clock"
+    ModerationActionResult:
+      type: "object"
+      additionalProperties: false
+      description: "C1 (approved): the 200 body of every mutating moderator/admin route. The ModerationAction fields plus the outcome fields below, and nothing else, so no identity key can appear."
+      required:
+        - "id"
+        - "actor_account_id"
+        - "action"
+        - "target_type"
+        - "target_id"
+        - "reason"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        actor_account_id:
+          type: "string"
+        action:
+          $ref: "#/components/schemas/ModerationActionType"
+        target_type:
+          $ref: "#/components/schemas/ModerationTargetType"
+        target_id:
+          type: "string"
+        reason:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        target_status:
+          type: "string"
+          description: "The target's state after the action (hidden, removed, visible, dismissed, restricted, suspended, active, verified, revoked)"
+        sessions_revoked:
+          type: "integer"
+          minimum: 0
+          description: "Families revoked by the action (suspend)"
+        target_role:
+          $ref: "#/components/schemas/Role"
     ModerationActionPage:
       type: "object"
       additionalProperties: false

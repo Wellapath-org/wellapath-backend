@@ -248,7 +248,9 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
           required: ['refresh_token', 'device_id'],
           additionalProperties: false,
           properties: {
-            refresh_token: { type: 'string', pattern: '^wprt_[A-Za-z0-9_-]{43,}$', maxLength: 256 },
+            // C6 (approved): only the type is checked here. A malformed token is a bad refresh
+            // token like an unknown one, so TokenService.rotate answers 401 refresh_invalid.
+            refresh_token: { type: 'string' },
             device_id: { type: 'string', format: 'uuid' },
           },
         },
@@ -266,7 +268,9 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
           ip,
         });
       }
-      const rotated = await s.tokens.rotate(body.refresh_token, body.device_id.toLowerCase());
+      const rotated = await s.tokens.rotate(body.refresh_token, body.device_id.toLowerCase(), {
+        ip,
+      });
       return reply.send(
         await tokenPair(
           rotated.userId,

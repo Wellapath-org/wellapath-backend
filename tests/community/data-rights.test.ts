@@ -35,6 +35,7 @@ describeDb('export and deletion', () => {
   let hiddenPostId: string;
   let reportedPostId: string;
   let commentOnOther: string;
+  let secondDevice: SignedIn;
 
   const call = (
     method: 'GET' | 'POST' | 'PUT',
@@ -164,6 +165,44 @@ describeDb('export and deletion', () => {
     expect(res.json().error.details).toEqual({ reason: 'privileged_account' });
   });
 
+  it('P1: export is available to every role; self-deletion is for members only', async () => {
+    const res = await call('GET', '/v1/community/me/export', moderator.accessToken);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      format: 'wellapath-community-export',
+      account: { id: moderator.userId, role: 'moderator' },
+    });
+    const admin = await privilegedUser(app, 'dradmin', 'admin');
+    expect((await call('GET', '/v1/community/me/export', admin.accessToken)).statusCode).toBe(200);
+    const del = await call('POST', '/v1/community/me/delete', admin.accessToken, {
+      confirm: 'DELETE MY ACCOUNT',
+    });
+    expect(del.statusCode).toBe(422);
+    expect(del.json().error.details).toEqual({ reason: 'privileged_account' });
+    // Nothing was deleted or audited for the refused request.
+    const audited = await db.query(
+      `SELECT count(*)::int AS n FROM moderation_actions
+        WHERE action = 'delete_account' AND target_id = $1`,
+      [admin.userId],
+    );
+    expect(audited.rows[0].n).toBe(0);
+  });
+
+  it('P8: sign-out keeps the device_id on the (revoked) family row', async () => {
+    secondDevice = await signIn(app, user.email);
+    const out = await app.server.inject({
+      method: 'POST',
+      url: '/v1/auth/logout',
+      payload: { refresh_token: secondDevice.refreshToken },
+    });
+    expect(out.statusCode).toBe(204);
+    const { rows } = await db.query(
+      `SELECT device_id::text AS device_id, revoke_reason FROM refresh_token_families WHERE id = $1`,
+      [secondDevice.familyId],
+    );
+    expect(rows).toEqual([{ device_id: secondDevice.deviceId, revoke_reason: 'logout' }]);
+  });
+
   describe('after deletion', () => {
     beforeAll(async () => {
       const res = await call('POST', '/v1/community/me/delete', user.accessToken, {
@@ -253,6 +292,26 @@ describeDb('export and deletion', () => {
         [user.userId],
       );
       expect(ev.rows[0].n).toBe(1);
+    });
+
+    it('P8: account deletion erases every device_id of the account', async () => {
+      for (const deviceId of [user.deviceId, secondDevice.deviceId]) {
+        const families = await db.query(
+          `SELECT count(*)::int AS n FROM refresh_token_families WHERE device_id = $1`,
+          [deviceId],
+        );
+        expect(families.rows[0].n).toBe(0);
+        const events = await db.query(
+          `SELECT count(*)::int AS n FROM auth_events WHERE detail::text LIKE $1`,
+          [`%${deviceId}%`],
+        );
+        expect(events.rows[0].n).toBe(0);
+        const actions = await db.query(
+          `SELECT count(*)::int AS n FROM moderation_actions WHERE evidence::text LIKE $1`,
+          [`%${deviceId}%`],
+        );
+        expect(actions.rows[0].n).toBe(0);
+      }
     });
 
     it('the deleted account’s tokens no longer work', async () => {

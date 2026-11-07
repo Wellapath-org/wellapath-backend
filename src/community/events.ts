@@ -12,6 +12,8 @@ export type AuthEvent =
   | 'family_created'
   | 'refresh_rotated'
   | 'refresh_reuse_detected'
+  /** A tolerated D-019 refresh race (409, nothing revoked). Migration 0010. */
+  | 'refresh_race'
   | 'family_revoked'
   | 'logout'
   | 'sessions_revoked_by_user'
