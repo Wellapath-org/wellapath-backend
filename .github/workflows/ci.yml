@@ -70,5 +70,12 @@ jobs:
           psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_owner LOGIN PASSWORD 'ci-owner'"
           psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_app LOGIN PASSWORD 'ci-app'"
           psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_community_test OWNER community_owner"
+      - name: Install pg_dump 17 (must match the server major version)
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
       - name: Run Community suites
+        env:
+          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
         run: npm run test:community
