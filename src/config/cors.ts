@@ -60,9 +60,25 @@ export const parseWebsiteOrigin = (
   return url.origin;
 };
 
+const hasCommunityPrefix = (path: string): boolean =>
+  COMMUNITY_CORS_PREFIXES.some(prefix => path.startsWith(prefix));
+
+/**
+ * Classifies a request for the two policies (SEC-005). The router matches the percent-DECODED
+ * path (`/v1/%61uth/otp/request` reaches the `/v1/auth/otp/request` route), so the scope is
+ * decided on the decoded path too, not on the raw URL. Ambiguity resolves to the restrictive
+ * Community policy: the path is in scope if either its raw or its decoded form has a Community
+ * prefix, and a path that cannot be decoded (malformed `%`) is treated as in scope.
+ */
 export const isCommunityCorsPath = (url: string): boolean => {
-  const path = url.split('?')[0];
-  return COMMUNITY_CORS_PREFIXES.some(prefix => path.startsWith(prefix));
+  const raw = url.split(/[?#]/, 1)[0];
+  if (hasCommunityPrefix(raw)) return true;
+  if (!raw.includes('%')) return false;
+  try {
+    return hasCommunityPrefix(decodeURIComponent(raw));
+  } catch {
+    return true;
+  }
 };
 
 export interface CorsPolicyOptions {

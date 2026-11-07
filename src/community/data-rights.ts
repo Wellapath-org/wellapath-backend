@@ -93,6 +93,19 @@ export const exportUser = async (pool: Pool, userId: string): Promise<UserExport
   };
 };
 
+/**
+ * The Better Auth email-OTP purposes (better-auth 1.7.18 `emailOTP`, `toOTPIdentifier`): each
+ * pending code is one `verification` row with identifier `<type>-otp-<lower-cased email>`.
+ * (`change-email` rows are keyed by account id + the NEW address, and that flow is not exposed.)
+ */
+export const OTP_TYPES = ['sign-in', 'email-verification', 'forget-password'] as const;
+
+/** The exact `verification` identifiers that can hold a pending code for [email]. */
+export const otpIdentifiers = (email: string): string[] => {
+  const forms = [...new Set([email, email.toLowerCase()])];
+  return OTP_TYPES.flatMap(type => forms.map(form => `${type}-otp-${form}`));
+};
+
 const snapshotOpenReports = async (
   client: PoolClient,
   userId: string,
@@ -147,8 +160,11 @@ export const deleteUser = async (
 
     await tokens.revokeAllForUser(userId, 'account_deleted', client);
     await client.query('DELETE FROM refresh_token_families WHERE user_id = $1', [userId]);
-    // Pending OTPs are keyed by `sign-in-otp-<email>` style identifiers.
-    await client.query(`DELETE FROM "verification" WHERE "identifier" LIKE '%' || $1`, [email]);
+    // Pending OTPs: exact identifiers only (SEC-008). A LIKE pattern built from the address
+    // would treat `_` / `%` in it as wildcards and delete other users' pending codes.
+    await client.query(`DELETE FROM "verification" WHERE "identifier" = ANY($1::text[])`, [
+      otpIdentifiers(email),
+    ]);
     await client.query('DELETE FROM notifications WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM professional_verifications WHERE user_id = $1', [userId]);
     await client.query('DELETE FROM profiles WHERE user_id = $1', [userId]);

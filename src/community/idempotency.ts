@@ -1,11 +1,14 @@
 /**
  * Idempotency-Key handling for create endpoints (contract §1.2).
  *
- * Stores (account, method, route template, key) → (SHA-256 of the canonical body, status,
- * response) for 24 h. Same key + same body ⇒ replay with `Idempotent-Replayed: true` (no rate
- * limit, no duplicate notification); same key + different body ⇒ 422
- * `idempotency_key_reused`; same key still in flight ⇒ 409 `idempotency_in_progress`. 429 and
- * 5xx outcomes are not stored, so the client may retry.
+ * Stores (account, method, route template, key) → (SHA-256 of the canonical request, status,
+ * response) for 24 h. The canonical request is method + route template + path parameters + body
+ * (SEC-006): the route template carries no ids, so without the path parameters a key reused on
+ * another target (another account, post or space) would replay the first target's result and
+ * silently skip the action. Same key + same request ⇒ replay with `Idempotent-Replayed: true`
+ * (no rate limit, no duplicate notification); same key + different body or different target ⇒
+ * 422 `idempotency_key_reused`; same key still in flight ⇒ 409 `idempotency_in_progress`. 429
+ * and 5xx outcomes are not stored, so the client may retry.
  */
 import { createHash } from 'crypto';
 import { FastifyRequest } from 'fastify';
@@ -25,6 +28,17 @@ const canonical = (value: unknown): string => {
   }
   return JSON.stringify(value ?? null);
 };
+
+/** SHA-256 of the canonical request: method, route template, path parameters and body. */
+export const requestHash = (
+  method: string,
+  route: string,
+  params: Record<string, unknown>,
+  body: unknown,
+): string =>
+  createHash('sha256')
+    .update(canonical({ method, route, params: params ?? {}, body: body ?? null }))
+    .digest('hex');
 
 export interface StoredResult {
   status: number;
@@ -63,9 +77,10 @@ export class IdempotencyStore {
     route: string,
     key: string | undefined,
     body: unknown,
+    params: Record<string, unknown> = {},
   ): Promise<IdempotencyOutcome> {
     if (!key) return { kind: 'none' };
-    const hash = createHash('sha256').update(canonical(body)).digest('hex');
+    const hash = requestHash(method, route, params, body);
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const inserted = await this.pool.query(
         `INSERT INTO idempotency_keys (account_id, method, route, key, request_hash)

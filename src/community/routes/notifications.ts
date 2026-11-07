@@ -34,7 +34,10 @@ export const registerNotificationRoutes = (
   // N1
   server.get('/v1/community/notifications', async (request, reply) => {
     const principal = await ctx.member(request, reply);
-    const q = parsePage(request.query as Record<string, unknown>, 'notifications', ['t', 'id']);
+    const q = parsePage(request.query as Record<string, unknown>, 'notifications', {
+      t: 'timestamp',
+      id: 'uuid',
+    });
     const { rows } = await s.pool.query(
       `SELECT id, type, post_id, comment_id, notice, created_at, read_at,
               ${cursorTs('created_at')} AS cursor_ts

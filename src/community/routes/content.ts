@@ -101,7 +101,10 @@ export const registerContentRoutes = (server: FastifyInstance, ctx: CommunityCon
     const principal = await ctx.member(request, reply);
     const { space_id } = request.params as { space_id: string };
     if (!(SPACE_IDS as readonly string[]).includes(space_id)) throw notFound();
-    const q = parsePage(request.query as Record<string, unknown>, `posts:${space_id}`, ['t', 'id']);
+    const q = parsePage(request.query as Record<string, unknown>, `posts:${space_id}`, {
+      t: 'timestamp',
+      id: 'uuid',
+    });
     const { rows } = await s.pool.query(
       `SELECT ${POST_COLUMNS} FROM posts t ${AUTHOR_JOIN}
         WHERE t.space_id = $2 AND t.status = 'visible'
@@ -199,7 +202,10 @@ export const registerContentRoutes = (server: FastifyInstance, ctx: CommunityCon
     const principal = await ctx.member(request, reply);
     const id = requireUuid((request.params as { post_id: string }).post_id);
     if (!(await loadPost(principal.userId, id))) throw notFound();
-    const q = parsePage(request.query as Record<string, unknown>, `comments:${id}`, ['t', 'id']);
+    const q = parsePage(request.query as Record<string, unknown>, `comments:${id}`, {
+      t: 'timestamp',
+      id: 'uuid',
+    });
     const { rows } = await s.pool.query(
       `SELECT ${COMMENT_COLUMNS} FROM comments t ${AUTHOR_JOIN}
         WHERE t.post_id = $2 AND t.status = 'visible'

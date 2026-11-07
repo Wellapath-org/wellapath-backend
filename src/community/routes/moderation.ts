@@ -156,7 +156,7 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
     const status = (query.status as string | undefined) ?? 'open';
     if (!REPORT_STATUSES.includes(status)) throw validation('status', 'enum');
     const list = `reports:${status}`;
-    const q = parsePage(query, list, ['p', 't', 'id']);
+    const q = parsePage(query, list, { p: 'int', t: 'timestamp', id: 'uuid' });
     const open = status === 'open';
     // open: self_harm_or_emergency first, then oldest first. Others: newest first.
     const { rows } = await s.pool.query(
@@ -525,7 +525,7 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
     const targetId = filter('target_id');
     const actorId = filter('actor_account_id');
     const action = filter('action', ACTION_TYPES);
-    const q = parsePage(query, 'actions', ['id']);
+    const q = parsePage(query, 'actions', { id: 'bigint' });
     const { rows } = await s.pool.query(
       `SELECT id, actor_account_id, action, target_type, target_id, reason, created_at
          FROM moderation_actions
@@ -577,6 +577,15 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
     },
     async (request, reply) =>
       mutate(request, reply, 'admin', 'POST /admin/accounts/{id}/role', async (actor, client) => {
+        // SEC-010: serialise every role change on the admin set. Lock all admin rows, in one
+        // order, BEFORE the target row, so two concurrent demotions cannot both count 2 and
+        // commit (0 admins). The second waits, then re-reads the set after the first commits
+        // (READ COMMITTED re-checks `role` on the locked rows) and gets 422 last_admin. The
+        // single lock order (admins by id, then the target) cannot deadlock with another X1.
+        await client.query(
+          `SELECT "id" FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL
+            ORDER BY "id" FOR UPDATE`,
+        );
         const target = await adminTarget(
           client,
           actor,
@@ -654,7 +663,7 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
     const status = (query.status as string | undefined) ?? 'pending';
     if (!['pending', 'verified', 'revoked'].includes(status)) throw validation('status', 'enum');
     const list = `verifications:${status}`;
-    const q = parsePage(query, list, ['t', 'id']);
+    const q = parsePage(query, list, { t: 'timestamp', id: 'uuid' });
     const { rows } = await s.pool.query(
       `SELECT v.id, v.user_id, pr.display_name, v.profession, v.specialty, v.status, v.created_at,
               v.verified_at, v.verified_by, ${cursorTs('v.created_at')} AS cursor_ts

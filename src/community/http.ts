@@ -240,10 +240,52 @@ export interface PageQuery {
 export const encodeCursor = (list: string, key: Record<string, string | number>): string =>
   Buffer.from(JSON.stringify({ l: list, k: key })).toString('base64url');
 
+/**
+ * What each cursor field must be before it reaches SQL (SEC-011). The values are cast in the
+ * query (`::timestamptz`, `::uuid`, `::int`, `::bigint`), so anything else would fail the cast and
+ * surface as 500; it is a 400 `validation_failed` `cursor` / `format` instead (contract §1.1).
+ * - `timestamp`: the exact shape the server issues (`cursorTs`), a real UTC instant;
+ * - `uuid`: lower-case canonical UUID;
+ * - `int`: a JSON integer in the int4 range;
+ * - `bigint`: a decimal string of a positive int8.
+ */
+export type CursorField = 'timestamp' | 'uuid' | 'int' | 'bigint';
+
+const CURSOR_TS = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?Z$/;
+const INT8_MAX = BigInt('9223372036854775807');
+
+const validCursorValue = (kind: CursorField, v: unknown): boolean => {
+  switch (kind) {
+    case 'timestamp': {
+      if (typeof v !== 'string') return false;
+      const m = CURSOR_TS.exec(v);
+      if (!m) return false;
+      const [year, month, day, hour, minute, second] = m.slice(1, 7).map(Number);
+      const d = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+      // Round-trip: rejects 2026-02-30, 24:00:00, month 13 and the like.
+      return (
+        year >= 1 &&
+        d.getUTCFullYear() === year &&
+        d.getUTCMonth() === month - 1 &&
+        d.getUTCDate() === day &&
+        d.getUTCHours() === hour &&
+        d.getUTCMinutes() === minute &&
+        d.getUTCSeconds() === second
+      );
+    }
+    case 'uuid':
+      return typeof v === 'string' && UUID.test(v);
+    case 'int':
+      return typeof v === 'number' && Number.isInteger(v) && v >= -2147483648 && v <= 2147483647;
+    case 'bigint':
+      return typeof v === 'string' && /^[1-9][0-9]{0,18}$/.test(v) && BigInt(v) <= INT8_MAX;
+  }
+};
+
 export const parsePage = (
   query: Record<string, unknown> | undefined,
   list: string,
-  cursorKeys: string[],
+  cursorFields: Record<string, CursorField>,
 ): PageQuery => {
   const q = query ?? {};
   let limit = 20;
@@ -254,21 +296,30 @@ export const parsePage = (
     if (limit < 1 || limit > 50) throw validation('limit', 'type');
   }
   if (q.cursor === undefined) return { limit };
-  if (typeof q.cursor !== 'string' || q.cursor.length > 512) throw validation('cursor', 'format');
+  if (typeof q.cursor !== 'string' || q.cursor.length > 512 || !/^[A-Za-z0-9_-]+$/.test(q.cursor)) {
+    throw validation('cursor', 'format');
+  }
+  let decoded: unknown;
   try {
-    const decoded = JSON.parse(Buffer.from(q.cursor, 'base64url').toString('utf8')) as {
-      l?: unknown;
-      k?: Record<string, unknown>;
-    };
-    if (decoded.l !== list || !decoded.k || typeof decoded.k !== 'object') throw new Error('list');
-    for (const key of cursorKeys) {
-      const v = decoded.k[key];
-      if (typeof v !== 'string' && typeof v !== 'number') throw new Error('key');
-    }
-    return { limit, cursor: decoded.k as Record<string, string | number> };
+    decoded = JSON.parse(Buffer.from(q.cursor, 'base64url').toString('utf8'));
   } catch {
     throw validation('cursor', 'format');
   }
+  if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) {
+    throw validation('cursor', 'format');
+  }
+  const { l, k } = decoded as { l?: unknown; k?: unknown };
+  if (l !== list || !k || typeof k !== 'object' || Array.isArray(k)) {
+    throw validation('cursor', 'format');
+  }
+  const key = k as Record<string, unknown>;
+  const names = Object.keys(cursorFields);
+  if (Object.keys(key).length !== names.length) throw validation('cursor', 'format');
+  for (const name of names) {
+    if (!Object.prototype.hasOwnProperty.call(key, name)) throw validation('cursor', 'format');
+    if (!validCursorValue(cursorFields[name], key[name])) throw validation('cursor', 'format');
+  }
+  return { limit, cursor: key as Record<string, string | number> };
 };
 
 /** SQL fragment rendering a timestamptz with microseconds, for exact keyset cursors. */

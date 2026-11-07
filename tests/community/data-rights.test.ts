@@ -21,10 +21,13 @@ import {
   ownerPool,
   privilegedUser,
   refresh,
+  requestOtp,
   resetDatabase,
   signIn,
   SignedIn,
+  verifyOtp,
 } from './helpers';
+import { otpIdentifiers } from '../../src/community/data-rights';
 
 describeDb('export and deletion', () => {
   let app: CommunityTestApp;
@@ -376,4 +379,66 @@ describeDb('export and deletion', () => {
       }
     },
   );
+});
+
+describeDb('SEC-008: deletion removes only the account’s own pending sign-in codes', () => {
+  let app: CommunityTestApp;
+  let db: Pool;
+  beforeAll(async () => {
+    app = await createCommunityApp();
+    db = ownerPool();
+  });
+  afterAll(async () => {
+    await db.end();
+    await app.close();
+  });
+
+  const pending = async (emails: string[]): Promise<number> =>
+    (
+      await db.query(
+        `SELECT count(*)::int AS n FROM "verification" WHERE "identifier" = ANY($1::text[])`,
+        [emails.map(e => `sign-in-otp-${e}`)],
+      )
+    ).rows[0].n;
+
+  it('LIKE metacharacters in the address match nothing else; other users’ codes survive', async () => {
+    const stamp = `${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const deleterEmail = `q_z.${stamp}@example.test`;
+    const deleter = await signIn(app, deleterEmail);
+    // `_` would be a single-character wildcard, a leading `%` any prefix.
+    const others = [`qyz.${stamp}@example.test`, `xq_z.${stamp}@example.test`];
+    for (const e of others) expect((await requestOtp(app, e)).statusCode).toBe(202);
+    // The deleter's own pending code (requested again after signing in) must go.
+    expect((await requestOtp(app, deleterEmail)).statusCode).toBe(202);
+    expect(await pending(others)).toBe(2);
+    expect(await pending([deleterEmail])).toBe(1);
+
+    const del = await app.server.inject({
+      method: 'POST',
+      url: '/v1/community/me/delete',
+      headers: bearer(deleter.accessToken),
+      payload: { confirm: 'DELETE MY ACCOUNT' },
+    });
+    expect(del.statusCode).toBe(204);
+    expect(await pending([deleterEmail])).toBe(0);
+    expect(await pending(others)).toBe(2);
+    const code = app.outbox.latestOtp(others[0], 'sign-in');
+    expect((await verifyOtp(app, others[0], code)).statusCode).toBe(200);
+  });
+
+  it('matches the exact Better Auth identifiers, case-folded, with no pattern', () => {
+    expect(otpIdentifiers('A_b%c@Example.test')).toEqual([
+      'sign-in-otp-A_b%c@Example.test',
+      'sign-in-otp-a_b%c@example.test',
+      'email-verification-otp-A_b%c@Example.test',
+      'email-verification-otp-a_b%c@example.test',
+      'forget-password-otp-A_b%c@Example.test',
+      'forget-password-otp-a_b%c@example.test',
+    ]);
+    expect(otpIdentifiers('a@b.ng')).toEqual([
+      'sign-in-otp-a@b.ng',
+      'email-verification-otp-a@b.ng',
+      'forget-password-otp-a@b.ng',
+    ]);
+  });
 });

@@ -2,15 +2,15 @@
 # Canonical source: WELLAPATH_ENGINEERING/community_api_v1.openapi.yaml (v1.0.0-draft),
 #   companion of WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md. On any conflict the MARKDOWN wins.
 # Do not edit here: change the canonical files by PR, then re-copy (the contract test
-# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (all Appendix P approvals), unmodified below this header.
-# canonical-sha256: 07e9c5afe4be0a564c1bda30959eb26c0c25b7b92e1bb7f4075a4e316b1f9d31
+# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (all Appendix P approvals + pre-validation security fixes), unmodified below this header.
+# canonical-sha256: 312a1b9e0e89cd0c1fc36f20553da28f895218cd2e70588b01ecbbc098f7a11a
 
 # WellaPath Community API v1.0-draft (CANONICAL, pending founder sign-off). Must stay consistent with COMMUNITY_API_CONTRACT.md (markdown wins). Change only via PR to both files.
 openapi: "3.1.0"
 info:
   title: "WellaPath Community API"
   version: "1.0.0-draft"
-  description: "CANONICAL v1.0-draft; every Appendix P item approved by the founder (P6 2026-11-07; all others 2026-11-08); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/*: methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
+  description: "CANONICAL v1.0-draft; every Appendix P item approved by the founder (P6 2026-11-07; all others 2026-11-08); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/* (decided on the percent-decoded path the router matches, SEC-005): methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
   contact:
     name: "WellaPath engineering lead (API architect)"
   license:
@@ -2035,7 +2035,7 @@ components:
       schema:
         type: "string"
         format: "uuid"
-      description: "Per user intent; replay within 24 h returns the stored response with Idempotent-Replayed: true"
+      description: "Per user intent; replay within 24 h returns the stored response with Idempotent-Replayed: true. The key is bound to the canonical request (method, route template, path parameters, body; SEC-006): the same key with a different body or for a different target is 422 idempotency_key_reused"
     IdempotencyKeyOptional:
       name: "Idempotency-Key"
       in: "header"
@@ -2043,6 +2043,7 @@ components:
       schema:
         type: "string"
         format: "uuid"
+      description: "Optional; same semantics as IdempotencyKeyRequired (bound to method, route template, path parameters and body; a different body or target is 422 idempotency_key_reused)"
     SpaceId:
       name: "space_id"
       in: "path"
@@ -2578,6 +2579,28 @@ components:
           minLength: 3
           maxLength: 30
           pattern: "^[A-Za-z0-9 _.-]+$"
+          description: "Founder decision 2026-11-08 (contract section 7.2), identical on server and client: leading and trailing whitespace (exactly what ECMAScript String.prototype.trim removes) is trimmed first; minLength, maxLength, pattern, the 7-or-more-digits rule and the email-like rule all apply to the TRIMMED value, and the trimmed value is what the client sends and the server stores and returns. Empty or whitespace-only after trim, or shorter than 3, is 400 min_length; longer than 30 after trim is 400 max_length. Interior whitespace is unchanged (a run of 2+ spaces or any other whitespace inside the name is 400 pattern). x-wellapath-display-name-cases lists the shared boundary cases both implementations test: stored is the value kept and returned; rule is the details.rule of the 400 validation_failed."
+          x-wellapath-display-name-cases:
+            - { input: "  SunnyMum  ", stored: "SunnyMum" }
+            - { input: " lead", stored: "lead" }
+            - { input: "trail ", stored: "trail" }
+            - { input: "\tSunny Mum\n", stored: "Sunny Mum" }
+            - { input: "\u00a0\u3000Ada\u2028\ufeff", stored: "Ada" }
+            - { input: "  Mum123456  ", stored: "Mum123456" }
+            - { input: "  abcdefghijklmnopqrstuvwxyzabcd  ", stored: "abcdefghijklmnopqrstuvwxyzabcd" }
+            - { input: "", rule: "min_length" }
+            - { input: "   ", rule: "min_length" }
+            - { input: "\t\n \r", rule: "min_length" }
+            - { input: "  ab  ", rule: "min_length" }
+            - { input: " abcdefghijklmnopqrstuvwxyzabcde ", rule: "max_length" }
+            - { input: "  Mum1234567  ", rule: "not_allowed_value" }
+            - { input: " 0 8 0 1 2 3 4 ", rule: "not_allowed_value" }
+            - { input: " me@example.com ", rule: "not_allowed_value" }
+            - { input: "sunny.ng   ", rule: "not_allowed_value" }
+            - { input: "  mum.app\t", rule: "not_allowed_value" }
+            - { input: " two  spaces ", rule: "pattern" }
+            - { input: "  a\tb  ", rule: "pattern" }
+            - { input: "\u0085Sunny", rule: "pattern" }
     ProfessionalClaim:
       type: "object"
       additionalProperties: false

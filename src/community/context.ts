@@ -246,6 +246,7 @@ export class CommunityContext {
       route,
       key,
       request.body ?? null,
+      (request.params as Record<string, unknown> | undefined) ?? {},
     );
     if (outcome.kind === 'replay') {
       for (const [k, v] of Object.entries(outcome.result.headers ?? {})) reply.header(k, v);

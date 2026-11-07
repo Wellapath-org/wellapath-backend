@@ -18,18 +18,44 @@ export const EMAIL_LIKE = /@|[A-Za-z0-9]\.(com|net|org|ng|io|co|uk|edu|gov|info|
 /** 7 or more digits in total, anywhere in the name, reads as a phone number. */
 export const MAX_DISPLAY_NAME_DIGITS = 6;
 
+export const DISPLAY_NAME_MIN = 3;
+export const DISPLAY_NAME_MAX = 30;
+
 /**
- * Contract §7.2 display_name rules beyond the schema's 3–30 length, in the contract's order:
- * contact-detail check (400 not_allowed_value) first, then the character pattern (400 pattern).
+ * Contract §7.2 (founder decision 2026-11-08), identical in the mobile client: leading and
+ * trailing whitespace is removed first, and every rule runs on, and the server stores and
+ * returns, the trimmed value. "Whitespace" is exactly what ECMAScript `String.prototype.trim`
+ * removes (the mobile client implements the same set explicitly). Interior whitespace is not
+ * touched: a tab or a run of 2+ spaces inside the name is still `pattern`.
+ */
+export const canonicalDisplayName = (raw: string): string => raw.trim();
+
+/** Length of the trimmed value: empty or < 3 is `min_length`, > 30 is `max_length`. */
+export const checkDisplayNameLength = (name: string): void => {
+  if (name.length < DISPLAY_NAME_MIN) throw validation('display_name', 'min_length');
+  if (name.length > DISPLAY_NAME_MAX) throw validation('display_name', 'max_length');
+};
+
+/**
+ * The §7.2 content rules on the trimmed value, in the contract's order: contact-detail check
+ * (400 not_allowed_value) first, then the character pattern (400 pattern).
  */
 export const checkDisplayName = (name: string): void => {
   const digits = (name.match(/[0-9]/g) ?? []).length;
   if (digits > MAX_DISPLAY_NAME_DIGITS || EMAIL_LIKE.test(name)) {
     throw validation('display_name', 'not_allowed_value');
   }
-  if (name !== name.trim() || / {2,}/.test(name) || !DISPLAY_NAME.test(name)) {
+  if (/ {2,}/.test(name) || !DISPLAY_NAME.test(name)) {
     throw validation('display_name', 'pattern');
   }
+};
+
+/** Every §7.2 rule, in order; returns the value to store. */
+export const validateDisplayName = (raw: string): string => {
+  const name = canonicalDisplayName(raw);
+  checkDisplayNameLength(name);
+  checkDisplayName(name);
+  return name;
 };
 
 export const registerMeRoutes = (server: FastifyInstance, ctx: CommunityContext): void => {
@@ -61,20 +87,24 @@ export const registerMeRoutes = (server: FastifyInstance, ctx: CommunityContext)
           properties: {
             display_name: {
               type: 'string',
-              minLength: 3,
-              maxLength: 30,
-              // The character pattern is checked in checkDisplayName, after the email-like
-              // check, so an email address is `not_allowed_value` (P7), not `pattern`.
+              // Length (3–30) is checked on the TRIMMED value, below; the character pattern in
+              // checkDisplayName, after the email-like check, so an email address is
+              // `not_allowed_value` (P7), not `pattern`.
             },
           },
         },
       },
     },
     async (request, reply) => {
+      // Trim, then the length check: request validation, so it still runs before
+      // authentication (C7(c)), where the schema's minLength/maxLength used to.
+      const display_name = canonicalDisplayName(
+        (request.body as { display_name: string }).display_name,
+      );
+      checkDisplayNameLength(display_name);
       const principal = await ctx.member(request, reply, { defaultLimit: false });
       ctx.assertNotRestricted(principal);
       await ctx.limit(reply, [{ name: 'put_profile_hour', key: principal.userId }]);
-      const { display_name } = request.body as { display_name: string };
       checkDisplayName(display_name);
       try {
         await s.pool.query(

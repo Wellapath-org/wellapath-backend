@@ -12,6 +12,7 @@
  */
 import { randomUUID } from 'crypto';
 import { LightMyRequestResponse } from 'fastify';
+import { Pool } from 'pg';
 import { bootstrapAdmin } from '../../src/community/bootstrap-admin';
 import {
   bearer,
@@ -715,6 +716,114 @@ describeDb('moderation and admin', () => {
     });
   });
 
+  describe('SEC-011: malformed cursors on moderator and admin lists are 400, never 500', () => {
+    const b64 = (value: string): string => Buffer.from(value).toString('base64url');
+    const cursorOf = (list: string, k: unknown): string => b64(JSON.stringify({ l: list, k }));
+    const T = '2026-11-08T10:15:00.000000Z';
+    const U = '0192f1d2-0000-7000-8000-000000000001';
+    const getAs = (user: Enrolled, url: string): Promise<LightMyRequestResponse> =>
+      app.server.inject({ method: 'GET', url, headers: bearer(user.accessToken) });
+
+    it.each([
+      ['/v1/community/mod/reports', 'reports:open', { p: 1, t: T, id: U }],
+      ['/v1/community/mod/reports?status=dismissed', 'reports:dismissed', { p: 1, t: T, id: U }],
+      ['/v1/community/mod/actions', 'actions', { id: '12' }],
+      ['/v1/community/admin/verifications', 'verifications:pending', { t: T, id: U }],
+    ] as [string, string, Record<string, unknown>][])('%s', async (url, list, good) => {
+      const who = url.includes('/admin/') ? admin : mod;
+      const bad: [string, string][] = [
+        ['garbage base64', 'not*base64!'],
+        ['valid base64 of bad JSON', b64('{"l":')],
+        ['k is an array', cursorOf(list, Object.values(good))],
+        ['p a string', cursorOf(list, { ...good, p: '1' })],
+        ['p a fraction', cursorOf(list, { ...good, p: 1.5 })],
+        ['t not a time', cursorOf(list, { ...good, t: 'not-a-time' })],
+        ['id not a UUID or bigint', cursorOf(list, { ...good, id: 'x' })],
+        ['id a number', cursorOf(list, { ...good, id: 12 })],
+        ['id out of int8 range', cursorOf(list, { ...good, id: '99999999999999999999' })],
+        ['extra key', cursorOf(list, { ...good, extra: 1 })],
+      ];
+      const sep = url.includes('?') ? '&' : '?';
+      for (const [label, cursor] of bad) {
+        const res = await getAs(who, `${url}${sep}cursor=${encodeURIComponent(cursor)}`);
+        expect({ label, status: res.statusCode }).toEqual({ label, status: 400 });
+        expect(res.json().error).toMatchObject({
+          code: 'validation_failed',
+          details: { field: 'cursor', rule: 'format' },
+        });
+      }
+      const ok = await getAs(who, `${url}${sep}cursor=${cursorOf(list, good)}`);
+      expect(ok.statusCode).toBe(200);
+    });
+
+    it('cursors the server issues still page through every list', async () => {
+      for (const [url, who] of [
+        ['/v1/community/mod/reports', mod],
+        ['/v1/community/mod/actions', mod],
+        ['/v1/community/admin/verifications?status=pending', admin],
+      ] as [string, Enrolled][]) {
+        const sep = url.includes('?') ? '&' : '?';
+        const first = await getAs(who, `${url}${sep}limit=1`);
+        expect(first.statusCode).toBe(200);
+        const next = first.json().next_cursor as string | null;
+        if (next) {
+          const second = await getAs(who, `${url}${sep}limit=1&cursor=${next}`);
+          expect({ url, status: second.statusCode }).toEqual({ url, status: 200 });
+        }
+      }
+    });
+  });
+
+  describe('SEC-006: an Idempotency-Key is bound to the target (path parameters)', () => {
+    it('the same key and body on another account is 422 idempotency_key_reused, not a replay', async () => {
+      const a = await memberWithProfile(app, 'idemA');
+      const b = await memberWithProfile(app, 'idemB');
+      const key = { 'idempotency-key': randomUUID() };
+      const reason = 'Repeated harassment of other members';
+      const suspend = (
+        id: string,
+        headers: Record<string, string>,
+      ): Promise<LightMyRequestResponse> =>
+        app.server.inject({
+          method: 'POST',
+          url: `/v1/community/mod/accounts/${id}/suspend`,
+          headers: { ...bearer(mod.accessToken), ...headers },
+          payload: { reason },
+        });
+      const first = await suspend(a.userId, key);
+      expect(first.statusCode).toBe(200);
+      expect(first.json().target_id).toBe(a.userId);
+
+      const second = await suspend(b.userId, key);
+      expect(second.statusCode).toBe(422);
+      expect(second.json().error.code).toBe('idempotency_key_reused');
+      expect(second.headers['idempotent-replayed']).toBeUndefined();
+      // Nothing was done to B, and B is still signed in: the client sees the refusal instead of
+      // A's result, and retries with a fresh key.
+      const rows = (await ownerQuery(
+        'SELECT count(*)::int AS n FROM account_restrictions WHERE user_id = $1',
+        [b.userId],
+      )) as { n: number }[];
+      expect(rows[0].n).toBe(0);
+      const bMe = await app.server.inject({
+        method: 'GET',
+        url: '/v1/community/me',
+        headers: bearer(b.accessToken),
+      });
+      expect(bMe.statusCode).toBe(200);
+
+      // The same key on the SAME target still replays.
+      const replay = await suspend(a.userId, key);
+      expect(replay.statusCode).toBe(200);
+      expect(replay.headers['idempotent-replayed']).toBe('true');
+      expect(replay.json().id).toBe(first.json().id);
+
+      const fresh = await suspend(b.userId, idem());
+      expect(fresh.statusCode).toBe(200);
+      expect(fresh.json().target_id).toBe(b.userId);
+    });
+  });
+
   describe('first-admin bootstrap CLI (no default password)', () => {
     it('refuses while an admin exists; creates the first admin otherwise, audited', async () => {
       const pool = ownerPool();
@@ -767,5 +876,80 @@ describeDb('moderation and admin', () => {
         await fresh.close();
       }
     });
+  });
+});
+
+describeDb('SEC-010: last-admin protection under concurrency (two connections)', () => {
+  let app: CommunityTestApp;
+  let blocker: Pool;
+  beforeAll(async () => {
+    await resetDatabase();
+    app = await createCommunityApp();
+    blocker = ownerPool();
+  });
+  afterAll(async () => {
+    await blocker.end();
+    await app.close();
+  });
+
+  const waiting = async (): Promise<number> =>
+    (
+      await blocker.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks
+          WHERE NOT granted AND locktype IN ('transactionid', 'tuple', 'relation')`,
+      )
+    ).rows[0].n;
+
+  it('two admins demoting each other at once cannot leave zero admins', async () => {
+    const a1 = await privilegedUser(app, 'race1', 'admin');
+    const a2 = await privilegedUser(app, 'race2', 'admin');
+    const admins = async (): Promise<number> =>
+      (
+        (await ownerQuery(
+          `SELECT count(*)::int AS n FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL`,
+        )) as { n: number }[]
+      )[0].n;
+    expect(await admins()).toBe(2);
+
+    // A third connection holds both admins' token families, so each X1 transaction, once past
+    // its last-admin count, blocks in the session revocation step. Without serialisation both
+    // transactions count 2 before either commits; with it, the second waits on the admin set.
+    const hold = await blocker.connect();
+    let results: LightMyRequestResponse[];
+    try {
+      await hold.query('BEGIN');
+      await hold.query(
+        'SELECT id FROM refresh_token_families WHERE user_id = ANY($1::text[]) FOR UPDATE',
+        [[a1.userId, a2.userId]],
+      );
+      const reason = 'Concurrent demotion race check';
+      const demote = (actor: Enrolled, target: Enrolled): Promise<LightMyRequestResponse> =>
+        app.server.inject({
+          method: 'POST',
+          url: `/v1/community/admin/accounts/${target.userId}/role`,
+          headers: bearer(actor.accessToken),
+          payload: { role: 'member', reason },
+        });
+      const inFlight = Promise.all([demote(a1, a2), demote(a2, a1)]);
+      const deadline = Date.now() + 10_000;
+      while ((await waiting()) < 2 && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      expect(await waiting()).toBeGreaterThanOrEqual(2); // both requests are inside X1
+      await hold.query('COMMIT');
+      results = await inFlight;
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+
+    const statuses = results.map(r => r.statusCode).sort();
+    expect(statuses).toEqual([200, 422]);
+    const refused = results.find(r => r.statusCode === 422) as LightMyRequestResponse;
+    expect(refused.json().error).toMatchObject({
+      code: 'invalid_state',
+      details: { reason: 'last_admin' },
+    });
+    expect(await admins()).toBe(1);
   });
 });

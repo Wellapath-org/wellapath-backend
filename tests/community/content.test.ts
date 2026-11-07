@@ -20,6 +20,7 @@ import {
   SignedIn,
   uniqueEmail,
 } from './helpers';
+import { DISPLAY_NAME_CASES } from '../helpers/display-name-cases';
 
 const FORBIDDEN_MEMBER_KEYS = [
   'author_id',
@@ -141,8 +142,6 @@ describeDb('member surface', () => {
     it.each([
       ['ab', 'min_length'],
       ['x'.repeat(31), 'max_length'],
-      [' lead', 'pattern'],
-      ['trail ', 'pattern'],
       ['two  spaces', 'pattern'],
       ['bad!char', 'pattern'],
       ['call 0803123456', 'not_allowed_value'],
@@ -289,6 +288,39 @@ describeDb('member surface', () => {
       expect(reused.json().error.code).toBe('idempotency_key_reused');
     });
 
+    it('SEC-006: the same key and body in another space or on another post is 422, not a replay', async () => {
+      const key = { 'idempotency-key': randomUUID() };
+      const body = { body: 'bound to its space', display_mode: 'named' };
+      const first = await post(alice, body, key, 'general_health');
+      expect(first.statusCode).toBe(201);
+      const other = await post(alice, body, key, 'pregnancy_maternal');
+      expect(other.statusCode).toBe(422);
+      expect(other.json().error.code).toBe('idempotency_key_reused');
+      expect(other.headers['idempotent-replayed']).toBeUndefined();
+      const [count] = (await ownerQuery(
+        `SELECT count(*)::int AS n FROM posts WHERE body = 'bound to its space'`,
+      )) as { n: number }[];
+      expect(count.n).toBe(1);
+
+      const second = await post(alice, { body: 'second target', display_mode: 'named' }, idem());
+      expect(second.statusCode).toBe(201);
+      const commentKey = { 'idempotency-key': randomUUID() };
+      const comment = (postId: string): Promise<LightMyRequestResponse> =>
+        app.server.inject({
+          method: 'POST',
+          url: `/v1/community/posts/${postId}/comments`,
+          headers: { ...bearer(alice.accessToken), ...commentKey },
+          payload: { body: 'same words', display_mode: 'named' },
+        });
+      expect((await comment(first.json().id)).statusCode).toBe(201);
+      const onOther = await comment(second.json().id);
+      expect(onOther.statusCode).toBe(422);
+      expect(onOther.json().error.code).toBe('idempotency_key_reused');
+      const replay = await comment(first.json().id);
+      expect(replay.statusCode).toBe(201);
+      expect(replay.headers['idempotent-replayed']).toBe('true');
+    });
+
     it('cursor pagination: newest first, stable, limit 1..50, bad cursor 400', async () => {
       const space = 'pregnancy_maternal';
       const ids: string[] = [];
@@ -320,6 +352,67 @@ describeDb('member surface', () => {
         `/v1/community/notifications?cursor=${other.json().next_cursor}`,
       );
       expect(foreign.statusCode).toBe(400);
+    });
+
+    // SEC-011: malformed cursor CONTENT is 400 validation_failed cursor/format, never 500.
+    const b64 = (value: string): string => Buffer.from(value).toString('base64url');
+    const cursorOf = (list: string, k: unknown): string => b64(JSON.stringify({ l: list, k }));
+    const T = '2026-11-08T10:15:00.000000Z';
+    const U = '0192f1d2-0000-7000-8000-000000000001';
+    const badCursors = (list: string): [string, string][] => [
+      ['garbage base64', 'not*base64!'],
+      ['base64 of garbage bytes', Buffer.from([0xff, 0xfe, 0x00, 0x01]).toString('base64url')],
+      ['valid base64 of bad JSON', b64('{"l":')],
+      ['JSON null', b64('null')],
+      ['JSON array', b64('[1,2]')],
+      ['JSON string', b64('"posts"')],
+      ['k is an array', cursorOf(list, [T, U])],
+      ['k is null', cursorOf(list, null)],
+      ['t not a time', cursorOf(list, { t: 'not-a-time', id: U })],
+      ['t a number', cursorOf(list, { t: 1700000000, id: U })],
+      ['t an impossible date', cursorOf(list, { t: '2026-02-30T10:15:00.000000Z', id: U })],
+      ['t without a zone', cursorOf(list, { t: '2026-11-08T10:15:00', id: U })],
+      ['id not a UUID', cursorOf(list, { t: T, id: 'x' })],
+      ['id a number', cursorOf(list, { t: T, id: 42 })],
+      ['id an object', cursorOf(list, { t: T, id: { $ne: null } })],
+      ['missing id', cursorOf(list, { t: T })],
+      ['extra key', cursorOf(list, { t: T, id: U, x: 1 })],
+    ];
+
+    it.each(['spaces/general_health/posts', 'notifications'])(
+      'SEC-011: malformed cursors on /v1/community/%s are 400 cursor/format',
+      async path => {
+        const list = path === 'notifications' ? 'notifications' : 'posts:general_health';
+        for (const [label, cursor] of badCursors(list)) {
+          const res = await get(
+            alice,
+            `/v1/community/${path}?cursor=${encodeURIComponent(cursor)}`,
+          );
+          expect({ label, status: res.statusCode }).toEqual({ label, status: 400 });
+          expect({ label, error: res.json().error }).toMatchObject({
+            label,
+            error: { code: 'validation_failed', details: { field: 'cursor', rule: 'format' } },
+          });
+        }
+        // A well-formed cursor of the right shape still works.
+        const ok = await get(
+          alice,
+          `/v1/community/${path}?cursor=${cursorOf(list, { t: T, id: U })}`,
+        );
+        expect(ok.statusCode).toBe(200);
+      },
+    );
+
+    it('SEC-011: malformed cursors on the comments list are 400 cursor/format', async () => {
+      const id = (await post(alice, { body: 'cursor target', display_mode: 'named' })).json().id;
+      for (const [label, cursor] of badCursors(`comments:${id}`)) {
+        const res = await get(
+          alice,
+          `/v1/community/posts/${id}/comments?cursor=${encodeURIComponent(cursor)}`,
+        );
+        expect({ label, status: res.statusCode }).toEqual({ label, status: 400 });
+        expect(res.json().error.details).toEqual({ field: 'cursor', rule: 'format' });
+      }
     });
 
     it('delete own post ⇒ 204 and body erased; another member ⇒ 403; then 404 for all', async () => {
@@ -787,5 +880,61 @@ describeDb('member surface', () => {
       expect(res.json().error.code).toBe('validation_failed');
       expect(res.json().error).not.toHaveProperty('statusCode');
     });
+  });
+});
+
+// Founder decision 2026-11-08 (contract §7.2): trim first, validate and store the trimmed value.
+// The cases are the shared list in the pinned OpenAPI copy, which the mobile client's tests also
+// run, so the two sides cannot drift. A fresh database, so no fixture name collides.
+describeDb('display-name trimming (shared cases, M3)', () => {
+  let app: CommunityTestApp;
+  beforeAll(async () => {
+    await resetDatabase();
+    app = await createCommunityApp();
+  });
+  afterAll(async () => app.close());
+
+  it.each(DISPLAY_NAME_CASES.map(c => [JSON.stringify(c.input), c] as const))(
+    'shared display-name case %s',
+    async (_label, c) => {
+      const user = await signIn(app, uniqueEmail('dntrim'));
+      app.config.allowlist.add(user.userId);
+      const res = await setProfile(app, user, c.input);
+      if (c.stored !== undefined) {
+        expect(res.statusCode).toBe(200);
+        expect(res.json().display_name).toBe(c.stored);
+        const [row] = (await ownerQuery('SELECT display_name FROM profiles WHERE user_id = $1', [
+          user.userId,
+        ])) as { display_name: string }[];
+        expect(row.display_name).toBe(c.stored);
+      } else {
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toMatchObject({
+          code: 'validation_failed',
+          details: { field: 'display_name', rule: c.rule },
+        });
+      }
+    },
+  );
+
+  it('a name that differs only by surrounding spaces is display_name_taken', async () => {
+    const first = await signIn(app, uniqueEmail('dnfirst'));
+    const second = await signIn(app, uniqueEmail('dnsecond'));
+    app.config.allowlist.add(first.userId);
+    app.config.allowlist.add(second.userId);
+    expect((await setProfile(app, first, 'Quiet Owl')).statusCode).toBe(200);
+    const res = await setProfile(app, second, '  quiet owl ');
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.details).toEqual({ reason: 'display_name_taken' });
+  });
+
+  it('a name too short after trimming is still 400 before authentication (C7(c))', async () => {
+    const res = await app.server.inject({
+      method: 'PUT',
+      url: '/v1/community/me/profile',
+      payload: { display_name: '  ab  ' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.details).toEqual({ field: 'display_name', rule: 'min_length' });
   });
 });

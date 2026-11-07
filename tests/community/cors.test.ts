@@ -4,7 +4,7 @@
  * `/config` and every other route keep the app-wide GET/POST/OPTIONS policy. No wildcard origin.
  */
 import { LightMyRequestResponse } from 'fastify';
-import { parseWebsiteOrigin } from '../../src/config/cors';
+import { isCommunityCorsPath, parseWebsiteOrigin } from '../../src/config/cors';
 import {
   CommunityTestApp,
   bearer,
@@ -51,6 +51,28 @@ describe('COMMUNITY_WEBSITE_ORIGIN parsing (no wildcard, one exact origin)', () 
   it('refuses plain-http localhost in production', () => {
     expect(() => parseWebsiteOrigin('http://localhost:3001', 'production')).toThrow();
   });
+});
+
+describe('SEC-005: the C8 scope is decided on the decoded path the router matches', () => {
+  it.each([
+    '/v1/auth/otp/request',
+    '/v1/%61uth/otp/request',
+    '/v1/%61%75%74%68/refresh',
+    '/%76%31/auth/refresh',
+    '/v1/%63ommunity/me',
+    '/v1/community%2Fme',
+    '/v1/%63ommunity/me?x=1',
+    '/v1/%zz/broken', // undecodable: treated as in scope (restrictive)
+  ])('%s is a Community CORS path', url => {
+    expect(isCommunityCorsPath(url)).toBe(true);
+  });
+
+  it.each(['/config', '/v1/features', '/v1/%66eatures', '/config?x=/v1/%61uth/', '/v1/authx/a'])(
+    '%s is not a Community CORS path',
+    url => {
+      expect(isCommunityCorsPath(url)).toBe(false);
+    },
+  );
 });
 
 describeDb('CORS scoping (C8)', () => {
@@ -141,6 +163,39 @@ describeDb('CORS scoping (C8)', () => {
         expect(res.headers['access-control-allow-methods']).toBeUndefined();
         expect(res.headers['access-control-allow-credentials']).toBeUndefined();
       }
+    });
+
+    it.each([
+      ['POST', '/v1/%61uth/otp/request'],
+      ['POST', '/v1/%61%75%74%68/refresh'],
+      ['GET', '/%76%31/community/me'],
+      ['PUT', '/v1/%63ommunity/me/profile'],
+    ])(
+      'SEC-005: preflight %s %s (percent-encoded) is refused, with no CORS headers',
+      async (method, url) => {
+        for (const origin of [OTHER, 'https://wellapath.org']) {
+          const res = await preflight(url, origin, method);
+          expect(res.statusCode).not.toBe(204);
+          expect(res.headers['access-control-allow-origin']).toBeUndefined();
+          expect(res.headers['access-control-allow-methods']).toBeUndefined();
+        }
+        // The website origin keeps its grant on the same (routed) path.
+        const own = await preflight(url, WEBSITE, method);
+        expect(own.statusCode).toBe(204);
+        expect(own.headers['access-control-allow-origin']).toBe(WEBSITE);
+      },
+    );
+
+    it('SEC-005: an actual POST to a percent-encoded auth path gets no grant for another origin', async () => {
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/v1/%61uth/otp/request',
+        headers: { origin: OTHER },
+        payload: { email: uniqueEmail('cors-enc') },
+      });
+      expect(res.statusCode).toBe(202); // the router does match the decoded path
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
+      expect(res.headers['access-control-allow-credentials']).toBeUndefined();
     });
 
     it('an actual PUT from another origin gets no grant (the browser blocks the read)', async () => {
