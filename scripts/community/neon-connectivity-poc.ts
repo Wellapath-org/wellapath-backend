@@ -145,16 +145,21 @@ const migrations = async (url: string): Promise<Step> => {
     require('../../src/community/migrate') as typeof import('../../src/community/migrate');
   const pool = new Pool({ connectionString: url, max: 2 });
   const detail: string[] = [];
+  // Three-role model: connect as community_migrator and SET ROLE to the owner per transaction.
+  // Unset = run as the connecting role (a scratch branch migrated by its own owner login).
+  const opts = { ownerRole: process.env.COMMUNITY_MIGRATION_OWNER_ROLE || null };
   try {
-    const before = await migrate.appliedVersions(pool);
+    const before = await migrate.appliedVersions(pool, opts);
     detail.push(`applied before: [${before.join(', ')}]`);
     const t0 = performance.now();
-    detail.push(`down (all): [${(await migrate.migrateDown(pool)).join(', ')}]`);
-    detail.push(`up (all): [${(await migrate.migrateUp(pool)).join(', ')}]`);
-    detail.push(`down (1): [${(await migrate.migrateDown(pool, 1)).join(', ')}]`);
-    detail.push(`up: [${(await migrate.migrateUp(pool)).join(', ')}]`);
+    const down = (n?: number): Promise<number[]> => migrate.migrateDown(pool, n, undefined, opts);
+    const up = (): Promise<number[]> => migrate.migrateUp(pool, undefined, opts);
+    detail.push(`down (all): [${(await down()).join(', ')}]`);
+    detail.push(`up (all): [${(await up()).join(', ')}]`);
+    detail.push(`down (1): [${(await down(1)).join(', ')}]`);
+    detail.push(`up: [${(await up()).join(', ')}]`);
     detail.push(`round trip took ${ms(performance.now() - t0)}`);
-    const after = await migrate.appliedVersions(pool);
+    const after = await migrate.appliedVersions(pool, opts);
     detail.push(`applied after: [${after.join(', ')}]`);
     return { name: 'Migrations up/down on the branch (direct URL)', ok: after.length > 0, detail };
   } catch (error) {

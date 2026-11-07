@@ -16,6 +16,7 @@ import {
   Enrolled,
   idem,
   memberWithProfile,
+  OWNER_ROLE,
   OWNER_URL,
   ownerPool,
   privilegedUser,
@@ -280,7 +281,16 @@ describeDb('export and deletion', () => {
       const dir = mkdtempSync(join(tmpdir(), 'community-dump-'));
       try {
         const file = join(dir, 'community.dump');
-        execFileSync(pgDump, ['-Fc', '--no-owner', '-d', OWNER_URL as string, '-f', file]);
+        execFileSync(pgDump, [
+          '-Fc',
+          '--no-owner',
+          // The migrator has no privilege of its own: dump as the owner (explicit SET ROLE).
+          ...(OWNER_ROLE ? [`--role=${OWNER_ROLE}`] : []),
+          '-d',
+          OWNER_URL as string,
+          '-f',
+          file,
+        ]);
         expect(existsSync(file)).toBe(true);
         const restoreBin = pgDump.replace(/pg_dump$/, 'pg_restore');
         const list = execFileSync(restoreBin, ['--list', file]).toString();

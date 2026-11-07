@@ -84,12 +84,34 @@ export const forceVerifyFull = (raw: string, name: string): string => {
   return url.toString();
 };
 
-/** Pooled template URL with user/password replaced by the runtime role. Never printed. */
+/** Template URL (pooled or direct) with user/password replaced by `role`. Never printed. */
 export const runtimeUrl = (template: string, role: string, password: string): string => {
-  const url = new URL(template);
+  const { url, host } = parse(template, 'template URL');
   url.username = encodeURIComponent(role);
   url.password = encodeURIComponent(password);
-  url.searchParams.set('sslmode', REQUIRED_SSLMODE);
-  url.searchParams.delete('uselibpqcompat');
+  // Local hosts (CI/dev containers) have no certificate; B5 applies to every other host.
+  if (!isLocalDatabaseHost(host)) {
+    url.searchParams.set('sslmode', REQUIRED_SSLMODE);
+    url.searchParams.delete('uselibpqcompat');
+  }
   return url.toString();
+};
+
+/**
+ * True for a Neon POOLED endpoint (PgBouncer, transaction mode): its host label ends in
+ * `-pooler`. Session state (SET ROLE, advisory locks) does not survive there.
+ */
+export const isPooledEndpoint = (raw: string, name = 'database URL'): boolean => {
+  const first = parse(raw, name).host.toLowerCase().split('.')[0];
+  return first.endsWith('-pooler');
+};
+
+/** Migrations, provisioning and the bootstrap CLI need the DIRECT endpoint. Never echoes it. */
+export const assertDirectEndpoint = (raw: string, name: string): string => {
+  if (isPooledEndpoint(raw, name)) {
+    throw new Error(
+      `${name} points at a POOLED endpoint: owner/migrator tools need the DIRECT (unpooled) URL`,
+    );
+  }
+  return raw;
 };

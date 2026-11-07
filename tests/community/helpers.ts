@@ -1,9 +1,14 @@
 /**
  * Community test harness (contract v1.0-draft).
  *
- * Database suites need a disposable local Postgres:
- *   COMMUNITY_TEST_DATABASE_URL      migration owner (creates/drops tables)
- *   COMMUNITY_TEST_APP_DATABASE_URL  runtime role `community_app` (DML only)
+ * Database suites need a disposable local Postgres, provisioned with the three-role model
+ * (`scripts/community/provision-runtime-role.ts`, see docs/COMMUNITY_POC.md):
+ *   COMMUNITY_TEST_DATABASE_URL        `community_migrator` (LOGIN, NOINHERIT; SET-only member of
+ *                                      the NOLOGIN owner). Legacy: any role owning the tables.
+ *   COMMUNITY_TEST_OWNER_ROLE          `community_owner`: suites act as it via SET ROLE
+ *   COMMUNITY_TEST_APP_DATABASE_URL    runtime role `community_app` (DML only)
+ *   COMMUNITY_TEST_ADMIN_DATABASE_URL  branch-owner stand-in (`neondb_owner` equivalent: LOGIN
+ *                                      CREATEROLE CREATEDB, owns the database). Provisioning only.
  * When they are not set the database suites are skipped (`describeDb`) and say so; they never
  * fall back to DB_* (staging) variables. CI provides a Postgres service for them.
  *
@@ -21,11 +26,15 @@ import {
 } from '../../src/community/config';
 import { MemoryOutbox } from '../../src/community/email';
 import { LimitOverrides } from '../../src/community/limiter';
-import { migrateDown, migrateUp } from '../../src/community/migrate';
+import { MigrateOptions, migrateDown, migrateUp } from '../../src/community/migrate';
 import { LogCapture } from '../helpers/app';
 
 export const OWNER_URL = process.env.COMMUNITY_TEST_DATABASE_URL;
 export const APP_URL = process.env.COMMUNITY_TEST_APP_DATABASE_URL ?? OWNER_URL;
+export const ADMIN_URL = process.env.COMMUNITY_TEST_ADMIN_DATABASE_URL;
+/** The NOLOGIN owner the migrator SETs ROLE to; unset = legacy single owner login. */
+export const OWNER_ROLE = process.env.COMMUNITY_TEST_OWNER_ROLE || undefined;
+export const MIGRATE_OPTIONS: MigrateOptions = { ownerRole: OWNER_ROLE ?? null };
 
 export const describeDb: jest.Describe = OWNER_URL ? describe : describe.skip;
 if (!OWNER_URL) {
@@ -33,15 +42,30 @@ if (!OWNER_URL) {
   console.warn('COMMUNITY_TEST_DATABASE_URL not set: Community database suites are SKIPPED');
 }
 
-export const ownerPool = (): Pool => new Pool({ connectionString: OWNER_URL });
+/**
+ * Acts as the OWNER for test setup and assertions: the migrator connection with
+ * `role=community_owner` in the startup options (i.e. an explicit SET ROLE per connection).
+ */
+export const ownerPool = (): Pool =>
+  new Pool({
+    connectionString: OWNER_URL,
+    ...(OWNER_ROLE ? { options: `-c role=${OWNER_ROLE}` } : {}),
+  });
+/** The migrator as it logs in: no SET ROLE, so no privilege of its own. */
+export const migratorPool = (): Pool => new Pool({ connectionString: OWNER_URL });
 export const appPool = (): Pool => new Pool({ connectionString: APP_URL });
+export const adminPool = (database?: string): Pool => {
+  const url = new URL(ADMIN_URL as string);
+  if (database) url.pathname = `/${database}`;
+  return new Pool({ connectionString: url.toString() });
+};
 
-/** Drops and recreates the whole Community schema through the real migrations. */
+/** Drops and recreates the whole Community schema through the real migrations (as migrator). */
 export const resetDatabase = async (): Promise<void> => {
-  const pool = ownerPool();
+  const pool = migratorPool();
   try {
-    await migrateDown(pool);
-    await migrateUp(pool);
+    await migrateDown(pool, undefined, undefined, MIGRATE_OPTIONS);
+    await migrateUp(pool, undefined, MIGRATE_OPTIONS);
   } finally {
     await pool.end();
   }

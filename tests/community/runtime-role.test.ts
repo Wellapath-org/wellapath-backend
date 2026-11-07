@@ -5,7 +5,8 @@
  * the provisioning path (create → idempotent re-run) exercised on a throwaway role name.
  *
  * Needs COMMUNITY_TEST_APP_DATABASE_URL to be a DIFFERENT role (community_app) from the owner,
- * and an owner with CREATEROLE (as Neon's owner role has).
+ * and COMMUNITY_TEST_ADMIN_DATABASE_URL: the branch-owner stand-in with CREATEROLE (as Neon's
+ * `neondb_owner` has) that runs provisioning.
  */
 import { randomBytes } from 'crypto';
 import { Pool, PoolClient } from 'pg';
@@ -21,9 +22,18 @@ import {
 } from '../../src/community/db-roles';
 import { isRemoteDatabaseUrl } from '../../src/community/db-url';
 import { migrateUp } from '../../src/community/migrate';
-import { APP_URL, OWNER_URL, appPool, ownerPool, resetDatabase } from './helpers';
+import {
+  ADMIN_URL,
+  APP_URL,
+  OWNER_URL,
+  adminPool,
+  appPool,
+  ownerPool,
+  resetDatabase,
+} from './helpers';
 
-const describeRoles = OWNER_URL && APP_URL && APP_URL !== OWNER_URL ? describe : describe.skip;
+const describeRoles =
+  OWNER_URL && ADMIN_URL && APP_URL && APP_URL !== OWNER_URL ? describe : describe.skip;
 /**
  * Roles are cluster-wide (per Neon branch), not per database. `community_readonly` must not be
  * created on a shared/cloud branch (ADR-001 B2), so the read-only parts run on local hosts only.
@@ -51,44 +61,57 @@ const withClient = async <T>(pool: Pool, fn: (c: PoolClient) => Promise<T>): Pro
   }
 };
 
-const dropProbeRole = async (owner: Pool, role: string): Promise<void> => {
-  const exists = await owner.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
+/** Removes a probe role: owner-granted privileges as the owner, then database grants, DROP. */
+const dropProbeRole = async (admin: Pool, role: string): Promise<void> => {
+  const exists = await admin.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
   if (!exists.rowCount) return;
   const r = `"${role}"`;
-  const { rows } = await owner.query<{ db: string }>('SELECT current_database() AS db');
-  for (const sql of [
-    `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${r}`,
-    `REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${r}`,
-    `REVOKE ALL ON SCHEMA public FROM ${r}`,
-    `REVOKE ALL ON DATABASE "${rows[0].db}" FROM ${r}`,
-    `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM ${r}`,
-    `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM ${r}`,
-    `DROP ROLE ${r}`,
-  ]) {
-    await owner.query(sql);
-  }
+  const { rows } = await admin.query<{ db: string }>('SELECT current_database() AS db');
+  await withClient(admin, async c => {
+    await c.query(`SET ROLE ${DEFAULT_ROLE_NAMES.owner}`);
+    for (const sql of [
+      `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${r}`,
+      `REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${r}`,
+      `REVOKE ALL ON SCHEMA public FROM ${r}`,
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM ${r}`,
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM ${r}`,
+    ]) {
+      await c.query(sql);
+    }
+    await c.query('RESET ROLE');
+    for (const sql of [
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM ${r}`,
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM ${r}`,
+      `REVOKE ALL ON DATABASE "${rows[0].db}" FROM ${r}`,
+      `DROP ROLE ${r}`,
+    ]) {
+      await c.query(sql);
+    }
+  });
+};
+
+const noNewRoles = (): string => {
+  throw new Error('Community roles must already exist in the test database (provisioned)');
 };
 
 describeRoles('community_app runtime role (B2)', () => {
   let owner: Pool;
   let app: Pool;
+  let admin: Pool;
 
   beforeAll(async () => {
     await resetDatabase();
     owner = ownerPool();
     app = appPool();
-    await withClient(owner, c =>
-      provisionCommunityRoles(c, {
-        withReadonly: LOCAL,
-        newPassword: () => {
-          throw new Error('community_app must already exist in the test database');
-        },
-      }),
+    admin = adminPool();
+    await withClient(admin, c =>
+      provisionCommunityRoles(c, { withReadonly: LOCAL, newPassword: noNewRoles }),
     );
   });
   afterAll(async () => {
     await owner.end();
     await app.end();
+    await admin.end();
   });
 
   it('the app connects as community_app, not as the owner', async () => {
@@ -268,76 +291,98 @@ describeRoles('community_app runtime role (B2)', () => {
     });
   });
 
-  it('provisioning: creates a role with the right attributes, then is idempotent', async () => {
+  it('provisioning: creates login roles with the right attributes, then is idempotent', async () => {
     const suffix = randomBytes(4).toString('hex');
     const roles: CommunityRoleNames = {
+      owner: DEFAULT_ROLE_NAMES.owner,
+      migrator: `community_mig_probe_${suffix}`,
       runtime: `community_app_probe_${suffix}`,
       readonly: `community_ro_probe_${suffix}`,
     };
-    let generated = 0;
+    const generated: string[] = [];
+    const gen = (kind: string): string => {
+      generated.push(kind);
+      return generatePassword();
+    };
     try {
-      const first = await withClient(owner, c =>
-        provisionCommunityRoles(c, {
-          roles,
-          withReadonly: LOCAL,
-          newPassword: () => {
-            generated += 1;
-            return generatePassword();
-          },
-        }),
+      const first = await withClient(admin, c =>
+        provisionCommunityRoles(c, { roles, withReadonly: LOCAL, newPassword: gen }),
       );
+      expect(first.ownerCreated).toBe(false);
       expect(first.runtimeCreated).toBe(true);
+      expect(first.migratorCreated).toBe(true);
       expect(first.readonlyCreated).toBe(LOCAL);
       expect(first.runtimePassword).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(first.migratorPassword).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(first.runtimePassword).not.toBe(first.migratorPassword);
       expect(first.runtimeAttributesFixed).toEqual([]);
-      const report = await withClient(owner, c => roleReport(c, roles.runtime));
+      expect(first.ownership).toEqual({ transferred: 0, schemaTransferred: false });
+      const report = await withClient(admin, c => roleReport(c, roles.runtime));
       expect(runtimeViolations(report)).toEqual([]);
+      const mig = await withClient(admin, c => roleReport(c, roles.migrator));
+      expect(mig.attributes?.rolinherit).toBe(false);
+      expect(mig.attributes?.rolcanlogin).toBe(true);
+      expect(mig.memberships).toEqual([
+        { role: roles.owner, admin_option: false, inherit_option: false, set_option: true },
+      ]);
 
-      // The secret never appears in any statement text the server keeps.
-      const { rows } = await owner.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM pg_stat_activity WHERE query LIKE '%' || $1 || '%'`,
-        [first.runtimePassword],
-      );
-      expect(rows[0].n).toBe(0);
+      // The secrets never appear in any statement text the server keeps.
+      for (const secret of [first.runtimePassword, first.migratorPassword]) {
+        const { rows } = await admin.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM pg_stat_activity WHERE query LIKE '%' || $1 || '%'`,
+          [secret],
+        );
+        expect(rows[0].n).toBe(0);
+      }
 
-      const second = await withClient(owner, c =>
-        provisionCommunityRoles(c, {
-          roles,
-          withReadonly: LOCAL,
-          newPassword: () => {
-            generated += 1;
-            return generatePassword();
-          },
-        }),
+      const second = await withClient(admin, c =>
+        provisionCommunityRoles(c, { roles, withReadonly: LOCAL, newPassword: gen }),
       );
       expect(second.runtimeCreated).toBe(false);
+      expect(second.migratorCreated).toBe(false);
       expect(second.readonlyCreated).toBe(false);
       expect(second.runtimePassword).toBeUndefined();
-      expect(generated).toBe(1);
+      expect(second.migratorPassword).toBeUndefined();
+      expect(generated.sort()).toEqual(['migrator', 'runtime']);
 
-      // Attribute drift is repaired.
-      await owner.query(`ALTER ROLE "${roles.runtime}" INHERIT`);
-      const third = await withClient(owner, c =>
+      // Attribute and membership drift is repaired.
+      await admin.query(`ALTER ROLE "${roles.runtime}" INHERIT`);
+      await admin.query(`ALTER ROLE "${roles.migrator}" INHERIT`);
+      await admin.query(`GRANT ${roles.owner} TO "${roles.migrator}" WITH INHERIT TRUE`);
+      const third = await withClient(admin, c =>
         provisionCommunityRoles(c, { roles, newPassword: generatePassword }),
       );
       expect(third.runtimeAttributesFixed).toEqual(['INHERIT']);
+      expect(third.migratorAttributesFixed).toEqual(['INHERIT']);
+      const fixed = await withClient(admin, c => roleReport(c, roles.migrator));
+      expect(fixed.memberships.every(m => !m.inherit_option && m.set_option)).toBe(true);
 
       // Rotation sets a new password on the existing role.
-      const rotated = await withClient(owner, c =>
-        provisionCommunityRoles(c, { roles, rotatePassword: true, newPassword: generatePassword }),
+      const rotated = await withClient(admin, c =>
+        provisionCommunityRoles(c, {
+          roles,
+          rotatePassword: true,
+          rotateMigratorPassword: true,
+          newPassword: generatePassword,
+        }),
       );
       expect(rotated.runtimeCreated).toBe(false);
       expect(rotated.runtimePassword).toMatch(/^[A-Za-z0-9_-]{43}$/);
       expect(rotated.runtimePassword).not.toBe(first.runtimePassword);
+      expect(rotated.migratorPassword).not.toBe(first.migratorPassword);
     } finally {
-      await dropProbeRole(owner, roles.runtime);
-      await dropProbeRole(owner, roles.readonly);
+      await dropProbeRole(admin, roles.runtime);
+      await dropProbeRole(admin, roles.migrator);
+      await dropProbeRole(admin, roles.readonly);
     }
   });
 
-  it('refuses to run as a runtime role', async () => {
+  it('refuses to run as a Community role (runtime or owner)', async () => {
     await expect(
       withClient(app, c => provisionCommunityRoles(c, { newPassword: generatePassword })),
-    ).rejects.toThrow(/OWNER role/);
+    ).rejects.toThrow(/BRANCH OWNER/);
+    await expect(
+      withClient(owner, c => provisionCommunityRoles(c, { newPassword: generatePassword })),
+    ).rejects.toThrow(/BRANCH OWNER/);
   });
 });

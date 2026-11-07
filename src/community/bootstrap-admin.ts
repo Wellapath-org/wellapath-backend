@@ -1,11 +1,15 @@
 /**
  * First-admin bootstrap (contract §12.2, PoC P10). There is no bootstrap HTTP endpoint: no admin
  * exists yet to grant the role through the audited API, so the first admin is created by the
- * migration OWNER from this CLI and recorded in the ops log.
+ * migrator from this CLI, acting as the owner, and recorded in the ops log.
  *
- *   COMMUNITY_OWNER_DATABASE_URL=postgres://community_owner@… \
- *     npx ts-node src/community/bootstrap-admin.ts --email founder@example.org
+ *   DOTENV_CONFIG_PATH=<private>/neon/<branch>.migrator.env DOTENV_CONFIG_QUIET=true \
+ *     node -r dotenv/config -r ts-node/register src/community/bootstrap-admin.ts --email founder@example.org
  *   (or COMMUNITY_BOOTSTRAP_ADMIN_EMAIL=… instead of --email)
+ *
+ * Connects with COMMUNITY_DATABASE_URL_DIRECT (`community_migrator`, DIRECT URL; the legacy
+ * COMMUNITY_OWNER_DATABASE_URL is still read) and runs the transaction under
+ * `SET LOCAL ROLE community_owner` (`--no-set-role` for an unprovisioned LOCAL database).
  *
  * - Refuses if any admin already exists: later admins are granted through
  *   `POST /v1/community/admin/accounts/{id}/role` (audited, TOTP-gated).
@@ -18,7 +22,8 @@
  */
 import { randomBytes } from 'crypto';
 import { Pool } from 'pg';
-import { forceVerifyFull } from './db-url';
+import { OWNER_ROLE } from './db-roles';
+import { assertDirectEndpoint, forceVerifyFull } from './db-url';
 
 export interface BootstrapResult {
   accountId: string;
@@ -35,12 +40,25 @@ const newAccountId = (): string => {
   return Array.from(bytes, b => alphabet[b % alphabet.length]).join('');
 };
 
-export const bootstrapAdmin = async (pool: Pool, rawEmail: string): Promise<BootstrapResult> => {
+export interface BootstrapOptions {
+  /** Role to `SET LOCAL ROLE` to for the transaction (three-role model: community_owner). */
+  ownerRole?: string | null;
+}
+
+export const bootstrapAdmin = async (
+  pool: Pool,
+  rawEmail: string,
+  options: BootstrapOptions = {},
+): Promise<BootstrapResult> => {
   const email = rawEmail.trim().toLowerCase();
   if (!EMAIL.test(email) || email.length > 254) throw new Error('A valid --email is required');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // LOCAL: reverts at COMMIT/ROLLBACK, so the pooled client never keeps the owner role.
+    if (options.ownerRole) {
+      await client.query(`SET LOCAL ROLE ${client.escapeIdentifier(options.ownerRole)}`);
+    }
     // Serialise concurrent bootstraps.
     await client.query(`LOCK TABLE "user" IN SHARE ROW EXCLUSIVE MODE`);
     const admins = await client.query(
@@ -83,7 +101,7 @@ export const bootstrapAdmin = async (pool: Pool, rawEmail: string): Promise<Boot
        VALUES ($1, 'change_role', 'account', $1, $2, $3)`,
       [
         accountId,
-        'bootstrap: first admin created by the migration owner (ops log)',
+        'bootstrap: first admin created by the migration owner role (ops log)',
         JSON.stringify({ from: previousRole, to: 'admin', via: 'bootstrap-cli' }),
       ],
     );
@@ -102,9 +120,18 @@ if (require.main === module) {
   const args = process.argv.slice(2);
   const flag = args.indexOf('--email');
   const email = flag >= 0 ? args[flag + 1] : process.env.COMMUNITY_BOOTSTRAP_ADMIN_EMAIL;
-  const url = process.env.COMMUNITY_OWNER_DATABASE_URL;
+  const name = process.env.COMMUNITY_DATABASE_URL_DIRECT
+    ? 'COMMUNITY_DATABASE_URL_DIRECT'
+    : 'COMMUNITY_OWNER_DATABASE_URL';
+  const url = process.env[name];
   if (!url) {
-    process.stderr.write('Missing COMMUNITY_OWNER_DATABASE_URL (migration owner role)\n');
+    process.stderr.write('Missing COMMUNITY_DATABASE_URL_DIRECT (community_migrator, DIRECT)\n');
+    process.exit(1);
+  }
+  try {
+    assertDirectEndpoint(url, name);
+  } catch (error) {
+    process.stderr.write(`${(error as Error).message}\n`);
     process.exit(1);
   }
   if (!email) {
@@ -112,10 +139,8 @@ if (require.main === module) {
     process.exit(1);
   }
   // B5: owner connections to a non-local host always use sslmode=verify-full.
-  const pool = new Pool({
-    connectionString: forceVerifyFull(url, 'COMMUNITY_OWNER_DATABASE_URL'),
-  });
-  bootstrapAdmin(pool, email)
+  const pool = new Pool({ connectionString: forceVerifyFull(url, name) });
+  bootstrapAdmin(pool, email, { ownerRole: args.includes('--no-set-role') ? null : OWNER_ROLE })
     .then(result => {
       // The email is not echoed; record the account id in the ops log.
       process.stdout.write(
