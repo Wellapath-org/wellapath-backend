@@ -242,6 +242,13 @@ describeDb('WellaPath rate limiter (A3)', () => {
           headers: bearer(user.accessToken),
         });
         expect(res.statusCode).toBe(204);
+        // A bearer whose family is already gone proves no account: it is back on the IP bucket.
+        const again = await app.server.inject({
+          method: 'POST',
+          url: '/v1/auth/logout',
+          headers: bearer(user.accessToken),
+        });
+        expect429(again);
       } finally {
         await app.close();
       }

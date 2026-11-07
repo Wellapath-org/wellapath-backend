@@ -3,7 +3,7 @@
 #   companion of WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md. On any conflict the MARKDOWN wins.
 # Do not edit here: change the canonical files by PR, then re-copy (the contract test
 # tests/community/contract.test.ts loads this file). Copied 2026-11-08, unmodified below this header.
-# canonical-sha256: 1b10781919dcd15e8b5033d8d744222e997a16352a1b82216f0378a7b4ae64fa
+# canonical-sha256: b88749cf946edeea40031ea502d025beebd8656999eb75f7f15b150b5fcbb533
 
 # WellaPath Community API v1.0-draft (CANONICAL, pending founder sign-off). Must stay consistent with COMMUNITY_API_CONTRACT.md (markdown wins). Change only via PR to both files.
 openapi: "3.1.0"
@@ -170,7 +170,7 @@ paths:
     post:
       operationId: "logout"
       summary: "Revoke this device's family and session (idempotent)"
-      description: "P6 (approved 2026-11-07). Two credentials, either is enough. (1) No Authorization header: the body's refresh_token is the credential and is REQUIRED. Its family's current token revokes the family; a superseded token is reuse (family revoked as reuse_detected); unknown, expired or already-revoked tokens change nothing. Every well-formed token gets the same 204 (same headers, empty body): no token or account oracle. (2) Bearer access token (an expired-but-validly-signed one is accepted for this route only): its family is revoked; an optional refresh_token naming a different live family the caller holds (its current token) is revoked too, anything else in the body is ignored. 400 validation_failed depends only on the body shape (and whether a bearer was sent), never on stored state. 401 only when an Authorization header is sent that is not a validly signed access token."
+      description: "P6 (approved 2026-11-07). Two credentials, either is enough. (1) No Authorization header: the body's refresh_token is the credential and is REQUIRED. Its family's current token revokes the family; a superseded token is reuse (family revoked as reuse_detected); unknown, expired or already-revoked tokens change nothing. Every well-formed token gets the same 204 (same headers, empty body): no token or account oracle. (2) Bearer access token of account A (an expired-but-validly-signed one is accepted for this route only): with no body token, an unknown one, or one of a family of A, the bearer's family is revoked and the current token of another live family of A is revoked too, anything else in the body is ignored. With a refresh_token of a DIFFERENT account B (any state), no session of A is revoked (the bearer's family included) and the token is processed exactly as in (1); A is audited as a logout noop (reason cross_account_refresh_token, no B identifiers). The response is the same 204 in every case: no account relationship is disclosed. 400 validation_failed depends only on the body shape (and whether a bearer was sent), never on stored state. 401 only when an Authorization header is sent that is not a validly signed access token."
       tags:
         - "auth"
       security:
@@ -178,8 +178,8 @@ paths:
         - {}
       x-wellapath-role: "any"
       x-wellapath-2fa: false
-      x-wellapath-rate-limit: "bearer: 30/min per account; no bearer: 60/min per client IP [3000/min interim global] and 10/min per refresh-token hash"
-      x-wellapath-audit: "auth_events logout (detail.outcome revoked | noop; noop has no account_id), refresh_reuse_detected + family_revoked on reuse"
+      x-wellapath-rate-limit: "bearer: 30/min per account; no bearer: 60/min per client IP [3000/min interim global]; any refresh_token: 10/min per refresh-token hash (approved 2026-11-08)"
+      x-wellapath-audit: "auth_events logout (detail.outcome revoked | noop; a no-bearer noop has no account_id; a cross-account bearer gets a noop row with reason cross_account_refresh_token), refresh_reuse_detected + family_revoked on reuse"
       requestBody:
         required: false
         description: "Required (with refresh_token) when no Authorization header is sent; optional with a bearer."

@@ -287,8 +287,14 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
    *   well-formed token gets the same 204 (same headers, empty body), whether it revoked a family,
    *   tripped reuse detection or matched nothing, so the route is no token or account oracle.
    * - A bearer access token (an expired-but-validly-signed one is accepted, for this route only):
-   *   its family is revoked. An optional `refresh_token` naming a different live family the
-   *   caller holds (its current token) is revoked too; anything else in the body is ignored.
+   *   - body token of the SAME account (or none, or unknown): the bearer's family is revoked, and
+   *     another live family of that account whose current token is in the body is revoked too;
+   *     anything else in the body is ignored.
+   *   - body token of a DIFFERENT account (founder, 2026-11-08): neither credential extends
+   *     authority over the other account. The bearer's account is left untouched (audited as a
+   *     `logout` noop, reason `cross_account_refresh_token`, without the other account's ids) and
+   *     the token is processed exactly as a no-bearer logout would process it.
+   *   The response is the same 204 in every case, so no account relationship is disclosed.
    *
    * Only the body's shape (and whether a bearer was sent) can produce a 400, never stored state.
    * A bearer that is not a validly signed access token is still 401: that is the caller's own
@@ -314,7 +320,6 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
       throw validation('refresh_token', 'pattern');
     }
     const ip = ctx.ip(request);
-    let revoked = false;
 
     let principal: Principal | undefined;
     if (hasBearer) {
@@ -333,30 +338,56 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
           endpoint: 'logout',
           accountId: principal.userId,
         });
-        await s.tokens.revokeFamily(principal.familyId, 'logout');
-        await s.events.record('logout', {
-          accountId: principal.userId,
-          familyId: principal.familyId,
-          ip,
-          detail: { outcome: 'revoked', credential: 'bearer' },
-        });
-        revoked = true;
       }
-    } else {
-      // No account is known before the lookup: limit on the trusted-proxy IP (visible) and the
-      // token's hash (hidden), before touching any token state.
+    }
+    if (!principal) {
+      // No account is known before the lookup (no bearer, or a bearer whose family is already
+      // gone): limit on the trusted-proxy IP (visible) and the token's hash (hidden), before
+      // touching any token state.
       await ctx.limit(reply, [{ name: 'logout_ip', key: ip }], { endpoint: 'logout', ip });
     }
-
     if (typeof presented === 'string') {
       await ctx.limit(
         reply,
         [{ name: 'logout_token', key: s.hasher.refreshHash(presented) as string, hidden: true }],
         { endpoint: 'logout', ip },
       );
+    }
+
+    // Resolve the body token's account BEFORE revoking anything, so a token of another account
+    // never costs the bearer's account a session (and the bearer never reaches the other account).
+    const tokenAccount =
+      principal && typeof presented === 'string'
+        ? await s.tokens.accountOfRefreshToken(presented)
+        : undefined;
+    const crossAccount =
+      principal !== undefined && tokenAccount !== undefined && tokenAccount !== principal.userId;
+
+    let revoked = false;
+    if (principal && !crossAccount) {
+      await s.tokens.revokeFamily(principal.familyId, 'logout');
+      await s.events.record('logout', {
+        accountId: principal.userId,
+        familyId: principal.familyId,
+        ip,
+        detail: { outcome: 'revoked', credential: 'bearer' },
+      });
+      revoked = true;
+    } else if (principal) {
+      // Only the bearer's own ids: nothing about the other account goes in this row.
+      await s.events.record('logout', {
+        accountId: principal.userId,
+        familyId: principal.familyId,
+        ip,
+        detail: { outcome: 'noop', reason: 'cross_account_refresh_token' },
+      });
+    }
+
+    if (typeof presented === 'string') {
+      // Cross-account: exactly the no-bearer path (nothing excepted).
       const result = await s.tokens.revokeByRefreshToken(presented, {
         ip,
-        exceptFamilyId: principal?.familyId,
+        exceptFamilyId: crossAccount ? undefined : principal?.familyId,
       });
       if (result.outcome === 'revoked') {
         await s.events.record('logout', {
@@ -370,7 +401,7 @@ export const registerAuthRoutes = (server: FastifyInstance, ctx: CommunityContex
       if (result.outcome !== 'noop') revoked = true;
     }
     if (!revoked) {
-      // Nothing was signed out. No account id: the caller has not proved one.
+      // Nothing was signed out on the token's side. No account id: none has been proved.
       await s.events.record('logout', { ip, detail: { outcome: 'noop' } });
     }
     return reply.status(204).send();

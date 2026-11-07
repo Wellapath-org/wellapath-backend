@@ -357,6 +357,23 @@ export class TokenService {
   }
 
   /**
+   * The account a presented refresh token belongs to, whatever the state of its family (live,
+   * rotated, expired or revoked). Used by A4 to keep a bearer of one account and a refresh token
+   * of another from acting on each other's account.
+   */
+  async accountOfRefreshToken(refreshToken: string): Promise<string | undefined> {
+    const candidates = this.hasher.refreshHashCandidates(refreshToken);
+    const { rows } = await this.pool.query<{ user_id: string }>(
+      `SELECT f.user_id FROM refresh_tokens t
+         JOIN refresh_token_families f ON f.id = t.family_id
+        WHERE t.token_hash = ANY($1::text[])
+        LIMIT 1`,
+      [candidates.map(c => c.hash)],
+    );
+    return rows[0]?.user_id;
+  }
+
+  /**
    * Refresh-token sign-out (contract A4, P6). The caller holds no other credential, so the result
    * is never surfaced to it: the route answers the same 204 whatever happens here.
    *
