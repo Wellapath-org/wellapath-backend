@@ -1,24 +1,37 @@
 /**
- * Criteria 2 and 3: email-OTP sign-up/sign-in, access-token validation (expired, revoked,
- * forged), refresh, sign-out, suspension, and account recovery.
+ * ADR-001 A2 / contract §3: the WellaPath auth facade over Better Auth.
+ * - email OTP sign-up / sign-in (TokenPair), OTP rules (5 attempts, newest code wins, 202 always)
+ * - refresh rotation, reuse ⇒ whole family revoked, device mismatch ⇒ revoked, the 10 s
+ *   same-device race window (F1: one winner, no revocation)
+ * - session lifetimes per role (absolute + idle), sign-out, recovery (sessions, revoke-others)
+ * - suspended ⇒ next request 401; expired / forged access tokens rejected
+ * - Better Auth's own handler is not reachable; nothing secret reaches the logs.
  */
-import { generateKeyPair, SignJWT, decodeJwt } from 'jose';
+import { randomUUID } from 'crypto';
+import { LightMyRequestResponse } from 'fastify';
+import { exportJWK, generateKeyPair, SignJWT, importJWK, base64url } from 'jose';
 import {
   bearer,
-  createCommunityApp,
   CommunityTestApp,
+  createCommunityApp,
   describeDb,
-  mintAccessToken,
+  ownerQuery,
   privilegedUser,
+  refresh,
+  requestOtp,
   resetDatabase,
   signIn,
   uniqueEmail,
+  verifyOtp,
 } from './helpers';
 
-const me = (app: CommunityTestApp, token: string) =>
+const me = (app: CommunityTestApp, token: string): Promise<LightMyRequestResponse> =>
   app.server.inject({ method: 'GET', url: '/v1/community/me', headers: bearer(token) });
 
-describeDb('email OTP sign-in and access tokens', () => {
+const reasonOf = (res: { json: () => unknown }): string | undefined =>
+  (res.json() as { error: { details?: { reason?: string } } }).error.details?.reason;
+
+describeDb('auth facade (A2)', () => {
   let app: CommunityTestApp;
   beforeAll(async () => {
     await resetDatabase();
@@ -26,291 +39,484 @@ describeDb('email OTP sign-in and access tokens', () => {
   });
   afterAll(async () => app.close());
 
-  it('signs up a new account by email OTP and calls an authenticated endpoint', async () => {
-    const email = uniqueEmail('new');
-    const user = await signIn(app, email);
-    expect(app.outbox.messages.filter(m => m.to === email)).toHaveLength(1);
-    const res = await me(app, user.accessToken);
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
-      id: user.userId,
-      role: 'member',
-      two_factor_enabled: false,
+  describe('email OTP', () => {
+    it('signs up a new account and returns a contract TokenPair', async () => {
+      const email = uniqueEmail('new');
+      expect((await requestOtp(app, email)).statusCode).toBe(202);
+      const res = await verifyOtp(app, email, app.outbox.latestOtp(email));
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toMatchObject({
+        token_type: 'Bearer',
+        expires_in: 900,
+        account_created: true,
+        account: { email, role: 'member', status: 'active', two_factor_enabled: false },
+      });
+      expect(body.refresh_token).toMatch(/^wprt_[A-Za-z0-9_-]{43}$/);
+      expect(Date.parse(body.access_token_expires_at) - Date.now()).toBeLessThanOrEqual(900_000);
+      const days = (Date.parse(body.refresh_token_expires_at) - Date.now()) / 86_400_000;
+      expect(days).toBeGreaterThan(29.9);
+      expect(days).toBeLessThanOrEqual(30);
+      expect(res.headers['cache-control']).toBe('no-store');
+      // The access token carries sub, sid, iss, aud, iat, exp, jti and is EdDSA.
+      const [header, payload] = body.access_token
+        .split('.')
+        .slice(0, 2)
+        .map((p: string) => JSON.parse(Buffer.from(p, 'base64url').toString()));
+      expect(header.alg).toBe('EdDSA');
+      expect(payload).toEqual(
+        expect.objectContaining({
+          sub: body.account.account_id,
+          sid: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          iss: 'wellapath-community',
+          aud: 'wellapath-community-api',
+          jti: expect.any(String),
+        }),
+      );
+      expect(payload.exp - payload.iat).toBeLessThanOrEqual(900);
+      // The Better Auth session token never reaches the client.
+      const rows = (await ownerQuery(`SELECT "token" FROM "session"`)) as { token: string }[];
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) {
+        expect(res.body).not.toContain(row.token);
+      }
+    });
+
+    it('signs an existing account in on a new device (account_created false, same id)', async () => {
+      const first = await signIn(app, uniqueEmail('again'));
+      expect((await requestOtp(app, first.email.toUpperCase())).statusCode).toBe(202);
+      const res = await verifyOtp(app, first.email, app.outbox.latestOtp(first.email));
+      expect(res.json()).toMatchObject({
+        account_created: false,
+        account: { account_id: first.userId },
+      });
+    });
+
+    it('answers 202 {} for unknown, existing and malformed-but-valid emails alike', async () => {
+      const known = await signIn(app, uniqueEmail('known'));
+      for (const email of [known.email, uniqueEmail('unknown')]) {
+        const res = await requestOtp(app, email);
+        expect(res.statusCode).toBe(202);
+        expect(res.json()).toEqual({});
+      }
+      expect((await requestOtp(app, 'not-an-email')).json().error).toMatchObject({
+        code: 'validation_failed',
+        details: { field: 'email', rule: 'format' },
+      });
+    });
+
+    it('allows 5 verify attempts per code, then invalidates it (invalid_code, not 429)', async () => {
+      const email = uniqueEmail('attempts');
+      await requestOtp(app, email);
+      const code = app.outbox.latestOtp(email);
+      const wrong = code === '000000' ? '111111' : '000000';
+      for (let i = 0; i < 5; i += 1) {
+        const res = await verifyOtp(app, email, wrong);
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error.code).toBe('invalid_code');
+      }
+      const late = await verifyOtp(app, email, code);
+      expect(late.statusCode).toBe(400);
+      expect(late.json().error.code).toBe('invalid_code');
+    });
+
+    it('a code is single use, and a new request invalidates the previous code', async () => {
+      const email = uniqueEmail('single');
+      await requestOtp(app, email);
+      const first = app.outbox.latestOtp(email);
+      await requestOtp(app, email);
+      const second = app.outbox.latestOtp(email);
+      if (first !== second) expect((await verifyOtp(app, email, first)).statusCode).toBe(400);
+      expect((await verifyOtp(app, email, second)).statusCode).toBe(200);
+      expect((await verifyOtp(app, email, second)).statusCode).toBe(400);
+    });
+
+    it('records sign-in audit events without plaintext email', async () => {
+      const user = await signIn(app, uniqueEmail('audit'));
+      const rows = (await ownerQuery(
+        `SELECT event, email_hmac, detail FROM auth_events
+          WHERE account_id = $1 OR email_hmac = (
+            SELECT email_hmac FROM auth_events WHERE account_id = $1 AND event = 'sign_in_succeeded')
+          ORDER BY id`,
+        [user.userId],
+      )) as { event: string; email_hmac: string | null; detail: unknown }[];
+      expect(rows.find(r => r.event === 'otp_requested')?.email_hmac).toEqual(expect.any(String));
+      expect(rows.map(r => r.event)).toEqual(
+        expect.arrayContaining(['otp_requested', 'family_created', 'sign_in_succeeded']),
+      );
+      expect(JSON.stringify(rows)).not.toContain(user.email);
     });
   });
 
-  it('never writes the OTP, email, session token or access token to the request log', async () => {
-    const email = uniqueEmail('logcheck');
-    const user = await signIn(app, email);
-    await me(app, user.accessToken);
-    const logs = app.logs.text();
-    expect(logs).not.toContain(app.outbox.latestOtp(email));
-    expect(logs).not.toContain(email);
-    expect(logs).not.toContain(user.sessionToken);
-    expect(logs).not.toContain(user.accessToken);
-  });
-
-  it('the access token is a short-lived EdDSA JWT bound to the session', async () => {
-    const user = await signIn(app, uniqueEmail('claims'));
-    const claims = decodeJwt(user.accessToken);
-    expect(claims.sub).toBe(user.userId);
-    expect(typeof claims.sid).toBe('string');
-    expect(claims.iss).toBe('wellapath-community');
-    expect(claims.aud).toBe('wellapath-community-api');
-    expect((claims.exp as number) - (claims.iat as number)).toBe(900);
-  });
-
-  it('rejects a wrong OTP and locks the OTP after 3 failed attempts', async () => {
-    const email = uniqueEmail('wrongotp');
-    await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/email-otp/send-verification-otp',
-      payload: { email, type: 'sign-in' },
+  describe('refresh rotation (A2)', () => {
+    it('rotate-on-refresh: new refresh token, same sid; the old one is single use', async () => {
+      const user = await signIn(app, uniqueEmail('rotate'));
+      const res = await refresh(app, user.refreshToken, user.deviceId);
+      expect(res.statusCode).toBe(200);
+      const pair = res.json();
+      expect(pair.refresh_token).not.toBe(user.refreshToken);
+      expect(pair.account_created).toBe(false);
+      const sid = JSON.parse(
+        Buffer.from(pair.access_token.split('.')[1], 'base64url').toString(),
+      ).sid;
+      expect(sid).toBe(user.familyId);
+      expect((await me(app, pair.access_token)).statusCode).toBe(200);
+      // And the new one rotates again.
+      expect((await refresh(app, pair.refresh_token, user.deviceId)).statusCode).toBe(200);
     });
-    const real = app.outbox.latestOtp(email);
-    const wrong = real === '000000' ? '111111' : '000000';
-    for (let i = 0; i < 3; i += 1) {
+
+    it('reuse ⇒ the whole family is revoked (and audited); every holder must sign in again', async () => {
+      const user = await signIn(app, uniqueEmail('reuse'));
+      const rotated = (await refresh(app, user.refreshToken, user.deviceId)).json();
+      // Push the first use outside the 10 s race window.
+      await ownerQuery(
+        `UPDATE refresh_tokens SET used_at = now() - interval '11 seconds' WHERE family_id = $1 AND used_at IS NOT NULL`,
+        [user.familyId],
+      );
+      const replay = await refresh(app, user.refreshToken, user.deviceId);
+      expect(replay.statusCode).toBe(401);
+      expect(replay.json().error.code).toBe('unauthenticated');
+      expect(reasonOf(replay)).toBe('refresh_reused');
+      // The legitimate holder's newer token and access token are dead too.
+      const victim = await refresh(app, rotated.refresh_token, user.deviceId);
+      expect(victim.statusCode).toBe(401);
+      expect((await me(app, rotated.access_token)).statusCode).toBe(401);
+      expect((await me(app, user.accessToken)).statusCode).toBe(401);
+      const events = (await ownerQuery(`SELECT event FROM auth_events WHERE family_id = $1`, [
+        user.familyId,
+      ])) as { event: string }[];
+      expect(events.map(e => e.event)).toEqual(
+        expect.arrayContaining(['refresh_reuse_detected', 'family_revoked']),
+      );
+    });
+
+    it('a refresh token presented from another device revokes the family', async () => {
+      const user = await signIn(app, uniqueEmail('device'));
+      const res = await refresh(app, user.refreshToken, randomUUID());
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('refresh_reused');
+      expect((await refresh(app, user.refreshToken, user.deviceId)).statusCode).toBe(401);
+    });
+
+    it('concurrent refresh race: exactly one winner; the loser gets 409 refresh_race, no revocation', async () => {
+      const user = await signIn(app, uniqueEmail('race'));
+      const results = await Promise.all([
+        refresh(app, user.refreshToken, user.deviceId),
+        refresh(app, user.refreshToken, user.deviceId),
+        refresh(app, user.refreshToken, user.deviceId),
+      ]);
+      const statuses = results.map(r => r.statusCode).sort();
+      expect(statuses).toEqual([200, 409, 409]);
+      for (const loser of results.filter(r => r.statusCode === 409)) {
+        expect(loser.json().error).toMatchObject({
+          code: 'conflict',
+          details: { reason: 'refresh_race' },
+        });
+      }
+      const winner = results.find(r => r.statusCode === 200)?.json();
+      // Not revoked: the winner's pair keeps working.
+      expect((await me(app, winner.access_token)).statusCode).toBe(200);
+      expect((await refresh(app, winner.refresh_token, user.deviceId)).statusCode).toBe(200);
+    });
+
+    it('an unknown refresh token is refresh_invalid', async () => {
+      const res = await refresh(app, `wprt_${'A'.repeat(43)}`, randomUUID());
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('refresh_invalid');
+    });
+
+    it('rejects a malformed refresh request body (400)', async () => {
       const res = await app.server.inject({
         method: 'POST',
-        url: '/v1/auth/sign-in/email-otp',
-        payload: { email, otp: wrong },
+        url: '/v1/auth/refresh',
+        payload: { refresh_token: 'nope', device_id: randomUUID() },
       });
-      expect(res.statusCode).toBeGreaterThanOrEqual(400);
-    }
-    const after = await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/sign-in/email-otp',
-      payload: { email, otp: real },
+      expect(res.statusCode).toBe(400);
     });
-    expect(after.statusCode).toBeGreaterThanOrEqual(400);
   });
 
-  it('an OTP is single-use', async () => {
-    const email = uniqueEmail('reuse');
-    await signIn(app, email);
-    const replay = await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/sign-in/email-otp',
-      payload: { email, otp: app.outbox.latestOtp(email) },
-    });
-    expect(replay.statusCode).toBeGreaterThanOrEqual(400);
-  });
-
-  it('refresh: the session token mints a new access token that works', async () => {
-    const user = await signIn(app, uniqueEmail('refresh'));
-    await new Promise(r => setTimeout(r, 1100)); // new iat
-    const fresh = await mintAccessToken(app, user.sessionToken);
-    expect(fresh).not.toBe(user.accessToken);
-    expect((await me(app, fresh)).statusCode).toBe(200);
-  });
-
-  it('rejects a missing, malformed or non-Bearer token', async () => {
-    expect((await app.server.inject({ method: 'GET', url: '/v1/community/me' })).statusCode).toBe(
-      401,
-    );
-    expect((await me(app, 'not-a-jwt')).statusCode).toBe(401);
-    const basic = await app.server.inject({
-      method: 'GET',
-      url: '/v1/community/me',
-      headers: { authorization: 'Basic dXNlcjpwYXNz' },
-    });
-    expect(basic.statusCode).toBe(401);
-  });
-
-  it('rejects the session token itself where an access token is required', async () => {
-    const user = await signIn(app, uniqueEmail('sesstoken'));
-    expect((await me(app, user.sessionToken)).statusCode).toBe(401);
-  });
-
-  describe('forged tokens', () => {
-    let user: Awaited<ReturnType<typeof signIn>>;
-    beforeAll(async () => {
-      user = await signIn(app, uniqueEmail('forge'));
+  describe('session lifetimes per role', () => {
+    it('member families: 30 days absolute, 7 days idle', async () => {
+      const user = await signIn(app, uniqueEmail('life'));
+      const [row] = (await ownerQuery(
+        `SELECT extract(epoch FROM absolute_expires_at - created_at)::int AS abs,
+                extract(epoch FROM idle_expires_at - created_at)::int AS idle
+           FROM refresh_token_families WHERE id = $1`,
+        [user.familyId],
+      )) as { abs: number; idle: number }[];
+      expect(row.abs).toBeGreaterThanOrEqual(30 * 86400 - 2);
+      expect(row.abs).toBeLessThanOrEqual(30 * 86400 + 2);
+      expect(Math.abs(row.idle - 7 * 86400)).toBeLessThanOrEqual(2);
     });
 
-    it('rejects a token with a tampered payload (role escalation attempt)', async () => {
-      const [h, , s] = user.accessToken.split('.');
-      const payload = { ...decodeJwt(user.accessToken), role: 'admin', sub: 'someone-else' };
-      const forged = `${h}.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${s}`;
-      const res = await me(app, forged);
-      expect(res.statusCode).toBe(401);
-      expect(res.json().error.code).toBe('invalid_token');
+    it('moderator/admin families: 12 hours absolute, 1 hour idle', async () => {
+      const mod = await privilegedUser(app, 'lifemod', 'moderator');
+      const [row] = (await ownerQuery(
+        `SELECT extract(epoch FROM absolute_expires_at - created_at)::int AS abs,
+                extract(epoch FROM idle_expires_at - created_at)::int AS idle
+           FROM refresh_token_families WHERE id = $1`,
+        [mod.familyId],
+      )) as { abs: number; idle: number }[];
+      expect(Math.abs(row.abs - 12 * 3600)).toBeLessThanOrEqual(2);
+      expect(Math.abs(row.idle - 3600)).toBeLessThanOrEqual(2);
     });
 
-    it('rejects a token signed by an attacker key with the right claims', async () => {
-      const { privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-      const claims = decodeJwt(user.accessToken);
-      const forged = await new SignJWT({ sid: claims.sid })
-        .setProtectedHeader({ alg: 'EdDSA' })
-        .setSubject(user.userId)
-        .setIssuer('wellapath-community')
-        .setAudience('wellapath-community-api')
-        .setIssuedAt()
-        .setExpirationTime('10m')
-        .sign(privateKey);
-      expect((await me(app, forged)).statusCode).toBe(401);
-    });
-
-    it('rejects alg=none', async () => {
-      const header = Buffer.from(JSON.stringify({ alg: 'none', typ: 'JWT' })).toString('base64url');
-      const payload = Buffer.from(JSON.stringify(decodeJwt(user.accessToken))).toString(
-        'base64url',
+    it('idle limit passed ⇒ access 401 session_expired and refresh 401 refresh_expired', async () => {
+      const user = await signIn(app, uniqueEmail('idle'));
+      await ownerQuery(
+        `UPDATE refresh_token_families SET idle_expires_at = now() - interval '1 second' WHERE id = $1`,
+        [user.familyId],
       );
-      expect((await me(app, `${header}.${payload}.`)).statusCode).toBe(401);
+      const res = await me(app, user.accessToken);
+      expect(res.statusCode).toBe(401);
+      expect(reasonOf(res)).toBe('session_expired');
+      const r = await refresh(app, user.refreshToken, user.deviceId);
+      expect(r.statusCode).toBe(401);
+      expect(reasonOf(r)).toBe('refresh_expired');
     });
 
-    it('rejects an HS256 token keyed with the public key (algorithm confusion)', async () => {
-      const jwks = (await app.server.inject({ method: 'GET', url: '/v1/auth/jwks' })).json();
-      const key = new TextEncoder().encode(JSON.stringify(jwks.keys[0]));
-      const forged = await new SignJWT({ sid: decodeJwt(user.accessToken).sid })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setSubject(user.userId)
-        .setIssuer('wellapath-community')
-        .setAudience('wellapath-community-api')
-        .setExpirationTime('10m')
-        .sign(key);
-      expect((await me(app, forged)).statusCode).toBe(401);
+    it('absolute limit passed ⇒ refresh_expired even if recently used', async () => {
+      const user = await signIn(app, uniqueEmail('abs'));
+      await ownerQuery(
+        `UPDATE refresh_token_families SET absolute_expires_at = now() - interval '1 second' WHERE id = $1`,
+        [user.familyId],
+      );
+      expect(reasonOf(await refresh(app, user.refreshToken, user.deviceId))).toBe(
+        'refresh_expired',
+      );
     });
   });
 
-  it('sign-out revokes the session: the unexpired access token is rejected', async () => {
-    const user = await signIn(app, uniqueEmail('signout'));
-    expect((await me(app, user.accessToken)).statusCode).toBe(200);
-    const out = await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/sign-out',
-      headers: bearer(user.sessionToken),
-      payload: {},
+  describe('access-token validation', () => {
+    it('an expired access token is 401 token_expired (client refreshes once)', async () => {
+      const short = await createCommunityApp({ config: { accessTokenTtlSeconds: 1 } });
+      try {
+        const user = await signIn(short, uniqueEmail('exp'));
+        await new Promise(resolve => setTimeout(resolve, 2100));
+        const res = await me(short, user.accessToken);
+        expect(res.statusCode).toBe(401);
+        expect(res.json().error.code).toBe('token_expired');
+        const pair = (await refresh(short, user.refreshToken, user.deviceId)).json();
+        expect((await me(short, pair.access_token)).statusCode).toBe(200);
+      } finally {
+        await short.close();
+      }
     });
-    expect(out.statusCode).toBe(200);
-    const res = await me(app, user.accessToken);
-    expect(res.statusCode).toBe(401);
-    expect(res.json().error.code).toBe('session_revoked');
-    const refresh = await app.server.inject({
-      method: 'GET',
-      url: '/v1/auth/token',
-      headers: bearer(user.sessionToken),
+
+    it('rejects forged tokens: tampered, attacker key, alg none, HS256 key confusion', async () => {
+      const user = await signIn(app, uniqueEmail('forge'));
+      const [h, p, sig] = user.accessToken.split('.');
+      const claims = JSON.parse(Buffer.from(p, 'base64url').toString());
+      const tampered = `${h}.${base64url.encode(JSON.stringify({ ...claims, sub: 'someone-else' }))}.${sig}`;
+
+      const attacker = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+      const attackerToken = await new SignJWT(claims)
+        .setProtectedHeader({
+          alg: 'EdDSA',
+          kid: JSON.parse(Buffer.from(h, 'base64url').toString()).kid,
+        })
+        .sign(attacker.privateKey);
+
+      const none = `${base64url.encode(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${p}.`;
+
+      const [jwk] = (await ownerQuery(`SELECT "publicKey" FROM jwks LIMIT 1`)) as {
+        publicKey: string;
+      }[];
+      const hmacKey = await importJWK({ kty: 'oct', k: base64url.encode(jwk.publicKey) }, 'HS256');
+      const confused = await new SignJWT(claims).setProtectedHeader({ alg: 'HS256' }).sign(hmacKey);
+
+      for (const token of [tampered, attackerToken, none, confused, 'garbage', `${h}.${p}`]) {
+        const res = await me(app, token);
+        expect(res.statusCode).toBe(401);
+        expect(res.json().error.code).toBe('unauthenticated');
+      }
+      // A refresh token used as an access token is refused too.
+      expect((await me(app, user.refreshToken)).statusCode).toBe(401);
+      expect((await exportJWK(attacker.publicKey)).kty).toBe('OKP');
     });
-    expect(refresh.statusCode).toBe(401);
-  });
 
-  it('suspension revokes all sessions and blocks signing in again', async () => {
-    const moderator = await privilegedUser(app, 'susp-mod', 'moderator');
-    const target = await signIn(app, uniqueEmail('suspended'));
-    const res = await app.server.inject({
-      method: 'POST',
-      url: `/v1/community/mod/users/${target.userId}/suspend`,
-      headers: bearer(moderator.accessToken),
-      payload: { reason: 'repeated harassment' },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().sessions_revoked).toBeGreaterThanOrEqual(1);
-    expect((await me(app, target.accessToken)).statusCode).toBe(401);
-    await expect(signIn(app, target.email)).rejects.toThrow(/sign-in: 403/);
-  });
-});
-
-describeDb('expired access tokens', () => {
-  let app: CommunityTestApp;
-  beforeAll(async () => {
-    app = await createCommunityApp({ accessTokenTtlSeconds: 1 });
-  });
-  afterAll(async () => app.close());
-
-  it('rejects an access token after exp with token_expired, and refresh recovers', async () => {
-    const user = await signIn(app, uniqueEmail('expiry'));
-    expect((await me(app, user.accessToken)).statusCode).toBe(200);
-    await new Promise(r => setTimeout(r, 2100));
-    const res = await me(app, user.accessToken);
-    expect(res.statusCode).toBe(401);
-    expect(res.json().error.code).toBe('token_expired');
-    const fresh = await mintAccessToken(app, user.sessionToken);
-    expect((await me(app, fresh)).statusCode).toBe(200);
-  });
-});
-
-describeDb('expired sessions', () => {
-  let app: CommunityTestApp;
-  beforeAll(async () => {
-    app = await createCommunityApp({ sessionTtlSeconds: 60 });
-  });
-  afterAll(async () => app.close());
-
-  it('a token whose session has expired is rejected even before its own exp', async () => {
-    const user = await signIn(app, uniqueEmail('sessexp'));
-    const { ownerPool } = await import('./helpers');
-    const pool = ownerPool();
-    await pool.query(
-      `UPDATE "session" SET "expiresAt" = now() - interval '1 second' WHERE "userId" = $1`,
-      [user.userId],
-    );
-    await pool.end();
-    expect((await me(app, user.accessToken)).statusCode).toBe(401);
-  });
-});
-
-describeDb('account recovery', () => {
-  let app: CommunityTestApp;
-  beforeAll(async () => {
-    app = await createCommunityApp();
-  });
-  afterAll(async () => app.close());
-
-  it('lost device: email OTP on a new device recovers the same account, then revokes the old device', async () => {
-    const email = uniqueEmail('recover');
-    const oldDevice = await signIn(app, email);
-    const newDevice = await signIn(app, email);
-    expect(newDevice.userId).toBe(oldDevice.userId);
-
-    const revoke = await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/revoke-other-sessions',
-      headers: bearer(newDevice.sessionToken),
-      payload: {},
-    });
-    expect(revoke.statusCode).toBe(200);
-    expect((await me(app, oldDevice.accessToken)).statusCode).toBe(401);
-    expect((await me(app, newDevice.accessToken)).statusCode).toBe(200);
-  });
-
-  it('lost authenticator: a moderator steps up with a single-use backup code', async () => {
-    const moderator = await privilegedUser(app, 'backup-mod', 'moderator');
-    // New session (new device) with no step-up yet.
-    const session = await signIn(app, moderator.email);
-    const queue = () =>
-      app.server.inject({
+    it('missing / non-bearer credentials ⇒ 401 unauthenticated with a reason', async () => {
+      const missing = await app.server.inject({ method: 'GET', url: '/v1/community/me' });
+      expect(missing.statusCode).toBe(401);
+      expect(reasonOf(missing)).toBe('missing_token');
+      const basic = await app.server.inject({
         method: 'GET',
-        url: '/v1/community/mod/reports',
-        headers: bearer(session.accessToken),
+        url: '/v1/community/me',
+        headers: { authorization: 'Basic YTpi' },
       });
-    expect((await queue()).json().error.code).toBe('mfa_step_up_required');
-
-    const code = moderator.backupCodes[0];
-    const step = await app.server.inject({
-      method: 'POST',
-      url: '/v1/community/mfa/step-up',
-      headers: bearer(session.accessToken),
-      payload: { backup_code: code },
+      expect(reasonOf(basic)).toBe('invalid_token');
     });
-    expect(step.statusCode).toBe(200);
-    expect((await queue()).statusCode).toBe(200);
-
-    const again = await signIn(app, moderator.email);
-    const reuse = await app.server.inject({
-      method: 'POST',
-      url: '/v1/community/mfa/step-up',
-      headers: bearer(again.accessToken),
-      payload: { backup_code: code },
-    });
-    expect(reuse.statusCode).toBe(401);
   });
 
-  it('password reset endpoints are disabled (OTP-only accounts)', async () => {
-    const res = await app.server.inject({
-      method: 'POST',
-      url: '/v1/auth/email-otp/reset-password',
-      payload: { email: 'x@example.test', otp: '123456', password: 'whatever123' },
+  describe('sign-out and suspension', () => {
+    it('logout revokes the family: the unexpired access token is 401 session_revoked', async () => {
+      const user = await signIn(app, uniqueEmail('logout'));
+      const res = await app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/logout',
+        headers: bearer(user.accessToken),
+        payload: { refresh_token: user.refreshToken },
+      });
+      expect(res.statusCode).toBe(204);
+      const after = await me(app, user.accessToken);
+      expect(after.statusCode).toBe(401);
+      expect(reasonOf(after)).toBe('session_revoked');
+      expect((await refresh(app, user.refreshToken, user.deviceId)).statusCode).toBe(401);
+      // Idempotent.
+      const again = await app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/logout',
+        headers: bearer(user.accessToken),
+      });
+      expect(again.statusCode).toBe(204);
     });
-    expect(res.statusCode).toBe(404);
+
+    it('logout accepts an expired-but-validly-signed access token', async () => {
+      const short = await createCommunityApp({ config: { accessTokenTtlSeconds: 1 } });
+      try {
+        const user = await signIn(short, uniqueEmail('logoutexp'));
+        await new Promise(resolve => setTimeout(resolve, 2100));
+        const res = await short.server.inject({
+          method: 'POST',
+          url: '/v1/auth/logout',
+          headers: bearer(user.accessToken),
+        });
+        expect(res.statusCode).toBe(204);
+        expect((await refresh(short, user.refreshToken, user.deviceId)).statusCode).toBe(401);
+      } finally {
+        await short.close();
+      }
+    });
+
+    it('suspended ⇒ next request 401; sign-in 403 account_suspended; no OTP is sent', async () => {
+      const user = await signIn(app, uniqueEmail('susp'));
+      const mod = await privilegedUser(app, 'suspmod', 'moderator');
+      // A code issued BEFORE the suspension.
+      await requestOtp(app, user.email);
+      const preSuspensionCode = app.outbox.latestOtp(user.email);
+      const res = await app.server.inject({
+        method: 'POST',
+        url: `/v1/community/mod/accounts/${user.userId}/suspend`,
+        headers: bearer(mod.accessToken),
+        payload: { reason: 'repeated harassment of members' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ target_status: 'suspended', sessions_revoked: 1 });
+      const after = await me(app, user.accessToken);
+      expect(after.statusCode).toBe(401);
+      expect(reasonOf(after)).toBe('session_revoked');
+      expect((await refresh(app, user.refreshToken, user.deviceId)).statusCode).toBe(401);
+
+      const before = app.outbox.messages.length;
+      expect((await requestOtp(app, user.email)).statusCode).toBe(202);
+      expect(app.outbox.messages.length).toBe(before); // suppressed
+
+      // Even with a code issued before suspension, sign-in is refused.
+      const verify = await verifyOtp(app, user.email, preSuspensionCode);
+      expect(verify.statusCode).toBe(403);
+      expect(verify.json().error.code).toBe('account_suspended');
+    });
+  });
+
+  describe('account recovery', () => {
+    it('lost device: OTP on a new device recovers the account; revoke-others kills the old one', async () => {
+      const oldDevice = await signIn(app, uniqueEmail('lost'));
+      const newDevice = await signIn(app, oldDevice.email);
+      expect(newDevice.userId).toBe(oldDevice.userId);
+      const list = await app.server.inject({
+        method: 'GET',
+        url: '/v1/auth/sessions',
+        headers: bearer(newDevice.accessToken),
+      });
+      expect(list.statusCode).toBe(200);
+      const items = list.json().items as {
+        session_id: string;
+        current: boolean;
+        device_label: string;
+      }[];
+      expect(items).toHaveLength(2);
+      expect(items.find(i => i.current)?.session_id).toBe(newDevice.familyId);
+      expect(JSON.stringify(list.json())).not.toMatch(/ip|user_agent|token/i);
+
+      const revoke = await app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/sessions/revoke-others',
+        headers: bearer(newDevice.accessToken),
+        payload: {},
+      });
+      expect(revoke.json()).toEqual({ revoked: 1 });
+      expect((await me(app, oldDevice.accessToken)).statusCode).toBe(401);
+      expect((await refresh(app, oldDevice.refreshToken, oldDevice.deviceId)).statusCode).toBe(401);
+      expect((await me(app, newDevice.accessToken)).statusCode).toBe(200);
+    });
+
+    it('lost authenticator: a single-use backup code steps up; reuse is invalid_code', async () => {
+      const mod = await privilegedUser(app, 'backup', 'moderator');
+      const code = mod.backupCodes[0];
+      const first = await app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/totp/verify',
+        headers: bearer(mod.accessToken),
+        payload: { backup_code: code },
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.json().step_up).toBe('verified');
+      const reuse = await app.server.inject({
+        method: 'POST',
+        url: '/v1/auth/totp/verify',
+        headers: bearer(mod.accessToken),
+        payload: { backup_code: code },
+      });
+      expect(reuse.statusCode).toBe(400);
+      expect(reuse.json().error.code).toBe('invalid_code');
+    });
+  });
+
+  describe('surface', () => {
+    it.each([
+      ['POST', '/v1/auth/email-otp/send-verification-otp'],
+      ['POST', '/v1/auth/sign-in/email-otp'],
+      ['GET', '/v1/auth/get-session'],
+      ['GET', '/v1/auth/token'],
+      ['GET', '/v1/auth/jwks'],
+      ['POST', '/v1/auth/two-factor/enable'],
+      ['POST', '/v1/auth/email-otp/request-password-reset'],
+      ['POST', '/v1/auth/forget-password/email-otp'],
+      ['POST', '/v1/auth/change-email'],
+      ['POST', '/v1/auth/sign-in/phone-number'],
+    ])('Better Auth / excluded endpoint %s %s is 404', async (method, url) => {
+      const res = await app.server.inject({
+        method: method as 'GET' | 'POST',
+        url,
+        payload: method === 'POST' ? {} : undefined,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('not_found');
+    });
+
+    it('session rows keep no client IP or user agent', async () => {
+      await signIn(app, uniqueEmail('ip'));
+      const rows = (await ownerQuery(
+        `SELECT count(*)::int AS n FROM "session" WHERE "ipAddress" IS NOT NULL OR "userAgent" IS NOT NULL`,
+      )) as { n: number }[];
+      expect(rows[0].n).toBe(0);
+    });
+
+    it('never logs the email, OTP or tokens', async () => {
+      app.logs.clear();
+      const user = await signIn(app, uniqueEmail('logs'));
+      const pair = (await refresh(app, user.refreshToken, user.deviceId)).json();
+      const text = app.logs.text();
+      expect(text.length).toBeGreaterThan(0);
+      for (const secret of [
+        user.email,
+        app.outbox.latestOtp(user.email),
+        user.accessToken,
+        user.refreshToken,
+        pair.refresh_token,
+      ]) {
+        expect(text).not.toContain(secret);
+      }
+    });
   });
 });

@@ -1,14 +1,33 @@
 /**
- * Criterion 8: the moderation log is append-only at the database level, for the runtime role
- * (no privilege) and for the table owner (trigger), and created_at is server time.
+ * The moderation log and the security audit log (`auth_events`) are append-only at the database
+ * level: for the runtime role (no privilege) and for the table owner (trigger). `created_at` is
+ * server time. The reason CHECK makes a moderator reason mandatory (10–500 chars).
  */
 import { Pool } from 'pg';
 import { appPool, describeDb, ownerPool, resetDatabase } from './helpers';
 
-describeDb('moderation_actions is append-only', () => {
+const TABLES = [
+  {
+    table: 'moderation_actions',
+    insert: `INSERT INTO moderation_actions
+               (actor_account_id, action, target_type, target_id, reason, created_at)
+             VALUES ('mod1', 'hide_content', 'post', 'p1', 'spam spam spam', '2001-01-01T00:00:00Z')
+             RETURNING id`,
+    columns: ['actor_account_id', 'action', 'target_type', 'target_id', 'reason', 'created_at'],
+    update: `UPDATE moderation_actions SET reason = 'changed reason' WHERE id = $1`,
+  },
+  {
+    table: 'auth_events',
+    insert: `INSERT INTO auth_events (event, account_id, created_at)
+             VALUES ('logout', 'mod1', '2001-01-01T00:00:00Z') RETURNING id`,
+    columns: ['event', 'account_id', 'family_id', 'email_hmac', 'ip_hash', 'detail', 'created_at'],
+    update: `UPDATE auth_events SET event = 'sign_in_failed' WHERE id = $1`,
+  },
+] as const;
+
+describeDb('append-only audit tables', () => {
   let owner: Pool;
   let app: Pool;
-  let id: string;
 
   beforeAll(async () => {
     await resetDatabase();
@@ -16,82 +35,85 @@ describeDb('moderation_actions is append-only', () => {
     app = appPool();
     await owner.query(`INSERT INTO "user" ("id","name","email","emailVerified","updatedAt")
       VALUES ('mod1','m','mod1@example.test',true,now())`);
-    const { rows } = await app.query(
-      `INSERT INTO moderation_actions (actor_id, action, target_type, target_id, reason, created_at)
-       VALUES ('mod1', 'hide_content', 'post', 'p1', 'spam', '2001-01-01T00:00:00Z') RETURNING *`,
-    );
-    id = rows[0].id;
   });
   afterAll(async () => {
     await owner.end();
     await app.end();
   });
 
-  it('records actor_id, action, target_type, target_id, reason, created_at', async () => {
-    const { rows } = await owner.query('SELECT * FROM moderation_actions WHERE id = $1', [id]);
-    expect(Object.keys(rows[0])).toEqual(
-      expect.arrayContaining([
-        'actor_id',
-        'action',
-        'target_type',
-        'target_id',
-        'reason',
-        'created_at',
-      ]),
-    );
-    expect(rows[0]).toMatchObject({
-      actor_id: 'mod1',
-      action: 'hide_content',
-      target_type: 'post',
+  describe.each(TABLES)('$table', ({ table, insert, columns, update }) => {
+    let id: string;
+    beforeAll(async () => {
+      id = (await app.query(insert)).rows[0].id;
+    });
+
+    it('has the audit columns and forces created_at to server time', async () => {
+      const { rows } = await owner.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+      expect(Object.keys(rows[0])).toEqual(expect.arrayContaining([...columns]));
+      expect(new Date(rows[0].created_at).getUTCFullYear()).toBeGreaterThanOrEqual(2026);
+    });
+
+    it('runtime role: UPDATE, DELETE and TRUNCATE are refused (no privilege)', async () => {
+      await expect(app.query(update, [id])).rejects.toThrow(/permission denied/);
+      await expect(app.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(
+        /permission denied/,
+      );
+      await expect(app.query(`TRUNCATE ${table}`)).rejects.toThrow(/permission denied/);
+    });
+
+    it('table owner: UPDATE, DELETE and TRUNCATE are refused by trigger', async () => {
+      await expect(owner.query(update, [id])).rejects.toThrow(/append-only/);
+      await expect(owner.query(`DELETE FROM ${table} WHERE id = $1`, [id])).rejects.toThrow(
+        /append-only/,
+      );
+      await expect(owner.query(`TRUNCATE ${table}`)).rejects.toThrow(/append-only/);
+      const { rows } = await owner.query(`SELECT count(*)::int AS n FROM ${table} WHERE id = $1`, [
+        id,
+      ]);
+      expect(rows[0].n).toBe(1);
+    });
+
+    it('runtime role cannot drop the protection', async () => {
+      await expect(
+        app.query(`ALTER TABLE ${table} DISABLE TRIGGER ${table}_no_update_delete`),
+      ).rejects.toThrow(/must be owner|permission denied/);
+      await expect(app.query(`DROP TABLE ${table}`)).rejects.toThrow(
+        /must be owner|permission denied/,
+      );
     });
   });
 
-  it('forces created_at to server time (a caller cannot backdate)', async () => {
-    const { rows } = await owner.query('SELECT created_at FROM moderation_actions WHERE id = $1', [
-      id,
-    ]);
-    expect(new Date(rows[0].created_at).getUTCFullYear()).toBeGreaterThanOrEqual(2026);
-  });
-
-  it('runtime role: UPDATE is refused', async () => {
+  it('a moderator reason is mandatory: 10–500 chars (system rows use fixed reasons)', async () => {
     await expect(
-      app.query(`UPDATE moderation_actions SET reason = 'x' WHERE id = $1`, [id]),
-    ).rejects.toThrow(/permission denied/);
-  });
-
-  it('runtime role: DELETE is refused', async () => {
-    await expect(app.query('DELETE FROM moderation_actions WHERE id = $1', [id])).rejects.toThrow(
-      /permission denied/,
-    );
-  });
-
-  it('runtime role: TRUNCATE is refused', async () => {
-    await expect(app.query('TRUNCATE moderation_actions')).rejects.toThrow(
-      /permission denied|append-only/,
-    );
-  });
-
-  it('table owner: UPDATE, DELETE and TRUNCATE are refused by trigger', async () => {
+      app.query(`INSERT INTO moderation_actions (actor_account_id, action, target_type, target_id, reason)
+                 VALUES ('mod1', 'hide_content', 'post', 'p1', 'short')`),
+    ).rejects.toThrow(/check constraint/);
     await expect(
-      owner.query(`UPDATE moderation_actions SET reason = 'x' WHERE id = $1`, [id]),
-    ).rejects.toThrow(/append-only \(UPDATE rejected\)/);
-    await expect(owner.query('DELETE FROM moderation_actions WHERE id = $1', [id])).rejects.toThrow(
-      /append-only \(DELETE rejected\)/,
-    );
-    await expect(owner.query('TRUNCATE moderation_actions')).rejects.toThrow(
-      /append-only \(TRUNCATE rejected\)/,
-    );
-  });
-
-  it('the row is unchanged after every attempt', async () => {
-    const { rows } = await owner.query('SELECT reason FROM moderation_actions WHERE id = $1', [id]);
-    expect(rows[0].reason).toBe('spam');
-  });
-
-  it('runtime role has no DDL: it cannot drop the trigger or the table', async () => {
+      app.query(
+        `INSERT INTO moderation_actions (actor_account_id, action, target_type, target_id, reason)
+                 VALUES ('mod1', 'hide_content', 'post', 'p1', $1)`,
+        ['x'.repeat(501)],
+      ),
+    ).rejects.toThrow(/check constraint/);
     await expect(
-      app.query('DROP TRIGGER moderation_actions_no_update_delete ON moderation_actions'),
-    ).rejects.toThrow(/must be owner/);
-    await expect(app.query('DROP TABLE moderation_actions')).rejects.toThrow(/must be owner/);
+      app.query(`INSERT INTO moderation_actions (actor_account_id, action, target_type, target_id, reason)
+                 VALUES ('mod1', 'withdraw_professional', 'professional_verification', 'v1', 'withdrawn')`),
+    ).resolves.toBeDefined();
+  });
+
+  it('action and target_type are the contract enums (§13)', async () => {
+    for (const [action, target] of [
+      ['grant_role', 'account'],
+      ['unsuspend_account', 'account'],
+      ['hide_content', 'user'],
+    ]) {
+      await expect(
+        app.query(
+          `INSERT INTO moderation_actions (actor_account_id, action, target_type, target_id, reason)
+           VALUES ('mod1', $1, $2, 'x', 'a valid reason')`,
+          [action, target],
+        ),
+      ).rejects.toThrow(/check constraint/);
+    }
   });
 });

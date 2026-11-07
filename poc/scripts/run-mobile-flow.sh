@@ -4,7 +4,8 @@
 # CLI client against it. Never point this at a shared, staging or production database.
 #
 # Required: COMMUNITY_OWNER_URL (migration owner) and COMMUNITY_APP_URL (runtime role), both
-# local. A fresh random BETTER_AUTH_SECRET is generated per run and never written to disk.
+# local. A fresh random BETTER_AUTH_SECRET and refresh pepper are generated per run and never
+# written to disk.
 set -euo pipefail
 : "${COMMUNITY_OWNER_URL:?set COMMUNITY_OWNER_URL to a LOCAL database}"
 : "${COMMUNITY_APP_URL:?set COMMUNITY_APP_URL to a LOCAL database}"
@@ -26,6 +27,7 @@ env NODE_ENV=development PORT="$PORT" DATABASE_ENABLED=false \
   ARTIFACT_BASE_URL=https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev \
   COMMUNITY_MODE=internal COMMUNITY_DATABASE_URL="$COMMUNITY_APP_URL" \
   BETTER_AUTH_SECRET="$(openssl rand -base64 48)" \
+  COMMUNITY_REFRESH_PEPPERS="1:$(openssl rand -base64 48)" COMMUNITY_OTP_REQUEST_MIN_MS=0 \
   COMMUNITY_BASE_URL="http://127.0.0.1:$PORT" \
   COMMUNITY_EMAIL_SINK=outbox-file COMMUNITY_EMAIL_OUTBOX_DIR="$WORK/outbox" \
   node dist/server.js >"$WORK/server.log" 2>&1 &

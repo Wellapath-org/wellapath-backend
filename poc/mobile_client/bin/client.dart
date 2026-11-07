@@ -1,7 +1,9 @@
-// PoC only. Mobile-style Community auth client (email OTP, bearer tokens, refresh, sign-out).
-// dart:io only. Tokens are persisted to a 0600 file as a stand-in for flutter_secure_storage.
+// PoC only. Mobile-style Community auth client against the contract facade (/v1/auth/*):
+// email OTP, TokenPair, rotating refresh, sign-out. dart:io only. Only the refresh token is
+// persisted (0600 file, stand-in for flutter_secure_storage); the access token stays in memory.
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 late Uri base;
 final client = HttpClient();
@@ -51,6 +53,15 @@ Future<String> readOtp(String outboxPath, String email) async {
   throw StateError('no OTP in outbox for $email');
 }
 
+String uuidV4() {
+  final r = Random.secure();
+  final b = List<int>.generate(16, (_) => r.nextInt(256));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  final h = b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+  return '${h.substring(0, 8)}-${h.substring(8, 12)}-${h.substring(12, 16)}-${h.substring(16, 20)}-${h.substring(20)}';
+}
+
 Future<void> saveStore(File store, Map<String, String> tokens) async {
   await store.writeAsString(jsonEncode(tokens));
   await Process.run('chmod', ['600', store.path]);
@@ -66,54 +77,58 @@ Future<void> main(List<String> args) async {
   var (s, j, _) = await call('GET', '/v1/features');
   check('GET /v1/features (signed out)', s == 200 && j['community_allowed'] == false, j);
 
-  // 1. Request an email OTP.
-  (s, j, _) = await call('POST', '/v1/auth/email-otp/send-verification-otp',
-      body: {'email': email, 'type': 'sign-in'});
-  check('request email OTP', s == 200, s);
+  // 1. Request an email OTP (always 202 {}).
+  (s, j, _) = await call('POST', '/v1/auth/otp/request', body: {'email': email});
+  check('POST /v1/auth/otp/request -> 202', s == 202, s);
   final otp = await readOtp(outbox, email);
   check('OTP captured from test outbox (6 digits)', RegExp(r'^\d{6}$').hasMatch(otp));
 
-  // 2. Sign up / sign in with the OTP.
-  (s, j, _) = await call('POST', '/v1/auth/sign-in/email-otp', body: {'email': email, 'otp': otp});
-  final sessionToken = j['token'] as String?;
-  final userId = (j['user'] as Map<String, dynamic>?)?['id'];
-  check('sign in with OTP -> session token', s == 200 && sessionToken != null, 'user=$userId');
+  // 2. Sign up / sign in with the OTP -> TokenPair. device_id is generated once per install.
+  final deviceId = uuidV4();
+  (s, j, _) = await call('POST', '/v1/auth/otp/verify',
+      body: {'email': email, 'code': otp, 'device_id': deviceId, 'device_label': 'Dart CLI'});
+  var accessToken = j['access_token'] as String?;
+  var refreshToken = j['refresh_token'] as String?;
+  final userId = (j['account'] as Map<String, dynamic>?)?['account_id'];
+  check('otp/verify -> TokenPair (account_created ${j['account_created']})',
+      s == 200 && accessToken != null && (refreshToken ?? '').startsWith('wprt_'), 'user=$userId');
 
-  // 3. Mint a short-lived access token and store both.
-  (s, j, _) = await call('GET', '/v1/auth/token', bearer: sessionToken);
-  var accessToken = j['token'] as String?;
-  check('mint access token (JWT)', s == 200 && accessToken != null);
-  await saveStore(store, {'session_token': sessionToken!, 'access_token': accessToken!});
+  // 3. ONLY the refresh token is persisted (secure-storage stand-in); the access token stays
+  //    in memory (contract §3.2).
+  await saveStore(store, {'refresh_token': refreshToken!, 'device_id': deviceId});
   final mode = (await store.stat()).modeString();
-  check('tokens persisted to store (mode $mode)', mode == 'rw-------');
+  check('refresh token persisted to store (mode $mode)', mode == 'rw-------');
 
-  // 4. Authenticated calls, reading the token back from the store like an app restart would.
-  final stored = jsonDecode(await store.readAsString()) as Map<String, dynamic>;
-  (s, j, _) = await call('GET', '/v1/community/me', bearer: stored['access_token'] as String);
-  check('GET /v1/community/me with stored access token', s == 200 && j['id'] == userId, j);
+  // 4. Authenticated calls with the in-memory access token.
+  (s, j, _) = await call('GET', '/v1/community/me', bearer: accessToken);
+  check('GET /v1/community/me with access token', s == 200 && j['account_id'] == userId, j);
   (s, j, _) = await call('GET', '/v1/features', bearer: accessToken);
   check('GET /v1/features (signed in)', s == 200 && j.containsKey('community_allowed'), j);
 
-  // 5. Refresh: new access token from the session token.
-  await Future<void>.delayed(const Duration(milliseconds: 1100));
-  (s, j, _) = await call('GET', '/v1/auth/token', bearer: sessionToken);
-  final refreshed = j['token'] as String?;
-  check('refresh access token', s == 200 && refreshed != null && refreshed != accessToken);
-  accessToken = refreshed!;
-  await saveStore(store, {'session_token': sessionToken, 'access_token': accessToken});
+  // 5. "App restart": read the refresh token back from the store and rotate it.
+  final stored = jsonDecode(await store.readAsString()) as Map<String, dynamic>;
+  final oldRefresh = stored['refresh_token'] as String;
+  (s, j, _) = await call('POST', '/v1/auth/refresh',
+      body: {'refresh_token': oldRefresh, 'device_id': stored['device_id']});
+  final newRefresh = j['refresh_token'] as String?;
+  check('refresh rotates the refresh token', s == 200 && newRefresh != null && newRefresh != oldRefresh);
+  accessToken = j['access_token'] as String?;
+  refreshToken = newRefresh!;
+  await saveStore(store, {'refresh_token': refreshToken, 'device_id': deviceId});
   (s, j, _) = await call('GET', '/v1/community/me', bearer: accessToken);
-  check('authenticated call with refreshed token', s == 200);
+  check('authenticated call with the refreshed access token', s == 200);
 
-  // 6. Sign out, clear the store, and prove the old access token is dead server-side.
-  (s, j, _) = await call('POST', '/v1/auth/sign-out', bearer: sessionToken, body: {});
-  check('sign out', s == 200, j);
+  // 6. Sign out, clear the store, and prove both tokens are dead server-side.
+  (s, j, _) = await call('POST', '/v1/auth/logout', bearer: accessToken, body: {'refresh_token': refreshToken});
+  check('POST /v1/auth/logout -> 204', s == 204, s);
   await store.delete();
   check('token store cleared', !await store.exists());
   (s, j, _) = await call('GET', '/v1/community/me', bearer: accessToken);
+  final reason = ((j['error'] as Map?)?['details'] as Map?)?['reason'];
   check('old access token rejected after sign-out (401 session_revoked)',
-      s == 401 && (j['error'] as Map?)?['code'] == 'session_revoked', j);
-  (s, j, _) = await call('GET', '/v1/auth/token', bearer: sessionToken);
-  check('old session token cannot refresh (401)', s == 401, s);
+      s == 401 && reason == 'session_revoked', j);
+  (s, j, _) = await call('POST', '/v1/auth/refresh', body: {'refresh_token': refreshToken, 'device_id': deviceId});
+  check('old refresh token cannot refresh (401)', s == 401, s);
 
   // 7. /config is untouched by Community.
   (s, j, _) = await call('GET', '/config');

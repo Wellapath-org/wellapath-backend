@@ -1,9 +1,10 @@
 /**
- * Criteria 9 and 10: per-user JSON export, and account deletion that erases PII, tombstones
- * content and keeps moderation evidence. Also a pg_dump of the Community database.
+ * Data rights (contract §7 M7/M8; NDPA): per-user JSON export, and account deletion that erases
+ * PII, tombstones content and keeps moderation evidence. Also a pg_dump of the Community DB.
  */
 import { execFileSync } from 'child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs';
+import { LightMyRequestResponse } from 'fastify';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Pool } from 'pg';
@@ -13,13 +14,15 @@ import {
   CommunityTestApp,
   describeDb,
   Enrolled,
+  idem,
+  memberWithProfile,
   OWNER_URL,
   ownerPool,
   privilegedUser,
+  refresh,
   resetDatabase,
   signIn,
   SignedIn,
-  uniqueEmail,
 } from './helpers';
 
 describeDb('export and deletion', () => {
@@ -30,45 +33,50 @@ describeDb('export and deletion', () => {
   let moderator: Enrolled;
   let hiddenPostId: string;
   let reportedPostId: string;
-  let cleanPostId: string;
   let commentOnOther: string;
 
-  const call = (method: 'GET' | 'POST', url: string, token: string, payload?: object) =>
-    app.server.inject({ method, url, headers: bearer(token), payload });
+  const call = (
+    method: 'GET' | 'POST' | 'PUT',
+    url: string,
+    token: string,
+    payload?: object,
+  ): Promise<LightMyRequestResponse> =>
+    app.server.inject({ method, url, headers: { ...bearer(token), ...idem() }, payload });
 
   beforeAll(async () => {
     await resetDatabase();
     db = ownerPool();
-    app = await createCommunityApp({ mode: 'public' });
-    user = await signIn(app, uniqueEmail('leaver'));
-    other = await signIn(app, uniqueEmail('stayer'));
-    moderator = await privilegedUser(app, 'dr-mod', 'moderator');
-    await call('POST', '/v1/community/me/profile', user.accessToken, {
-      display_name: 'Leaving Soon',
-    });
-    await call('POST', '/v1/community/me/professional', user.accessToken, {
+    app = await createCommunityApp({ config: { mode: 'public' } });
+    user = await memberWithProfile(app, 'leaver', 'Leaving Soon');
+    other = await memberWithProfile(app, 'stayer');
+    moderator = await privilegedUser(app, 'drmod', 'moderator');
+    await call('POST', '/v1/community/me/professional-claim', user.accessToken, {
       profession: 'Pharmacist',
     });
-
-    const mk = async (body: string) =>
+    const mk = async (body: string): Promise<string> =>
       (
-        await call('POST', '/v1/community/spaces/general_health/posts', user.accessToken, { body })
+        await call('POST', '/v1/community/spaces/general_health/posts', user.accessToken, {
+          body,
+          display_mode: 'named',
+        })
       ).json().id;
     hiddenPostId = await mk('post that gets hidden');
     reportedPostId = await mk('post that is reported but not actioned');
-    cleanPostId = await mk('ordinary post');
+    await mk('ordinary post');
     const otherPost = (
       await call('POST', '/v1/community/spaces/general_health/posts', other.accessToken, {
         body: 'other post',
+        display_mode: 'named',
       })
     ).json().id;
     commentOnOther = (
       await call('POST', `/v1/community/posts/${otherPost}/comments`, user.accessToken, {
         body: 'my comment',
+        display_mode: 'pseudonymous',
       })
     ).json().id;
     await call('POST', `/v1/community/mod/posts/${hiddenPostId}/hide`, moderator.accessToken, {
-      reason: 'spam',
+      reason: 'spam spam spam',
     });
     await call('POST', '/v1/community/reports', other.accessToken, {
       target_type: 'post',
@@ -81,27 +89,59 @@ describeDb('export and deletion', () => {
     await db.end();
   });
 
-  it('exports the user’s own data as JSON, without credentials', async () => {
+  it('exports the user’s own data as JSON (contract keys), without credentials', async () => {
     const res = await call('GET', '/v1/community/me/export', user.accessToken);
     expect(res.statusCode).toBe(200);
-    expect(res.headers['content-disposition']).toContain('attachment');
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="wellapath-community-export.json"',
+    );
+    expect(res.headers['cache-control']).toBe('no-store');
     const data = res.json();
+    expect(Object.keys(data).sort()).toEqual(
+      [
+        'format',
+        'version',
+        'exported_at',
+        'account',
+        'profile',
+        'professional_verifications',
+        'posts',
+        'comments',
+        'reports_filed',
+        'notifications',
+        'sessions',
+        'restrictions',
+      ].sort(),
+    );
     expect(data).toMatchObject({
       format: 'wellapath-community-export',
       version: 1,
-      account: { id: user.userId, email: user.email },
+      account: { id: user.userId, email: user.email, role: 'member', two_factor_enabled: false },
       profile: { display_name: 'Leaving Soon' },
     });
     expect(data.posts).toHaveLength(3);
+    expect(data.posts.find((p: { id: string }) => p.id === hiddenPostId)).toMatchObject({
+      status: 'hidden',
+      body: 'post that gets hidden',
+    });
     expect(data.comments).toHaveLength(1);
     expect(data.professional_verifications[0]).toMatchObject({
       profession: 'Pharmacist',
-      status: 'claimed',
+      status: 'pending',
     });
+    expect(data.sessions[0]).toHaveProperty('device_label');
     const text = res.body;
-    expect(text).not.toContain(user.sessionToken);
-    expect(text).not.toMatch(/"token"|"secret"|"backupCodes"|"privateKey"/);
+    expect(text).not.toContain(user.refreshToken);
+    expect(text).not.toContain(user.accessToken);
+    expect(text).not.toMatch(/"token|hash|secret|backupCodes|privateKey|pepper/i);
     expect(text).not.toContain(other.email);
+    expect(text).not.toContain(other.userId);
+    // The export is audited.
+    const ev = await db.query(
+      `SELECT count(*)::int AS n FROM auth_events WHERE event = 'data_exported' AND account_id = $1`,
+      [user.userId],
+    );
+    expect(ev.rows[0].n).toBe(1);
   });
 
   it('export requires authentication', async () => {
@@ -110,9 +150,17 @@ describeDb('export and deletion', () => {
     ).toBe(401);
   });
 
-  it('deletion requires an explicit confirmation phrase', async () => {
+  it('deletion requires the exact confirmation phrase', async () => {
     const res = await call('POST', '/v1/community/me/delete', user.accessToken, { confirm: 'yes' });
     expect(res.statusCode).toBe(400);
+  });
+
+  it('a moderator/admin must be demoted first (422 privileged_account)', async () => {
+    const res = await call('POST', '/v1/community/me/delete', moderator.accessToken, {
+      confirm: 'DELETE MY ACCOUNT',
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.details).toEqual({ reason: 'privileged_account' });
   });
 
   describe('after deletion', () => {
@@ -120,18 +168,21 @@ describeDb('export and deletion', () => {
       const res = await call('POST', '/v1/community/me/delete', user.accessToken, {
         confirm: 'DELETE MY ACCOUNT',
       });
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode).toBe(204);
     });
 
     it('PII is gone from the user row and dependent tables', async () => {
       const { rows } = await db.query(`SELECT * FROM "user" WHERE "id" = $1`, [user.userId]);
       expect(rows[0].email).toBe(`deleted+${user.userId}@deleted.invalid`);
-      expect(rows[0].name).toBe('Deleted user');
+      expect(rows[0].name).toBe('');
       expect(rows[0].deletedAt).not.toBeNull();
       for (const [table, col] of [
         ['profiles', 'user_id'],
         ['professional_verifications', 'user_id'],
         ['notifications', 'user_id'],
+        ['refresh_token_families', 'user_id'],
+        ['totp_lockouts', 'user_id'],
+        ['idempotency_keys', 'account_id'],
         ['"session"', '"userId"'],
         ['"account"', '"userId"'],
         ['"twoFactor"', '"userId"'],
@@ -152,12 +203,15 @@ describeDb('export and deletion', () => {
       expect(anywhere.rows[0].n).toBe(0);
     });
 
-    it('content is tombstoned (body erased), not hard-deleted', async () => {
-      const posts = await db.query('SELECT id, body, status FROM posts WHERE author_id = $1', [
-        user.userId,
-      ]);
+    it('content is tombstoned (body erased, pseudonymous), not hard-deleted, and never shown', async () => {
+      const posts = await db.query(
+        'SELECT body, status, display_mode FROM posts WHERE author_id = $1',
+        [user.userId],
+      );
       expect(posts.rows).toHaveLength(3);
-      for (const p of posts.rows) expect(p).toMatchObject({ body: null, status: 'tombstoned' });
+      for (const p of posts.rows) {
+        expect(p).toEqual({ body: null, status: 'tombstoned', display_mode: 'pseudonymous' });
+      }
       const comment = await db.query('SELECT body, status FROM comments WHERE id = $1', [
         commentOnOther,
       ]);
@@ -167,35 +221,42 @@ describeDb('export and deletion', () => {
         '/v1/community/spaces/general_health/posts',
         other.accessToken,
       );
-      expect(JSON.stringify(feed.json())).not.toContain('ordinary post');
-      expect(cleanPostId).toBeDefined();
+      expect(feed.body).not.toContain('ordinary post');
+      expect(feed.body).not.toContain('Leaving Soon');
     });
 
-    it('moderation evidence is kept: the hide action snapshot and the open report snapshot', async () => {
+    it('moderation evidence is kept: the hide snapshot and the open-report snapshot', async () => {
       const hide = await db.query(
         `SELECT evidence FROM moderation_actions WHERE action = 'hide_content' AND target_id = $1`,
         [hiddenPostId],
       );
       expect(hide.rows[0].evidence.body).toBe('post that gets hidden');
       const del = await db.query(
-        `SELECT actor_id, target_id, evidence FROM moderation_actions WHERE action = 'delete_account' AND target_id = $1`,
+        `SELECT actor_account_id, target_type, reason, evidence FROM moderation_actions
+          WHERE action = 'delete_account' AND target_id = $1`,
         [user.userId],
       );
+      expect(del.rows[0]).toMatchObject({
+        actor_account_id: user.userId,
+        target_type: 'account',
+        reason: 'user-requested account deletion',
+      });
       expect(del.rows[0].evidence.reported_content).toEqual([
         expect.objectContaining({
           target_id: reportedPostId,
           body: 'post that is reported but not actioned',
         }),
       ]);
-      const reports = await db.query(
-        'SELECT count(*)::int AS n FROM reports WHERE target_id = $1',
-        [reportedPostId],
+      const ev = await db.query(
+        `SELECT count(*)::int AS n FROM auth_events WHERE event = 'account_deleted' AND account_id = $1`,
+        [user.userId],
       );
-      expect(reports.rows[0].n).toBe(1);
+      expect(ev.rows[0].n).toBe(1);
     });
 
     it('the deleted account’s tokens no longer work', async () => {
       expect((await call('GET', '/v1/community/me', user.accessToken)).statusCode).toBe(401);
+      expect((await refresh(app, user.refreshToken, user.deviceId)).statusCode).toBe(401);
     });
 
     it('signing in with the old email creates a fresh, unrelated account', async () => {
@@ -225,6 +286,9 @@ describeDb('export and deletion', () => {
         const list = execFileSync(restoreBin, ['--list', file]).toString();
         for (const t of [
           'moderation_actions',
+          'auth_events',
+          'refresh_token_families',
+          'refresh_tokens',
           'posts',
           'user',
           'session',
@@ -236,6 +300,7 @@ describeDb('export and deletion', () => {
           );
         }
         expect(list).toContain('moderation_actions_no_update_delete');
+        expect(list).toContain('auth_events_no_update_delete');
         expect(readFileSync(file).length).toBeGreaterThan(1000);
       } finally {
         rmSync(dir, { recursive: true, force: true });
