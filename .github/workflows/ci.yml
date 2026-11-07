@@ -43,11 +43,13 @@ jobs:
     # Community auth/data PROOF OF CONCEPT (ADR-001). Runs the Community database suites against
     # a throwaway Postgres service container. No secrets: the database and roles exist only for
     # the life of this job, and every auth secret is generated inside the tests.
-    name: Community (Postgres 17, contract suites)
+    # PostgreSQL 18 to match the Neon server major version (ADR-001 B1). The owner role has
+    # CREATEROLE like Neon's owner; community_app mirrors what provision-runtime-role creates.
+    name: Community (Postgres 18, contract suites)
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: ci-only-throwaway
         ports: ['5432:5432']
@@ -67,18 +69,27 @@ jobs:
       - run: npm ci
       - name: Create throwaway roles and database
         run: |
-          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_owner LOGIN PASSWORD 'ci-owner'"
-          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_app LOGIN PASSWORD 'ci-app'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_owner LOGIN CREATEROLE PASSWORD 'ci-owner'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE community_app LOGIN NOINHERIT PASSWORD 'ci-app'"
           psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_community_test OWNER community_owner"
-      - name: Install pg_dump 17 (must match the server major version)
+      - name: Install pg_dump 18 (must match the server major version, ADR-001 B1)
         run: |
           sudo apt-get install -y postgresql-common
           sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-          sudo apt-get install -y postgresql-client-17
+          sudo apt-get install -y postgresql-client-18
       - name: Run Community suites
         env:
-          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+          PG_DUMP_BIN: /usr/lib/postgresql/18/bin/pg_dump
         run: npm run test:community
+      # B2: the provisioning script itself, run as the owner against the migrated test database.
+      # community_app already exists here, so no password is generated; --verify fails the job on
+      # any deviation from the privilege matrix.
+      - name: Provision and verify the runtime role (B2)
+        run: |
+          COMMUNITY_DATABASE_URL_DIRECT=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_community_test \
+            npm run community:migrate -- up
+          COMMUNITY_DATABASE_URL_DIRECT=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_community_test \
+            npm run community:provision-runtime-role -- --verify
       # A4 readiness script, exercised against this job's LOCAL Postgres (not Neon: no WellaPath
       # Neon organisation exists yet). Proves the script itself works; it is not Neon evidence.
       - name: Neon connectivity PoC script (local Postgres only)
@@ -88,7 +99,7 @@ jobs:
           COMMUNITY_DATABASE_URL=postgres://community_app:ci-app@127.0.0.1:5432/wellapath_neon_poc_branch \
           COMMUNITY_DATABASE_URL_DIRECT=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_neon_poc_branch \
           COMMUNITY_RESTORE_CHECK_URL=postgres://community_owner:ci-owner@127.0.0.1:5432/wellapath_restore_check \
-          NEON_POC_CONFIRM_BRANCH=yes PG_BIN=/usr/lib/postgresql/17/bin \
+          NEON_POC_CONFIRM_BRANCH=yes PG_BIN=/usr/lib/postgresql/18/bin \
             npm run community:neon-poc -- --runs 10 --out neon-connectivity-report.md
           cat neon-connectivity-report.md >> "$GITHUB_STEP_SUMMARY"
 
