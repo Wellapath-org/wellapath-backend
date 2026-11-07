@@ -1,639 +1,202 @@
 # WellaPath Backend — Claude Code Instructions
 
-# Phase E1: System Spine | E1.1 Backend Init + E1.2 Core Endpoints
-
-> **Senior Backend Engineer brief for Claude Code.**
-> Read this entire file before touching any code.
-> Every decision here is derived from three locked documents:
->
-> - `Engineering_Workflow_Backlog.pdf` (build law)
-> - `WellaPath_Developer_Onboarding_Guide.docx` (code standards)
-> - `WellaPath_AWS_Infrastructure_Handover.docx` (infra truth)
+> Read this file and `PROGRESS.md` (Current Status) before touching any code.
+> Rewritten 2026-11-07 to match the stack as it actually runs. The original E1 brief
+> (AWS ECS/RDS/S3/CloudFront) is superseded; see "History" at the end.
 
 ---
 
-## 0. NON-NEGOTIABLES (Locked Build Principles)
-
-These are absolute. No exceptions. No PRs that violate these will be merged.
+## 0. Non-negotiables
 
 - WellaPath is a **CDSS — not a diagnosis engine**. Never represent it as one.
-- **No symptom-level PHI stored server-side** under any circumstances.
-- **Scoring logic executes on-device only** — never on the server.
-- **All artifact changes must be versioned.** Never overwrite an existing artifact version.
-- **Red flag override always takes priority** over scoring output.
-- **No secrets hardcoded** in source code. All credentials via Secrets Manager or `.env`.
-- **No feature additions outside locked MVP scope.**
-- **No architecture changes** without founder + engineering lead review.
-- **No phase blending** — complete E1 exit criteria before starting E2.
+- **No symptom-level PHI stored server-side**, under any circumstances. The backend has no PHI
+  intake surface; keep it that way.
+- **Scoring and triage logic execute on-device only** — never on the server.
+- **All artifact changes are versioned. Never overwrite an existing artifact version.**
+- **Red-flag override always takes priority** over scoring output (enforced on-device).
+- **No secrets in source.** Credentials live in a local `.env` (never committed) or in the Render
+  service environment. This repository is **public** on GitHub.
+- **No infrastructure identifiers in tracked files** — no cloud account IDs, ARNs, database
+  endpoints or usernames, even for decommissioned infrastructure.
+- **No feature additions outside approved scope; no architecture changes** without founder +
+  engineering-lead review.
+- **Artifact versions served by `/config` are frozen** (E9.1 freeze + distribution baseline). Any
+  change, forward or rollback, needs engineering-lead approval and a re-observed baseline.
 
 ---
 
-## 1. Repo & Environment Context
+## 1. What this service is
 
-### Repository
+A Fastify + TypeScript service whose product job is `GET /config`: a **hash-locked manifest** of
+the clinical and facility artifacts the mobile app downloads from Cloudflare R2 and verifies by
+sha256 on-device. It stores no user data.
 
-```
-Repo:    wellapath-backend
-Remote:  https://github.com/Wellapath-org/wellapath-backend.git
-Branch:  develop  ← always branch off here
-Stack:   Fastify + TypeScript + Node.js v20 LTS
-Runtime: AWS ECS Fargate (staging)
-```
+| Item        | Value                                                                                |
+| ----------- | ------------------------------------------------------------------------------------ |
+| Repository  | `Wellapath-org/wellapath-backend` (public)                                           |
+| Language    | TypeScript (strict), Node.js — CI and Docker use Node 20                             |
+| Framework   | Fastify 5, Pino logging, `@fastify/rate-limit`, `@fastify/cors`                      |
+| Runtime     | **Render** (Docker web services)                                                     |
+| Artifacts   | **Cloudflare R2**, public base `https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev` |
+| Database    | **Optional.** Supabase PostgreSQL on staging; **disabled in production**             |
+| Dev machine | **macOS** (zsh). Use absolute paths; no Windows/Git Bash steps apply.                |
 
-### Key AWS Staging Values (from Infrastructure Handover doc)
+### Environments
 
-```
-AWS Account ID:      812527292522
-Region:              us-east-1
-ECS Cluster:         wellapath-staging
-ECR Repo URI:        812527292522.dkr.ecr.us-east-1.amazonaws.com/wellapath-backend
-RDS Endpoint:        wellapath-staging-db.cclsme0gujar.us-east-1.rds.amazonaws.com
-RDS DB Name:         wellapath_staging
-RDS Username:        wellapath_admin
-RDS Port:            5432
-S3 Bucket:           wellapath-artifacts-staging
-CloudFront Domain:   https://d179u2ex0g66o3.cloudfront.net
-API Domain:          https://api-staging.wellapath.org
-DB Secret ARN:       arn:aws:secretsmanager:us-east-1:812527292522:secret:wellapath/staging/db-dgHN1G
-App Secret ARN:      arn:aws:secretsmanager:us-east-1:812527292522:secret:wellapath/staging/app-0rFlFx
-Server Port:         3000  ← MUST match ECS security group rule
-```
+| Environment | Render service                 | Public URL                                       | Deploys from |
+| ----------- | ------------------------------ | ------------------------------------------------ | ------------ |
+| Staging     | `wellapath-backend-staging`    | `https://wellapath-backend-staging.onrender.com` | `develop`    |
+| Production  | `wellapath-backend-production` | `https://api.wellapath.org`                      | `production` |
 
-> **Never hardcode credentials.** Reference them via `.env` locally and via Secrets Manager ARNs in ECS task definitions.
+Full detail — Auto-Deploy settings, how production moves, rollback — is in
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md). Production environment variables are listed (names
+and safe values only) in [`docs/PRODUCTION_PROVISIONING.md`](docs/PRODUCTION_PROVISIONING.md) §3.
 
----
+### Endpoints
 
-## 2. Git & Branch Rules
-
-```bash
-# Always start from develop
-git checkout develop
-git pull origin develop
-git checkout -b feature/e1-backend-init   # for E1.1
-git checkout -b feature/e1-core-endpoints # for E1.2
-```
-
-**Branch naming:**
-
-- `feature/e1-backend-init`
-- `feature/e1-core-endpoints`
-- `fix/scope-description`
-- `chore/scope-description`
-
-**NEVER push directly to `main` or `develop`.** All work goes through PRs.
+| Method | Path                   | Notes                                                          |
+| ------ | ---------------------- | -------------------------------------------------------------- |
+| GET    | `/health`              | `checks.database` is `ok`, `error`, or `disabled` (production) |
+| GET    | `/version`             | `APP_VERSION` + `NODE_ENV`                                     |
+| GET    | `/config`              | Hardcoded literal in `src/routes/config.ts`; frozen by tests   |
+| POST   | `/v1/telemetry/events` | Off unless `TELEMETRY_ENABLED=true`; answers 503 when off      |
+| GET    | `/internal/metrics`    | Hard-disabled (404) in production regardless of configuration  |
 
 ---
 
-## 3. Commit Message Rules (Conventional Commits — Enforced by Commitlint)
+## 2. Branches
+
+| Branch       | Role                                                                                                                              |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `develop`    | Integration branch. **Branch off it; open every PR against it.** Staging tracks it.                                               |
+| `production` | What production runs. Moved only by fast-forward to an approved `develop` commit — a founder action. Never commit to it directly. |
+| `main`       | Stale E1 scaffold. Not deployed; do not use.                                                                                      |
+
+- Never push directly to `develop` or `production`. No force-pushes, no history rewrites.
+- Branch names: `feat/…`, `fix/…`, `chore/…`, `docs/…`, `ci/…`.
+- Prefer a separate `git worktree` for task work rather than switching the main checkout.
+
+---
+
+## 3. Commits (commitlint + Husky)
 
 ```
 type(scope): short description in lowercase
 ```
 
-- Lowercase only
-- Under 100 characters
-- No full stop at the end
-- Commitlint will **block** non-compliant commits automatically
+- Types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `style`, `revert`.
+- Subject lowercase, ≤ 100 characters, no trailing full stop. Body lines ≤ 200 characters.
+- `pre-commit` runs `lint-staged` (ESLint + Prettier on staged files).
 
-**Valid types:** `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `style`, `revert`
+---
 
-**Examples for this phase:**
+## 4. Code style
+
+TypeScript strict · single quotes · semicolons · print width 100 · 2-space indent · trailing
+commas · omit parens for single-argument arrows · explicit return types · **no `console.log`**
+(use the Pino logger) · no secrets in code. Enforced by ESLint (`eslint.config.js`) and Prettier.
+
+---
+
+## 5. Layout
 
 ```
-feat(init): initialize fastify typescript project structure
-feat(config): add environment config handling with dotenv
-feat(logging): setup pino structured logging
-feat(health): implement GET /health endpoint
-feat(version): implement GET /version endpoint
-feat(config-endpoint): implement GET /config endpoint
-feat(validation): add input output validation schemas
-chore(deps): install baseline fastify packages
-test(health): add unit test for health endpoint
+src/
+  app.ts            # buildApp(): Fastify instance, CORS, rate limit, plugins, routes (no listen)
+  server.ts         # builds the app and listens on 0.0.0.0:PORT
+  config/env.ts     # all environment parsing; fails fast on invalid values
+  routes/           # health, version, config, telemetry, metrics
+  plugins/          # db (only when DATABASE_ENABLED), error-handler, security-headers, metrics
+  telemetry/        # privacy-safe telemetry contract v1.0 (disabled by default)
+  manifest/         # INACTIVE candidate manifest contract + ingestion/registry (not served)
+  db/migrate.ts     # idempotent schema migration (refuses to run while the DB is disabled)
+  artifacts/        # E1 placeholder JSON — not served, not a source of truth
+tests/              # unit, integration, privacy, regression, performance, baseline (jest)
+docs/               # deployment, release process, baseline, telemetry, contracts
 ```
 
 ---
 
-## 4. Code Style Rules (Enforced by ESLint + Prettier via Husky)
-
-| Rule                  | Value                                  |
-| --------------------- | -------------------------------------- |
-| Language              | TypeScript (strict mode)               |
-| Quotes                | Single quotes                          |
-| Semicolons            | Required                               |
-| Print width           | 100 characters                         |
-| Tab width             | 2 spaces                               |
-| Trailing commas       | Always                                 |
-| Arrow function parens | Omit for single argument               |
-| Return types          | Always declare explicitly              |
-| `console.log`         | Not allowed — use `pino` logger        |
-| Secrets in code       | Never — always via env/Secrets Manager |
-
----
-
-## 5. Project Folder Structure (E1.1 Target)
-
-Create exactly this structure. No deviations without architecture review.
-
-```
-wellapath-backend/
-├── src/
-│   ├── routes/          # Route registration files
-│   ├── controllers/     # Request handlers (thin — delegate to services)
-│   ├── services/        # Business logic
-│   ├── plugins/         # Fastify plugins (db, cors, rate-limit, etc.)
-│   ├── config/          # Environment config loading and validation
-│   └── utils/           # Shared utility functions
-├── tests/               # Unit and integration tests
-├── .env.example         # Template — commit this, NOT .env
-├── .env                 # Local secrets — NEVER commit
-├── .gitignore
-├── Dockerfile
-├── package.json
-├── tsconfig.json
-├── eslint.config.js     # ESLint v9+ flat config (module.exports syntax)
-└── .prettierrc
-```
-
----
-
-## 6. E1.1 — Backend Project Initialization
-
-### Step-by-step tasks
-
-**Step 1: Initialize the project**
+## 6. Local development (macOS)
 
 ```bash
-npm init -y
+npm ci
+cp .env.example .env            # never commit .env; never print its contents
+# Simplest: no database needed for any product route
+DATABASE_ENABLED=false npm run dev
 ```
 
-**Step 2: Install TypeScript and core tooling**
+Production-profile boot, as used to verify a release or rollback candidate:
 
 ```bash
-npm install --save-dev typescript @types/node ts-node nodemon
-npx tsc --init
+npm run build
+NODE_ENV=production DATABASE_ENABLED=false TELEMETRY_ENABLED=false APP_VERSION=0.3.0 \
+  ARTIFACT_BASE_URL=https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev PORT=3917 \
+  node dist/server.js
 ```
 
-`tsconfig.json` must include:
+Use a free port rather than killing whatever holds 3000.
 
-```json
-{
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "commonjs",
-    "rootDir": "./src",
-    "outDir": "./dist",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
-}
-```
+### Environment variables
 
-**Step 3: Install Fastify and baseline packages**
+`NODE_ENV`, `PORT` (default 3000), `DATABASE_ENABLED` (default `true`; exactly `true`/`false`,
+anything else refuses startup), `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`/`DB_PASSWORD`/`DB_SSL`
+(required only while the database is enabled), `ARTIFACT_BASE_URL` (required), `APP_VERSION`,
+the `TELEMETRY_*` set (see `.env.example` and `docs/TELEMETRY_OPERATIONS.md`), and
+`METRICS_ENDPOINT_ENABLED` (ignored in production).
+
+---
+
+## 7. Before opening a PR
+
+Run exactly what CI runs (`.github/workflows/ci.yml`):
 
 ```bash
-npm install fastify @fastify/cors @fastify/rate-limit pino pino-pretty dotenv pg
-npm install --save-dev @types/pg
+npm ci
+npm run format:check
+npm run lint
+npx tsc --noEmit --skipLibCheck
+npm run telemetry:contract:check
+npm test
 ```
 
-**Step 4: Install linting and formatting**
+Also: `npm run build` succeeds; no `.env`, `node_modules/` or `dist/` staged; no secrets or
+infrastructure identifiers in the diff; PR targets `develop`.
 
-```bash
-npm install --save-dev eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser prettier eslint-config-prettier
-```
-
-**Step 5: Install Husky and Commitlint**
-
-```bash
-npm install --save-dev husky @commitlint/cli @commitlint/config-conventional lint-staged
-npx husky init
-```
-
-**Step 6: Create `eslint.config.js`**
-
-Use ESLint v9 flat config format. Use `module.exports` — NOT `export default` (causes module syntax error per onboarding doc):
-
-```js
-// eslint.config.js
-const tsPlugin = require('@typescript-eslint/eslint-plugin');
-const tsParser = require('@typescript-eslint/parser');
-
-module.exports = [
-  {
-    files: ['src/**/*.ts'],
-    languageOptions: { parser: tsParser },
-    plugins: { '@typescript-eslint': tsPlugin },
-    rules: {
-      '@typescript-eslint/explicit-function-return-type': 'error',
-      '@typescript-eslint/no-explicit-any': 'warn',
-      'no-console': 'error',
-    },
-  },
-];
-```
-
-**Step 7: Create `.prettierrc`**
-
-```json
-{
-  "singleQuote": true,
-  "semi": true,
-  "printWidth": 100,
-  "tabWidth": 2,
-  "trailingComma": "all",
-  "arrowParens": "avoid"
-}
-```
-
-**Step 8: Add npm scripts to `package.json`**
-
-```json
-{
-  "scripts": {
-    "dev": "nodemon --exec ts-node src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
-    "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "test": "jest"
-  }
-}
-```
-
-**Step 9: Create `.env.example`** (commit this file — it is the reference template)
-
-```env
-# Server
-NODE_ENV=development
-PORT=3000
-
-# Database (get credentials from team lead or AWS Secrets Manager)
-DB_HOST=wellapath-staging-db.cclsme0gujar.us-east-1.rds.amazonaws.com
-DB_PORT=5432
-DB_NAME=wellapath_staging
-DB_USER=wellapath_admin
-DB_PASSWORD=
-
-# AWS
-AWS_REGION=us-east-1
-
-# Artifacts
-ARTIFACT_BASE_URL=https://d179u2ex0g66o3.cloudfront.net
-
-# App version
-APP_VERSION=0.1.0
-```
-
-> Copy `.env.example` to `.env` and fill in `DB_PASSWORD` from team lead.
-> Never commit `.env`.
-
-**Step 10: Setup Pino structured logging in `src/utils/logger.ts`**
-
-```ts
-import pino from 'pino';
-
-export const logger = pino({
-  level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
-  transport:
-    process.env.NODE_ENV !== 'production'
-      ? { target: 'pino-pretty', options: { colorize: true } }
-      : undefined,
-  redact: ['req.headers.authorization'], // Never log auth headers
-});
-```
-
-**Step 11: Create `src/config/env.ts`** — centralized config validation
-
-```ts
-import dotenv from 'dotenv';
-dotenv.config();
-
-interface AppConfig {
-  nodeEnv: string;
-  port: number;
-  db: {
-    host: string;
-    port: number;
-    name: string;
-    user: string;
-    password: string;
-  };
-  artifactBaseUrl: string;
-  appVersion: string;
-  awsRegion: string;
-}
-
-function requireEnv(key: string): string {
-  const value = process.env[key];
-  if (!value) throw new Error(`Missing required environment variable: ${key}`);
-  return value;
-}
-
-export const config: AppConfig = {
-  nodeEnv: process.env.NODE_ENV ?? 'development',
-  port: parseInt(process.env.PORT ?? '3000', 10),
-  db: {
-    host: requireEnv('DB_HOST'),
-    port: parseInt(process.env.DB_PORT ?? '5432', 10),
-    name: requireEnv('DB_NAME'),
-    user: requireEnv('DB_USER'),
-    password: requireEnv('DB_PASSWORD'),
-  },
-  artifactBaseUrl: requireEnv('ARTIFACT_BASE_URL'),
-  appVersion: process.env.APP_VERSION ?? '0.1.0',
-  awsRegion: process.env.AWS_REGION ?? 'us-east-1',
-};
-```
-
-**Step 12: Create `src/server.ts`** — Fastify app entry point
-
-```ts
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
-import rateLimit from '@fastify/rate-limit';
-import { config } from './config/env';
-import { logger } from './utils/logger';
-import { registerRoutes } from './routes';
-
-const server = Fastify({
-  logger,
-});
-
-const start = async (): Promise<void> => {
-  await server.register(cors, { origin: true });
-  await server.register(rateLimit, { max: 100, timeWindow: '1 minute' });
-
-  registerRoutes(server);
-
-  try {
-    await server.listen({ port: config.port, host: '0.0.0.0' });
-    server.log.info(`Server running on port ${config.port}`);
-  } catch (err) {
-    server.log.error(err);
-    process.exit(1);
-  }
-};
-
-start();
-```
-
-> `host: '0.0.0.0'` is required for ECS container networking.
+**`/config` is frozen.** `tests/regression/existing-endpoints.test.ts` and
+`tests/baseline/baseline-drift.test.ts` (against `docs/baseline/distribution-baseline.v1.json`)
+fail on any change to it. Do not edit those literals to make a test pass — an artifact change
+follows `docs/ARTIFACT_RELEASE_PROCESS.md` and `docs/DISTRIBUTION_BASELINE.md`, including a
+genuine staging observation.
 
 ---
 
-## 7. E1.2 — Core Backend Endpoints
+## 8. Artifacts — rules that have bitten before
 
-Three endpoints are required. Implement them exactly as specified.
-
-### GET /health
-
-**Purpose:** ECS health check + ALB target group health check.
-**No auth required.**
-
-Response shape:
-
-```json
-{
-  "status": "ok",
-  "timestamp": "2026-03-24T10:00:00.000Z"
-}
-```
-
-File: `src/routes/health.ts`
-
-```ts
-import { FastifyInstance } from 'fastify';
-
-export const healthRoutes = (server: FastifyInstance): void => {
-  server.get('/health', async (_request, reply) => {
-    return reply.status(200).send({
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    });
-  });
-};
-```
-
-### GET /version
-
-**Purpose:** Returns the current deployed application version.
-**No auth required.**
-
-Response shape:
-
-```json
-{
-  "version": "0.1.0",
-  "environment": "staging"
-}
-```
-
-File: `src/routes/version.ts`
-
-```ts
-import { FastifyInstance } from 'fastify';
-import { config } from '../config/env';
-
-export const versionRoutes = (server: FastifyInstance): void => {
-  server.get('/version', async (_request, reply) => {
-    return reply.status(200).send({
-      version: config.appVersion,
-      environment: config.nodeEnv,
-    });
-  });
-};
-```
-
-### GET /config
-
-**Purpose:** Returns versioned artifact metadata so the mobile app knows what to download.
-The mobile app boots by calling this endpoint first.
-
-Response shape (locked contract with mobile team):
-
-```json
-{
-  "artifacts": {
-    "knowledgeBase": {
-      "version": "1.0.0",
-      "url": "https://d179u2ex0g66o3.cloudfront.net/kb.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
-    },
-    "rules": {
-      "version": "1.0.0",
-      "url": "https://d179u2ex0g66o3.cloudfront.net/rules.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
-    },
-    "facilities": {
-      "version": "1.0.0",
-      "url": "https://d179u2ex0g66o3.cloudfront.net/facilities.ng.v1.0.json",
-      "hash": "placeholder-hash-e1"
-    }
-  },
-  "featureFlags": {
-    "offlineModeEnabled": true
-  }
-}
-```
-
-> Note: In E1, artifact URLs and hashes are **placeholders**. Real artifacts are wired up in E2.
-> The mobile app must always consume URLs from this response — never construct CloudFront URLs directly.
-
-File: `src/routes/config.ts`
-
-```ts
-import { FastifyInstance } from 'fastify';
-import { config } from '../config/env';
-
-export const configRoutes = (server: FastifyInstance): void => {
-  server.get('/config', async (_request, reply) => {
-    return reply.status(200).send({
-      artifacts: {
-        knowledgeBase: {
-          version: '1.0.0',
-          url: `${config.artifactBaseUrl}/kb.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
-        },
-        rules: {
-          version: '1.0.0',
-          url: `${config.artifactBaseUrl}/rules.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
-        },
-        facilities: {
-          version: '1.0.0',
-          url: `${config.artifactBaseUrl}/facilities.ng.v1.0.json`,
-          hash: 'placeholder-hash-e1',
-        },
-      },
-      featureFlags: {
-        offlineModeEnabled: true,
-      },
-    });
-  });
-};
-```
-
-### Route Registration
-
-File: `src/routes/index.ts`
-
-```ts
-import { FastifyInstance } from 'fastify';
-import { healthRoutes } from './health';
-import { versionRoutes } from './version';
-import { configRoutes } from './config';
-
-export const registerRoutes = (server: FastifyInstance): void => {
-  healthRoutes(server);
-  versionRoutes(server);
-  configRoutes(server);
-};
-```
+- The backend **verifies and distributes**; it does not author artifact content or hashes.
+  Recompute every sha256 from the R2 object yourself before wiring it.
+- **Rollback targets must exist on R2 and be re-verified (HTTP 200 + recomputed sha256) at the
+  time they are documented or used.** `facilities` v1.1 was deliberately deleted from R2 on
+  2026-09-29 and is **not** a valid rollback target; the facilities rollback target is v1.0
+  (PR #40).
+- Devices cache artifacts **by version** and do not sweep old versions. Removing an object from
+  R2 stops it being served; it does not remove it from devices.
 
 ---
 
-## 8. Dockerfile (Required for ECS Deployment)
+## 9. Out of scope for this repo
 
-Create this at the project root:
-
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci
-COPY . .
-RUN npm run build
-
-FROM node:20-alpine AS production
-WORKDIR /app
-ENV NODE_ENV=production
-COPY package*.json ./
-RUN npm ci --only=production
-COPY --from=builder /app/dist ./dist
-EXPOSE 3000
-CMD ["node", "dist/server.js"]
-```
+The Flutter mobile app, the knowledge-base / rules generation pipeline, and artifact source
+content live in other repositories. Requests to change them here are flagged and held.
 
 ---
 
-## 9. .gitignore
+## History
 
-Ensure these are in `.gitignore` before first commit:
-
-```
-node_modules/
-dist/
-build/
-.env
-*.env.local
-*.log
-.DS_Store
-coverage/
-```
-
----
-
-## 10. PR Checklist Before Opening
-
-Before opening any PR against `develop`:
-
-- [ ] Branch synced with latest `develop`
-- [ ] `npm run lint` passes with zero errors
-- [ ] `npm run format:check` passes
-- [ ] Server starts locally with `npm run dev` without errors
-- [ ] All three endpoints return correct responses locally
-- [ ] No `.env` file staged
-- [ ] No `node_modules` or `dist/` staged
-- [ ] No secrets or credentials in any committed file
-- [ ] Commit messages follow Conventional Commits format
-- [ ] PR title follows format: `feat(e1): implement backend init and core endpoints`
-- [ ] PR description fills in all template sections
-
----
-
-## 11. E1 Exit Criteria (Must Pass Before E2 Starts)
-
-Per the Engineering Workflow Backlog:
-
-- [ ] Backend deployed to staging (ECS) with `/health`, `/version`, `/config` responding
-- [ ] Mobile app can fetch `/config` from `https://api-staging.wellapath.org/config`
-- [ ] Mobile app caches returned config and artifact metadata
-- [ ] HTTPS works on staging (`api-staging.wellapath.org`)
-- [ ] Staging environment is stable
-
----
-
-## 12. Common Errors & Fixes (Windows / Git Bash)
-
-| Error                                          | Cause                                       | Fix                                                                        |
-| ---------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------- |
-| `husky - commit-msg script failed`             | Bad commit message format                   | Fix message — see Section 3                                                |
-| `husky - pre-commit script failed`             | ESLint or Prettier failed                   | Run `npm run lint:fix && npm run format`                                   |
-| `Cannot use import statement outside a module` | Wrong ESLint config syntax                  | Use `module.exports = []` not `export default []` in `eslint.config.js`    |
-| `ESLint couldn't find an eslint.config file`   | Old `.eslintrc.json` format with ESLint v9+ | Replace with `eslint.config.js` using `module.exports` syntax              |
-| `git push` hangs or fails                      | Windows credential issue                    | Use Git Bash (not PowerShell). Check Windows Credential Manager            |
-| `node_modules` shows in `git status`           | Missing `.gitignore`                        | Add `node_modules/` to `.gitignore`, run `git rm -r --cached node_modules` |
-| `fatal: unable to auto-detect email`           | Git identity not set                        | Run `git config --global user.email "you@email.com"` and `user.name`       |
-
-> **Windows rule:** Always use Git Bash for all git commands. Never use PowerShell or CMD.
-
----
-
-## 13. What NOT to Build in E1
-
-Do not build or add any of the following — they belong to later phases:
-
-| What                                        | Phase      |
-| ------------------------------------------- | ---------- |
-| Symptom input, scoring logic, triage engine | E3         |
-| Condition knowledge base or rules JSON      | E2         |
-| User accounts, auth, sessions               | Not in MVP |
-| Facility locator                            | E6         |
-| Full KB expansion                           | E7         |
-| Any PHI storage of any kind                 | Never      |
-| Server-side scoring                         | Never      |
+Earlier versions of this file (and of `PROGRESS.md`) documented the decommissioned AWS staging
+stack, including account identifiers, secret ARNs and a database endpoint/username. Those values
+were removed from the tracked files on 2026-11-07, but **they remain in Git history** of this
+public repository. Whether to remediate history (rewrite + force-push, which would also
+invalidate forks and clones) is a **founder decision**; it has not been done. The underlying AWS
+resources are reported decommissioned — confirming that they no longer exist (and that the
+referenced secrets were deleted or rotated) is the real mitigation and is also a founder action.

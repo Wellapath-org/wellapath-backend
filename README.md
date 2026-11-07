@@ -27,9 +27,9 @@ and configuration endpoints.
 knowledge-base, and backend) live in the `wellapath-docs` repository, in `decision-log.md` —
 they are not backend-specific and are kept where every engineer can find them.
 
-> ⚠️ `CLAUDE.md` Section 1 still documents the **superseded AWS infrastructure** (ECS, RDS, S3,
-> CloudFront). The live stack is Render + Supabase + Cloudflare R2 — see
-> [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §2 for the mapping.
+> The live stack is **Render + Cloudflare R2** (Supabase on staging only; production runs without a
+> database). The original AWS stack is decommissioned — see
+> [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §2–3 for the mapping and current production state.
 
 ---
 
@@ -230,6 +230,6 @@ These rules are absolute and enforced on every PR:
 
 - **No PHI server-side — ever.** No symptom data, no patient identifiers, nothing.
 - **No server-side scoring.** All triage and scoring logic runs on-device only.
-- **No secrets in code.** All credentials via `.env` locally, Secrets Manager in production.
+- **No secrets in code.** All credentials via `.env` locally and Render environment variables in deployed services.
 - **No direct pushes to `main` or `develop`.** Every change goes through a PR.
 - **No feature additions outside locked MVP scope** without founder + engineering lead sign-off.
