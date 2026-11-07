@@ -3,15 +3,24 @@
  *
  * Files: `src/community/migrations/NNNN_name.up.sql` and `NNNN_name.down.sql`. Each migration
  * runs in its own transaction and is recorded in `community_schema_migrations`. Run as the
- * migration owner role, never as the runtime `community_app` role.
+ * migration owner role over the DIRECT URL, never as the runtime `community_app` role.
  *
- *   COMMUNITY_DATABASE_URL=... npx ts-node src/community/migrate.ts up
- *   COMMUNITY_DATABASE_URL=... npx ts-node src/community/migrate.ts down [steps]
- *   COMMUNITY_DATABASE_URL=... npx ts-node src/community/migrate.ts status
+ * After every `up` the runner re-applies the Community grants (`syncCommunityGrants`, ADR-001
+ * B2), so a new table cannot silently lack, or over-grant, runtime privileges. A table that is
+ * not classified in `db-roles.ts` gets no runtime privilege and `up` fails loudly.
+ *
+ *   COMMUNITY_DATABASE_URL_DIRECT=... npx ts-node src/community/migrate.ts up
+ *   COMMUNITY_DATABASE_URL_DIRECT=... npx ts-node src/community/migrate.ts down [steps]
+ *   COMMUNITY_DATABASE_URL_DIRECT=... npx ts-node src/community/migrate.ts status
+ *
+ * (`COMMUNITY_DATABASE_URL` is accepted when `_DIRECT` is unset, for local databases.) For a
+ * non-local host the connection is forced to `sslmode=verify-full` (B5).
  */
 import { existsSync, readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { Pool, PoolClient } from 'pg';
+import { syncCommunityGrants } from './db-roles';
+import { forceVerifyFull } from './db-url';
 
 export interface Migration {
   version: number;
@@ -93,6 +102,18 @@ export const migrateUp = async (pool: Pool, migrations = loadMigrations()): Prom
       client.release();
     }
   }
+  const client = await pool.connect();
+  try {
+    const { unclassified } = await syncCommunityGrants(client);
+    if (unclassified.length > 0) {
+      throw new Error(
+        `Unclassified Community table(s) ${unclassified.join(', ')}: add them to TABLE_CLASSES ` +
+          'in src/community/db-roles.ts (they have NO runtime privilege until then)',
+      );
+    }
+  } finally {
+    client.release();
+  }
   return applied;
 };
 
@@ -129,9 +150,12 @@ export const migrateDown = async (
 /* istanbul ignore next -- CLI entry point */
 if (require.main === module) {
   const [command = 'status', arg] = process.argv.slice(2);
-  const url = process.env.COMMUNITY_DATABASE_URL;
-  if (!url) throw new Error('Missing required environment variable: COMMUNITY_DATABASE_URL');
-  const pool = new Pool({ connectionString: url });
+  const name = process.env.COMMUNITY_DATABASE_URL_DIRECT
+    ? 'COMMUNITY_DATABASE_URL_DIRECT'
+    : 'COMMUNITY_DATABASE_URL';
+  const url = process.env[name];
+  if (!url) throw new Error('Missing COMMUNITY_DATABASE_URL_DIRECT (owner, direct URL)');
+  const pool = new Pool({ connectionString: forceVerifyFull(url, name) });
   const run = async (): Promise<unknown> => {
     if (command === 'up') return migrateUp(pool);
     if (command === 'down') return migrateDown(pool, arg ? Number.parseInt(arg, 10) : 1);
