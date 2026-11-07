@@ -312,6 +312,10 @@ describeModel('three-role ownership model (B2)', () => {
       await migrateUp(legacy);
     });
     afterAll(async () => {
+      // pg-pool's end() resolves before the idle sockets have closed, so DROP ... WITH (FORCE)
+      // can terminate one mid-close (57P01). Without a listener that surfaces as an unhandled
+      // pool `error` and fails the suite after every test has passed.
+      legacy.on('error', () => undefined);
       await legacy.end();
       await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);
     });
