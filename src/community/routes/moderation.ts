@@ -582,9 +582,13 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
         // commit (0 admins). The second waits, then re-reads the set after the first commits
         // (READ COMMITTED re-checks `role` on the locked rows) and gets 422 last_admin. The
         // single lock order (admins by id, then the target) cannot deadlock with another X1.
+        // SEC-021: NO KEY UPDATE, not UPDATE. It still conflicts with another X1's lock, but not
+        // with the FOR KEY SHARE that an FK check takes on an acting admin's row (e.g. a
+        // concurrent moderation writing `created_by` / `lifted_by` / `actor_account_id`), which
+        // otherwise closes a cycle with that moderation's lock on our target (40P01 → 500).
         await client.query(
           `SELECT "id" FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL
-            ORDER BY "id" FOR UPDATE`,
+            ORDER BY "id" FOR NO KEY UPDATE`,
         );
         const target = await adminTarget(
           client,

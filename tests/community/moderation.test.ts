@@ -953,3 +953,166 @@ describeDb('SEC-010: last-admin protection under concurrency (two connections)',
     expect(await admins()).toBe(1);
   });
 });
+
+describeDb('SEC-021: X1 role change vs a concurrent admin moderation action (no deadlock)', () => {
+  // The interleaving that deadlocked with the SEC-010 `FOR UPDATE` admin-set lock:
+  //   1. admin A2's reinstate locks target T (`loadTarget`), then blocks (held by `blocker`);
+  //   2. admin A1's X1 on T locks the admin set (including A2), then waits for T;
+  //   3. A2's reinstate resumes and writes `lifted_by = A2`, whose FK check takes KEY SHARE on
+  //      A2's row. With `FOR UPDATE` on A2 that conflicts: a cycle, 40P01, and X1 → 500.
+  // With `FOR NO KEY UPDATE` on the admin set, step 3 does not conflict, so both commit.
+  let app: CommunityTestApp;
+  let blocker: Pool;
+  const REASON21 = 'Concurrent role change and moderation';
+  beforeAll(async () => {
+    await resetDatabase();
+    app = await createCommunityApp();
+    blocker = ownerPool();
+  });
+  afterAll(async () => {
+    await blocker.end();
+    await app.close();
+  });
+
+  const waiting = async (): Promise<number> =>
+    (
+      await blocker.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks
+          WHERE NOT granted AND locktype IN ('transactionid', 'tuple', 'relation')`,
+      )
+    ).rows[0].n;
+  const until = async (n: number): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    while ((await waiting()) < n && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(await waiting()).toBeGreaterThanOrEqual(n);
+  };
+  const admins = async (): Promise<number> =>
+    (
+      (await ownerQuery(
+        `SELECT count(*)::int AS n FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL`,
+      )) as { n: number }[]
+    )[0].n;
+  const post = (actor: Enrolled, url: string, payload: Record<string, unknown>, key: string) =>
+    app.server.inject({
+      method: 'POST',
+      url,
+      headers: { ...bearer(actor.accessToken), 'idempotency-key': key },
+      payload,
+    });
+
+  /** Runs reinstate(T by mod) and X1(T by roleActor) concurrently in the deadlock interleaving. */
+  const race = async (
+    mod: Enrolled,
+    roleActor: Enrolled,
+    targetId: string,
+    role: string,
+  ): Promise<{ reinstate: LightMyRequestResponse; x1: LightMyRequestResponse; keys: string[] }> => {
+    const restricted = await post(
+      mod,
+      `/v1/community/mod/accounts/${targetId}/restrict`,
+      { reason: REASON21 },
+      randomUUID(),
+    );
+    expect(restricted.statusCode).toBe(200);
+    const keys = [randomUUID(), randomUUID()];
+    const hold = await blocker.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query('SELECT id FROM account_restrictions WHERE user_id = $1 FOR UPDATE', [
+        targetId,
+      ]);
+      const before = await waiting();
+      const reinstate = post(
+        mod,
+        `/v1/community/mod/accounts/${targetId}/reinstate`,
+        { reason: REASON21 },
+        keys[0],
+      );
+      await until(before + 1); // reinstate holds T and waits on the restriction row
+      const x1 = post(
+        roleActor,
+        `/v1/community/admin/accounts/${targetId}/role`,
+        { role, reason: REASON21 },
+        keys[1],
+      );
+      await until(before + 2); // X1 holds the admin set and waits on T
+      await hold.query('COMMIT');
+      const [r, x] = await Promise.all([reinstate, x1]);
+      return { reinstate: r, x1: x, keys };
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+  };
+
+  const assertConsistent = async (
+    targetId: string,
+    modId: string,
+    expectedRole: string,
+    keys: string[],
+  ): Promise<void> => {
+    const [user] = (await ownerQuery(`SELECT "role" FROM "user" WHERE "id" = $1`, [targetId])) as {
+      role: string;
+    }[];
+    expect(user.role).toBe(expectedRole);
+    const restrictions = (await ownerQuery(
+      `SELECT lifted_at, lifted_by FROM account_restrictions WHERE user_id = $1`,
+      [targetId],
+    )) as { lifted_at: Date | null; lifted_by: string | null }[];
+    expect(restrictions).toHaveLength(1);
+    expect(restrictions[0].lifted_at).not.toBeNull();
+    expect(restrictions[0].lifted_by).toBe(modId);
+    const actions = (await ownerQuery(
+      `SELECT action FROM moderation_actions WHERE target_id = $1 ORDER BY id`,
+      [targetId],
+    )) as { action: string }[];
+    expect(actions.map(a => a.action).sort()).toEqual(
+      ['change_role', 'reinstate_account', 'restrict_account'].sort(),
+    );
+    const live = (await ownerQuery(
+      `SELECT count(*)::int AS n FROM refresh_token_families WHERE user_id = $1 AND revoked_at IS NULL`,
+      [targetId],
+    )) as { n: number }[];
+    expect(live[0].n).toBe(0); // X1 revoked every family of the target
+    const stored = (await ownerQuery(
+      `SELECT status_code FROM idempotency_keys WHERE key = ANY($1::uuid[])`,
+      [keys],
+    )) as { status_code: number | null }[];
+    expect(stored.map(s => s.status_code)).toEqual([200, 200]); // none abandoned by a 5xx
+  };
+
+  it('a member target: reinstate and role grant both commit, no 40P01 / 500', async () => {
+    const a1 = await privilegedUser(app, 'sec021a', 'admin');
+    const a2 = await privilegedUser(app, 'sec021b', 'admin');
+    const t = await memberWithProfile(app, 'sec021t', 'Sec021T');
+    const { reinstate, x1, keys } = await race(a2, a1, t.userId, 'moderator');
+    expect([reinstate.statusCode, x1.statusCode]).toEqual([200, 200]);
+    expect(x1.json().target_role).toBe('moderator');
+    await assertConsistent(t.userId, a2.userId, 'moderator', keys);
+    expect(await admins()).toBe(2);
+  });
+
+  it('an admin target being demoted: no deadlock, and the last-admin invariant still holds', async () => {
+    const a1 = await privilegedUser(app, 'sec021c', 'admin');
+    const a2 = await privilegedUser(app, 'sec021d', 'admin');
+    const a3 = await privilegedUser(app, 'sec021e', 'admin');
+    const start = await admins();
+    // X1 demotes A3 while A2 reinstates A3. X1 locks the whole admin set (A1, A2, A3 by id)
+    // and so waits for A3, which the reinstate holds.
+    const { reinstate, x1, keys } = await race(a2, a1, a3.userId, 'member');
+    expect([reinstate.statusCode, x1.statusCode]).toEqual([200, 200]);
+    await assertConsistent(a3.userId, a2.userId, 'member', keys);
+    expect(await admins()).toBe(start - 1);
+
+    // The acting admin and the moderating admin are untouched, and the admin count only fell
+    // by the one demotion. The concurrent last-admin race itself is the SEC-010 suite above,
+    // which runs against the same (changed) admin-set lock.
+    const roles = (await ownerQuery(
+      `SELECT "id", "role" FROM "user" WHERE "id" = ANY($1::text[]) ORDER BY "id"`,
+      [[a1.userId, a2.userId]],
+    )) as { role: string }[];
+    expect(roles.map(r => r.role)).toEqual(['admin', 'admin']);
+  });
+});
