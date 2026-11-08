@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto';
 import { LightMyRequestResponse } from 'fastify';
 import { Pool } from 'pg';
 import { bootstrapAdmin } from '../../src/community/bootstrap-admin';
+import { CommunityContext } from '../../src/community/context';
 import {
   bearer,
   CommunityTestApp,
@@ -1341,3 +1342,376 @@ describeDb(
     });
   },
 );
+
+describeDb(
+  'SEC-010 backstop: the last_admin check itself, with the SEC-024/025 re-check disabled',
+  () => {
+    // With the actor re-authorised under the admin-set lock, the API can no longer reach the
+    // `last_admin` branch. It is kept as a backstop; this suite switches the re-check off so the
+    // mutual-demotion race reaches the count, and proves the backstop alone still refuses.
+    let app: CommunityTestApp;
+    let blocker: Pool;
+    let spy: jest.SpyInstance;
+    beforeAll(async () => {
+      await resetDatabase();
+      app = await createCommunityApp();
+      blocker = ownerPool();
+      spy = jest.spyOn(CommunityContext.prototype, 'reauthorize').mockResolvedValue(undefined);
+    });
+    afterAll(async () => {
+      spy.mockRestore();
+      await blocker.end();
+      await app.close();
+    });
+
+    it('two admins demoting each other at once: the backstop refuses one with 422 last_admin', async () => {
+      const a1 = await privilegedUser(app, 'backstop1', 'admin');
+      const a2 = await privilegedUser(app, 'backstop2', 'admin');
+      const admins = async (): Promise<number> =>
+        (
+          (await ownerQuery(
+            `SELECT count(*)::int AS n FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL`,
+          )) as { n: number }[]
+        )[0].n;
+      expect(await admins()).toBe(2);
+      const waiting = async (): Promise<number> =>
+        (
+          await blocker.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM pg_locks
+            WHERE NOT granted AND locktype IN ('transactionid', 'tuple', 'relation')`,
+          )
+        ).rows[0].n;
+      const hold = await blocker.connect();
+      let results: LightMyRequestResponse[];
+      try {
+        await hold.query('BEGIN');
+        await hold.query(
+          'SELECT id FROM refresh_token_families WHERE user_id = ANY($1::text[]) FOR UPDATE',
+          [[a1.userId, a2.userId]],
+        );
+        const demote = (actor: Enrolled, target: Enrolled): Promise<LightMyRequestResponse> =>
+          app.server.inject({
+            method: 'POST',
+            url: `/v1/community/admin/accounts/${target.userId}/role`,
+            headers: bearer(actor.accessToken),
+            payload: { role: 'member', reason: 'Backstop last-admin race check' },
+          });
+        const inFlight = Promise.all([demote(a1, a2), demote(a2, a1)]);
+        const deadline = Date.now() + 10_000;
+        while ((await waiting()) < 2 && Date.now() < deadline) {
+          await new Promise(resolve => setTimeout(resolve, 20));
+        }
+        expect(await waiting()).toBeGreaterThanOrEqual(2);
+        await hold.query('COMMIT');
+        results = await inFlight;
+      } finally {
+        await hold.query('ROLLBACK').catch(() => undefined);
+        hold.release();
+      }
+      expect(spy).toHaveBeenCalled(); // the re-check really was bypassed
+      expect(results.map(r => r.statusCode).sort()).toEqual([200, 422]);
+      const refused = results.find(r => r.statusCode === 422) as LightMyRequestResponse;
+      expect(refused.json().error).toMatchObject({
+        code: 'invalid_state',
+        details: { reason: 'last_admin' },
+      });
+      expect(await admins()).toBe(1);
+    });
+  },
+);
+
+describeDb('SEC-025: every privileged mutation is re-authorised before it commits', () => {
+  // As in SEC-024: A1 pins a change to A2 (blocked in A2's session revocation, with A2's row
+  // locked). A2's privileged action then queues inside its own transaction (target row, or the
+  // FK check on A2's row for its audit row). On release it must refuse and write nothing.
+  let app: CommunityTestApp;
+  let blocker: Pool;
+  const R = 'Queued privileged action authority check';
+  beforeAll(async () => {
+    await resetDatabase();
+    app = await createCommunityApp();
+    blocker = ownerPool();
+  });
+  afterAll(async () => {
+    await blocker.end();
+    await app.close();
+  });
+
+  const waiting = async (): Promise<number> =>
+    (
+      await blocker.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_locks
+          WHERE NOT granted AND locktype IN ('transactionid', 'tuple', 'relation')`,
+      )
+    ).rows[0].n;
+  const until = async (n: number): Promise<void> => {
+    const deadline = Date.now() + 10_000;
+    while ((await waiting()) < n && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    expect(await waiting()).toBeGreaterThanOrEqual(n);
+  };
+  const post = (actor: SignedIn, url: string, payload: Record<string, unknown>, key: string) =>
+    app.server.inject({
+      method: 'POST',
+      url,
+      headers: { ...bearer(actor.accessToken), 'idempotency-key': key },
+      payload,
+    });
+  const one = async <T>(sql: string, params: unknown[] = []): Promise<T> =>
+    ((await ownerQuery(sql, params)) as T[])[0];
+  const actionsBy = async (actorId: string, action: string): Promise<number> =>
+    (
+      await one<{ n: number }>(
+        `SELECT count(*)::int AS n FROM moderation_actions
+          WHERE actor_account_id = $1 AND action = $2`,
+        [actorId, action],
+      )
+    ).n;
+  const storedStatus = async (key: string): Promise<number | null> =>
+    (
+      await one<{ status_code: number | null } | undefined>(
+        `SELECT status_code FROM idempotency_keys WHERE key = $1::uuid`,
+        [key],
+      )
+    )?.status_code ?? null;
+  const notices = async (userId: string): Promise<number> =>
+    (
+      await one<{ n: number }>(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1`, [
+        userId,
+      ])
+    ).n;
+
+  /** Pins `change` on `pinnedUserId`'s families, queues `action` behind it, then releases. */
+  const queued = async (
+    pinnedUserId: string,
+    change: () => Promise<LightMyRequestResponse>,
+    action: () => Promise<LightMyRequestResponse>,
+  ): Promise<[LightMyRequestResponse, LightMyRequestResponse]> => {
+    const hold = await blocker.connect();
+    try {
+      await hold.query('BEGIN');
+      await hold.query('SELECT id FROM refresh_token_families WHERE user_id = $1 FOR UPDATE', [
+        pinnedUserId,
+      ]);
+      const before = await waiting();
+      const first = change();
+      await until(before + 1); // the change holds its locks, waiting on the pinned families
+      const second = action();
+      await until(before + 2); // the action passed the gate and is waiting in its transaction
+      await hold.query('COMMIT');
+      return await Promise.all([first, second]);
+    } finally {
+      await hold.query('ROLLBACK').catch(() => undefined);
+      hold.release();
+    }
+  };
+  const demote = (a1: Enrolled, a2: Enrolled) => () =>
+    post(
+      a1,
+      `/v1/community/admin/accounts/${a2.userId}/role`,
+      { role: 'member', reason: R },
+      randomUUID(),
+    );
+  const suspend = (a1: Enrolled, target: SignedIn) => () =>
+    post(a1, `/v1/community/mod/accounts/${target.userId}/suspend`, { reason: R }, randomUUID());
+  const expectRefused = (r: LightMyRequestResponse): void => {
+    expect(r.statusCode).toBe(401);
+    expect(r.json().error).toMatchObject({
+      code: 'unauthenticated',
+      details: { reason: 'session_revoked' },
+    });
+  };
+  const newPost = async (author: SignedIn): Promise<string> =>
+    (
+      await app.server.inject({
+        method: 'POST',
+        url: '/v1/community/spaces/general_health/posts',
+        headers: { ...bearer(author.accessToken), ...idem() },
+        payload: { body: 'A post for SEC-025', display_mode: 'pseudonymous' },
+      })
+    ).json().id;
+
+  it('demoted admin cannot reset TOTP (X2): refused, no reset, no revocation, no audit row', async () => {
+    const a1 = await privilegedUser(app, 's25a', 'admin');
+    const a2 = await privilegedUser(app, 's25b', 'admin');
+    const a3 = await privilegedUser(app, 's25c', 'admin');
+    const key = randomUUID();
+    const families = (
+      await one<{ n: number }>(
+        `SELECT count(*)::int AS n FROM refresh_token_families WHERE user_id = $1 AND revoked_at IS NULL`,
+        [a3.userId],
+      )
+    ).n;
+    const [change, action] = await queued(a2.userId, demote(a1, a2), () =>
+      post(a2, `/v1/community/admin/accounts/${a3.userId}/totp-reset`, { reason: R }, key),
+    );
+    expect(change.statusCode).toBe(200);
+    expectRefused(action);
+    const a3row = await one<{ t: boolean }>(
+      `SELECT "twoFactorEnabled" AS t FROM "user" WHERE "id" = $1`,
+      [a3.userId],
+    );
+    expect(a3row.t).toBe(true);
+    expect(
+      (
+        await one<{ n: number }>(`SELECT count(*)::int AS n FROM "twoFactor" WHERE "userId" = $1`, [
+          a3.userId,
+        ])
+      ).n,
+    ).toBe(1);
+    expect(
+      (
+        await one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM refresh_token_families WHERE user_id = $1 AND revoked_at IS NULL`,
+          [a3.userId],
+        )
+      ).n,
+    ).toBe(families);
+    expect(await actionsBy(a2.userId, 'reset_totp')).toBe(0);
+    expect(
+      (
+        await one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM moderation_actions WHERE actor_account_id = $1`,
+          [a2.userId],
+        )
+      ).n,
+    ).toBe(0);
+    expect(await storedStatus(key)).toBe(401);
+  });
+
+  it('suspended admin cannot moderate: account suspension and content hide both refused, nothing written', async () => {
+    const a1 = await privilegedUser(app, 's25d', 'admin');
+    const a2 = await privilegedUser(app, 's25e', 'admin');
+    const t = await memberWithProfile(app, 's25t', 'S25Target');
+    const postId = await newPost(t);
+    const tNotices = await notices(t.userId);
+
+    const k1 = randomUUID();
+    const [c1, account] = await queued(a2.userId, suspend(a1, a2), () =>
+      post(a2, `/v1/community/mod/accounts/${t.userId}/suspend`, { reason: R }, k1),
+    );
+    expect(c1.statusCode).toBe(200);
+    expectRefused(account);
+    expect(
+      (
+        await one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM account_restrictions WHERE user_id = $1`,
+          [t.userId],
+        )
+      ).n,
+    ).toBe(0);
+    expect(await storedStatus(k1)).toBe(401);
+
+    // A second suspended admin attempting a content action (D7 hide).
+    const a3 = await privilegedUser(app, 's25f', 'admin');
+    const k2 = randomUUID();
+    const [c2, content] = await queued(a3.userId, suspend(a1, a3), () =>
+      post(a3, `/v1/community/mod/posts/${postId}/hide`, { reason: R }, k2),
+    );
+    expect(c2.statusCode).toBe(200);
+    expectRefused(content);
+    expect(
+      (await one<{ status: string }>(`SELECT status FROM posts WHERE id = $1`, [postId])).status,
+    ).toBe('visible');
+    expect(await storedStatus(k2)).toBe(401);
+
+    for (const actor of [a2, a3]) {
+      expect(
+        (
+          await one<{ n: number }>(
+            `SELECT count(*)::int AS n FROM moderation_actions WHERE actor_account_id = $1`,
+            [actor.userId],
+          )
+        ).n,
+      ).toBe(0);
+    }
+    expect(await notices(t.userId)).toBe(tNotices); // no moderation notice to the target
+  });
+
+  it('demoted admin cannot grant verification (X4): claim stays pending, no audit, no notice', async () => {
+    const a1 = await privilegedUser(app, 's25g', 'admin');
+    const a2 = await privilegedUser(app, 's25h', 'admin');
+    const m = await memberWithProfile(app, 's25m', 'S25Claimant');
+    const claim = await one<{ id: string }>(
+      `INSERT INTO professional_verifications (user_id, profession, specialty, status)
+       VALUES ($1, 'Nurse', 'General', 'pending') RETURNING id`,
+      [m.userId],
+    );
+    const mNotices = await notices(m.userId);
+    const key = randomUUID();
+    const [change, action] = await queued(a2.userId, demote(a1, a2), () =>
+      post(
+        a2,
+        `/v1/community/admin/verifications/${claim.id}/verify`,
+        { reason: R, evidence_ref: 'register-check-1' },
+        key,
+      ),
+    );
+    expect(change.statusCode).toBe(200);
+    expectRefused(action);
+    const row = await one<{ status: string; verified_by: string | null }>(
+      `SELECT status, verified_by FROM professional_verifications WHERE id = $1`,
+      [claim.id],
+    );
+    expect(row).toEqual({ status: 'pending', verified_by: null });
+    expect(await actionsBy(a2.userId, 'verify_professional')).toBe(0);
+    expect(await notices(m.userId)).toBe(mNotices);
+    expect(await storedStatus(key)).toBe(401);
+  });
+
+  it('demoted or suspended admin cannot reveal an identity: refused, no identity in the body, no audit row', async () => {
+    const a1 = await privilegedUser(app, 's25i', 'admin');
+    const author = await memberWithProfile(app, 's25w', 'S25Author');
+    const postId = await newPost(author);
+    for (const [label, makeChange] of [
+      ['demoted', demote],
+      ['suspended', suspend],
+    ] as const) {
+      const a2 = await privilegedUser(app, `s25r${label}`, 'admin');
+      const [change, reveal] = await queued(a2.userId, makeChange(a1, a2), () =>
+        app.server.inject({
+          method: 'POST',
+          url: '/v1/community/mod/identity/reveal',
+          headers: bearer(a2.accessToken),
+          payload: { target_type: 'post', target_id: postId, reason: R },
+        }),
+      );
+      expect(change.statusCode).toBe(200);
+      expectRefused(reveal);
+      expect(reveal.body).not.toContain(author.userId);
+      expect(reveal.json()).not.toHaveProperty('account_id');
+      expect(await actionsBy(a2.userId, 'reveal_identity')).toBe(0);
+    }
+  });
+
+  it('control: an unchanged admin queued behind a change to someone else still succeeds normally', async () => {
+    const a1 = await privilegedUser(app, 's25j', 'admin');
+    const a2 = await privilegedUser(app, 's25k', 'admin');
+    const t = await memberWithProfile(app, 's25u', 'S25Other');
+    const postId = await newPost(t);
+    // A1 suspends T (pinned on T's families, holding T's row). A2 hides T's post, which queues
+    // on the FK check of its notice to T. A2 was not changed, so the hide must commit.
+    const key = randomUUID();
+    const [change, hide] = await queued(t.userId, suspend(a1, t), () =>
+      post(a2, `/v1/community/mod/posts/${postId}/hide`, { reason: R }, key),
+    );
+    expect([change.statusCode, hide.statusCode]).toEqual([200, 200]);
+    expect(hide.json().target_status).toBe('hidden');
+    expect(
+      (await one<{ status: string }>(`SELECT status FROM posts WHERE id = $1`, [postId])).status,
+    ).toBe('hidden');
+    expect(await actionsBy(a2.userId, 'hide_content')).toBe(1);
+    expect(await storedStatus(key)).toBe(200);
+    // And an unqueued reveal by the same admin works and is audited.
+    const reveal = await app.server.inject({
+      method: 'POST',
+      url: '/v1/community/mod/identity/reveal',
+      headers: bearer(a2.accessToken),
+      payload: { target_type: 'post', target_id: postId, reason: R },
+    });
+    expect(reveal.statusCode).toBe(200);
+    expect(reveal.json().account_id).toBe(t.userId);
+    expect(await actionsBy(a2.userId, 'reveal_identity')).toBe(1);
+  });
+});

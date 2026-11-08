@@ -134,7 +134,18 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
       actor,
       route,
       { required: false, limits: [{ name: 'privileged_mutation_hour', key: actor.userId }] },
-      async () => ({ status: 200, body: await ctx.tx(client => run(actor, client)) }),
+      async () => ({
+        status: 200,
+        body: await ctx.tx(async client => {
+          const result = await run(actor, client);
+          // SEC-025: the last statement before COMMIT. The request may have waited inside the
+          // transaction (on a target row, or on the FK check against the actor's own row) while
+          // the actor was demoted, suspended, deleted or had 2FA reset. Re-check now, so such a
+          // change is seen (401/403) and the whole action, its audit row included, rolls back.
+          await ctx.reauthorize(client, actor, role);
+          return result;
+        }),
+      }),
     );
   };
 
@@ -294,6 +305,9 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
           reason: reasonOf(request),
           evidence: { revealed_account_id: author.id },
         });
+        // SEC-025: re-check the moderator before COMMIT (same reason as in `mutate`). The
+        // identity is only sent after the commit, so a refusal here reveals nothing.
+        await ctx.reauthorize(client, actor, 'moderator');
         return {
           account_id: author.id,
           display_name: author.display_name ?? null,
