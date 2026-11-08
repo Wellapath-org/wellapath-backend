@@ -34,7 +34,7 @@ sha256 on-device. It stores no user data.
 | Item        | Value                                                                                |
 | ----------- | ------------------------------------------------------------------------------------ |
 | Repository  | `Wellapath-org/wellapath-backend` (public)                                           |
-| Language    | TypeScript (strict), Node.js — CI and Docker use Node 20                             |
+| Language    | TypeScript (strict), Node.js 22 LTS — `engines`, `.nvmrc`, CI and Docker agree (A1)  |
 | Framework   | Fastify 5, Pino logging, `@fastify/rate-limit`, `@fastify/cors`                      |
 | Runtime     | **Render** (Docker web services)                                                     |
 | Artifacts   | **Cloudflare R2**, public base `https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev` |

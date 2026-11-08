@@ -1,0 +1,3363 @@
+# COPY of the canonical Community API contract (machine-readable companion).
+# Canonical source: WELLAPATH_ENGINEERING/community_api_v1.openapi.yaml (v1.0.0-draft),
+#   companion of WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md. On any conflict the MARKDOWN wins.
+# Do not edit here: change the canonical files by PR, then re-copy (the contract test
+# tests/community/contract.test.ts loads this file). Copied 2026-11-08 (all Appendix P approvals + pre-validation security fixes), unmodified below this header.
+# canonical-sha256: 312a1b9e0e89cd0c1fc36f20553da28f895218cd2e70588b01ecbbc098f7a11a
+
+# WellaPath Community API v1.0-draft (CANONICAL, pending founder sign-off). Must stay consistent with COMMUNITY_API_CONTRACT.md (markdown wins). Change only via PR to both files.
+openapi: "3.1.0"
+info:
+  title: "WellaPath Community API"
+  version: "1.0.0-draft"
+  description: "CANONICAL v1.0-draft; every Appendix P item approved by the founder (P6 2026-11-07; all others 2026-11-08); document sign-off outstanding. Machine-readable companion to WELLAPATH_ENGINEERING/COMMUNITY_API_CONTRACT.md; on conflict the markdown wins. Governed by ADR-001 incl. amendments A1-A4. Every request body rejects unknown keys (400 unknown_field) and prohibited assessment keys (400 prohibited_key). All responses carry Cache-Control: no-store and X-Request-Id. Request validation runs before authentication (400 before 401, C7(c)). CORS (C8, approved, scoped): only the configured website origin (COMMUNITY_WEBSITE_ORIGIN, one exact https origin, no wildcard) gets browser grants, and only on /v1/community/* and /v1/auth/* (decided on the percent-decoded path the router matches, SEC-005): methods GET, POST, PUT, DELETE (+ OPTIONS preflight), request headers Authorization, Content-Type, Idempotency-Key, X-Request-Id, exposed Retry-After, X-Request-Id, max-age 600, never Access-Control-Allow-Credentials; any other origin gets no CORS headers there; /config and every other route keep the app-wide policy (no PUT/DELETE). Vendor extensions: x-wellapath-role, x-wellapath-2fa (TOTP enrolled + fresh per-session step-up), x-wellapath-rate-limit, x-wellapath-audit."
+  contact:
+    name: "WellaPath engineering lead (API architect)"
+  license:
+    name: "Proprietary"
+    identifier: "LicenseRef-WellaPath-Proprietary"
+servers:
+  - url: "/"
+    description: "Same origin as the wellapath-backend service (Render, Frankfurt). Community routes exist only when COMMUNITY_MODE is enabled."
+tags:
+  - name: "features"
+    description: "GET /v1/features: the only route registered when COMMUNITY_MODE=disabled"
+  - name: "auth"
+    description: "WellaPath-owned facade over Better Auth (raw Better Auth HTTP routes are not exposed). Rotating refresh tokens with reuse detection (ADR A2)"
+  - name: "self"
+    description: "Own account, profile, professional claim, data export and deletion"
+  - name: "content"
+    description: "Spaces, text posts, single-level comments (member DTOs never carry an author account id)"
+  - name: "reports"
+    description: "Reporting posts and comments"
+  - name: "notifications"
+    description: "In-app notification centre (polling)"
+  - name: "moderation"
+    description: "Moderator routes: role >= moderator, TOTP enrolled, fresh step-up; every mutation audited with a reason"
+  - name: "admin"
+    description: "Admin-only routes: roles, TOTP reset, professional verification"
+paths:
+  "/v1/features":
+    get:
+      operationId: "getFeatures"
+      summary: "Community flag for this viewer (fail closed; always 200)"
+      tags:
+        - "features"
+      security:
+        - {}
+        - bearerAuth: []
+      x-wellapath-role: "none (token optional)"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "60/min per trusted IP [interim global 6000/min]"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Features"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/auth/otp/request":
+    post:
+      operationId: "requestOtp"
+      summary: "Request email OTP (sign-up or sign-in). Always 202."
+      tags:
+        - "auth"
+      security: []
+      x-wellapath-role: "none"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "per normalised email 3/15min and 10/24h; per IP 20/h [interim global 600/h]"
+      x-wellapath-audit: "auth_events otp_requested (email_hmac)"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/OtpRequest"
+      responses:
+        "202":
+          description: "Accepted (identical for unknown/existing/suspended emails)"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required: []
+                properties: {}
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/otp/verify":
+    post:
+      operationId: "verifyOtp"
+      summary: "Verify OTP; creates account if new; issues tokens"
+      tags:
+        - "auth"
+      security: []
+      x-wellapath-role: "none"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "5 attempts per code then invalidated; per email 20/h; per IP 60/h [interim global 1200/h]"
+      x-wellapath-audit: "auth_events sign_in_succeeded|sign_in_failed, family_created"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/OtpVerify"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/refresh":
+    post:
+      operationId: "refreshTokens"
+      summary: "Rotate refresh token (single use; reuse revokes family)"
+      tags:
+        - "auth"
+      security: []
+      x-wellapath-role: "none"
+      x-wellapath-2fa: false
+      description: "D-019 (approved, tightened 2026-11-08): a used token presented again is tolerated (409 refresh_race, no revocation) only when ALL hold: used less than 10 s ago, the same device_id as the family, its replacement in the same token family, and that replacement not yet used. Any other reuse revokes the family as reuse_detected (401 refresh_reused). Every race event is logged in auth_events (refresh_race when tolerated, refresh_reuse_detected otherwise). C6 (approved): any bad refresh token is 401 refresh_invalid; 400 only for the body's shape."
+      x-wellapath-rate-limit: "per family 10/min; per IP 120/min [interim global 3000/min]"
+      x-wellapath-audit: "auth_events refresh_rotated|refresh_race|refresh_reuse_detected|family_revoked"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          description: "validation_failed, only for the body's shape (missing field, non-string refresh_token, malformed device_id, unknown field)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: "unauthenticated, reason refresh_invalid (any malformed or unknown token, C6) | refresh_reused (family revoked) | refresh_expired | session_revoked"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: "conflict, reason refresh_race: only under the D-019 rule above; nothing was revoked and the event was logged"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/logout":
+    post:
+      operationId: "logout"
+      summary: "Revoke this device's family and session (idempotent)"
+      description: "P6 (approved 2026-11-07). Two credentials, either is enough. (1) No Authorization header: the body's refresh_token is the credential and is REQUIRED. Its family's current token revokes the family; a superseded token is reuse (family revoked as reuse_detected); unknown, expired or already-revoked tokens change nothing. Every well-formed token gets the same 204 (same headers, empty body): no token or account oracle. (2) Bearer access token of account A (an expired-but-validly-signed one is accepted for this route only): with no body token, an unknown one, or one of a family of A, the bearer's family is revoked and the current token of another live family of A is revoked too, anything else in the body is ignored. With a refresh_token of a DIFFERENT account B (any state), no session of A is revoked (the bearer's family included) and the token is processed exactly as in (1); A is audited as a logout noop (reason cross_account_refresh_token, no B identifiers). The response is the same 204 in every case: no account relationship is disclosed. 400 validation_failed depends only on the body shape (and whether a bearer was sent), never on stored state. 401 only when an Authorization header is sent that is not a validly signed access token."
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+        - {}
+      x-wellapath-role: "any"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "bearer: 30/min per account; no bearer: 60/min per client IP [3000/min interim global]; any refresh_token: 10/min per refresh-token hash (approved 2026-11-08)"
+      x-wellapath-audit: "auth_events logout (detail.outcome revoked | noop; a no-bearer noop has no account_id; a cross-account bearer gets a noop row with reason cross_account_refresh_token), refresh_reuse_detected + family_revoked on reuse"
+      requestBody:
+        required: false
+        description: "Required (with refresh_token) when no Authorization header is sent; optional with a bearer."
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/LogoutRequest"
+      responses:
+        "204":
+          description: "No Content. Identical for every outcome (revoked, reuse detected, nothing to revoke)"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: "Only when an Authorization header is sent and it is not a validly signed access token (unauthenticated, reason invalid_token | missing_token). Never for a refresh token"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/sessions":
+    get:
+      operationId: "listSessions"
+      summary: "List my signed-in devices"
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "any"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "30/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "items"
+                  - "next_cursor"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      $ref: "#/components/schemas/Session"
+                  next_cursor:
+                    type:
+                      - "string"
+                      - "null"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/sessions/revoke-others":
+    post:
+      operationId: "revokeOtherSessions"
+      summary: "Recovery: revoke every other device"
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "any"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "30/min per account"
+      x-wellapath-audit: "auth_events sessions_revoked_by_user"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              additionalProperties: false
+              required: []
+              properties: {}
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "revoked"
+                properties:
+                  revoked:
+                    type: "integer"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/totp/enrol":
+    post:
+      operationId: "startTotpEnrolment"
+      summary: "Start TOTP enrolment (privileged roles)"
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "5/h per account"
+      x-wellapath-audit: "auth_events totp_enrol_started"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              type: "object"
+              additionalProperties: false
+              required: []
+              properties: {}
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/TotpEnrolment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/totp/enrol/confirm":
+    post:
+      operationId: "confirmTotpEnrolment"
+      summary: "Confirm TOTP; returns 10 single-use backup codes once; counts as step-up"
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "5 consecutive failures => session revoked + 15 min lockout; 20/h"
+      x-wellapath-audit: "auth_events totp_enrolled"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/TotpCode"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "backup_codes"
+                  - "step_up_expires_at"
+                properties:
+                  backup_codes:
+                    type: "array"
+                    minItems: 10
+                    maxItems: 10
+                    items:
+                      type: "string"
+                  step_up_expires_at:
+                    type: "string"
+                    format: "date-time"
+                    description: "RFC 3339 UTC (Z), server clock"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          description: "invalid_state, reason not_enrolled (no enrolment started) | already_in_state (TOTP already enrolled; C2, approved 2026-11-08)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/auth/totp/verify":
+    post:
+      operationId: "stepUpTotp"
+      summary: "Per-session TOTP step-up (code or backup code)"
+      tags:
+        - "auth"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "5 consecutive failures => session revoked + 15 min account lockout (429); 20/h"
+      x-wellapath-audit: "auth_events step_up_succeeded|step_up_failed|totp_lockout"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/TotpStepUp"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/StepUpResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/me":
+    get:
+      operationId: "getMe"
+      summary: "Own account (not allowlist-gated)"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "any"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/me/profile":
+    get:
+      operationId: "getProfile"
+      summary: "Own profile (404 until created)"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    put:
+      operationId: "putProfile"
+      summary: "Create/update display name"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "10/h per account"
+      x-wellapath-audit: "none"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ProfileUpdate"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Profile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/me/professional-claim":
+    get:
+      operationId: "getProfessionalClaim"
+      summary: "Own professional claim"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfessionalVerification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      operationId: "claimProfession"
+      summary: "Claim a profession; always pending. No status field accepted."
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "3/24h per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyRequired"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ProfessionalClaim"
+      responses:
+        "201":
+          description: "Created (status pending)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ProfessionalVerification"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: "withdrawProfessionalClaim"
+      summary: "Withdraw claim / remove badge"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "moderation_actions withdraw_professional (actor = self)"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/me/export":
+    get:
+      operationId: "exportMyData"
+      summary: "NDPA data export (not allowlist-gated)"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "any"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "3/24h per account"
+      x-wellapath-audit: "auth_events data_exported"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Export"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/me/delete":
+    post:
+      operationId: "deleteMyAccount"
+      summary: "NDPA account deletion (PII erased, content tombstoned, evidence retained)"
+      tags:
+        - "self"
+      security:
+        - bearerAuth: []
+      description: "P1 (approved 2026-11-08): self-deletion is for members only. A moderator or admin gets 422 invalid_state, reason privileged_account; their account is deleted by an admin after a role handover. P8: deleting the account erases every stored device_id (the families are deleted)."
+      x-wellapath-role: "member only (moderator/admin: 422 privileged_account; deleted by an admin after a role handover)"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "3/24h per account"
+      x-wellapath-audit: "moderation_actions delete_account + auth_events account_deleted"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/DeleteAccount"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/spaces":
+    get:
+      operationId: "listSpaces"
+      summary: "Exactly the two seeded spaces"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    description: "P10 (approved and kept 2026-11-08): exactly general_health and pregnancy_maternal until a third space is explicitly approved"
+                    minItems: 2
+                    maxItems: 2
+                    items:
+                      $ref: "#/components/schemas/Space"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/spaces/{space_id}/posts":
+    get:
+      operationId: "listPosts"
+      summary: "Visible posts, newest first"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/SpaceId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/PostPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      operationId: "createPost"
+      summary: "Create text post (profile required; not restricted)"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "5/h and 20/24h per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/SpaceId"
+        - $ref: "#/components/parameters/IdempotencyKeyRequired"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/PostCreate"
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/posts/{post_id}":
+    get:
+      operationId: "getPost"
+      summary: "Single visible post (404 if not visible)"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    delete:
+      operationId: "deleteOwnPost"
+      summary: "Delete own post (deleted_by_author; body erased)"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/posts/{post_id}/comments":
+    get:
+      operationId: "listComments"
+      summary: "Visible comments, oldest first"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/CommentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+    post:
+      operationId: "createComment"
+      summary: "Create single-level comment (no parent_comment_id)"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "30/h per account"
+      x-wellapath-audit: "none (creates reply_to_post / comment_reply notifications)"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/IdempotencyKeyRequired"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/CommentCreate"
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/comments/{comment_id}":
+    delete:
+      operationId: "deleteOwnComment"
+      summary: "Delete own comment"
+      tags:
+        - "content"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/CommentId"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/reports":
+    post:
+      operationId: "createReport"
+      summary: "Report a visible post or comment (restricted accounts may report)"
+      tags:
+        - "reports"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "20/24h per account"
+      x-wellapath-audit: "reports row (reporter, target, reason, note, server time)"
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKeyRequired"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReportCreate"
+      responses:
+        "201":
+          description: "Created"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ReportCreated"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/notifications":
+    get:
+      operationId: "listNotifications"
+      summary: "In-app notification centre"
+      tags:
+        - "notifications"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/notifications/unread-count":
+    get:
+      operationId: "unreadCount"
+      summary: "Unread badge count"
+      tags:
+        - "notifications"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                type: "object"
+                additionalProperties: false
+                required:
+                  - "unread_count"
+                properties:
+                  unread_count:
+                    type: "integer"
+                    minimum: 0
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/notifications/{notification_id}/read":
+    post:
+      operationId: "markNotificationRead"
+      summary: "Mark one read (idempotent)"
+      tags:
+        - "notifications"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/NotificationId"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/notifications/read-all":
+    post:
+      operationId: "markAllNotificationsRead"
+      summary: "Mark all read"
+      tags:
+        - "notifications"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "member"
+      x-wellapath-2fa: false
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      responses:
+        "204":
+          description: "No Content"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/reports":
+    get:
+      operationId: "listReports"
+      summary: "Report queue (no identities)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/ReportStatus"
+            default: "open"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ReportQueuePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/reports/{report_id}":
+    get:
+      operationId: "getReport"
+      summary: "One report"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ReportQueueItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/reports/{report_id}/dismiss":
+    post:
+      operationId: "dismissReport"
+      summary: "Dismiss an open report"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions dismiss_report"
+      parameters:
+        - $ref: "#/components/parameters/ReportId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/posts/{post_id}":
+    get:
+      operationId: "modGetPost"
+      summary: "Post in any status (no identity)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/comments/{comment_id}":
+    get:
+      operationId: "modGetComment"
+      summary: "Comment in any status (no identity)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - $ref: "#/components/parameters/CommentId"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModContent"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/identity/reveal":
+    post:
+      operationId: "revealIdentity"
+      summary: "Audited reveal of the accountable identity behind content"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "30/h per moderator"
+      x-wellapath-audit: "moderation_actions reveal_identity"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/RevealRequest"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/AccountableIdentity"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/posts/{post_id}/hide":
+    post:
+      operationId: "hidePost"
+      summary: "hide post (visible -> hidden; open reports actioned; notice content_hidden)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions hide_content"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/posts/{post_id}/remove":
+    post:
+      operationId: "removePost"
+      summary: "remove post (visible|hidden -> removed (body retained as evidence); notice content_removed)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions remove_content"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/posts/{post_id}/restore":
+    post:
+      operationId: "restorePost"
+      summary: "restore post (hidden|removed -> visible; notice content_restored)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions restore_content"
+      parameters:
+        - $ref: "#/components/parameters/PostId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/comments/{comment_id}/hide":
+    post:
+      operationId: "hideComment"
+      summary: "hide comment (visible -> hidden; open reports actioned; notice content_hidden)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions hide_content"
+      parameters:
+        - $ref: "#/components/parameters/CommentId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/comments/{comment_id}/remove":
+    post:
+      operationId: "removeComment"
+      summary: "remove comment (visible|hidden -> removed (body retained as evidence); notice content_removed)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions remove_content"
+      parameters:
+        - $ref: "#/components/parameters/CommentId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/comments/{comment_id}/restore":
+    post:
+      operationId: "restoreComment"
+      summary: "restore comment (hidden|removed -> visible; notice content_restored)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions restore_content"
+      parameters:
+        - $ref: "#/components/parameters/CommentId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/accounts/{account_id}/restrict":
+    post:
+      operationId: "restrictAccount"
+      summary: "Read-only restriction"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator (member target) / admin (moderator or admin target)"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions restrict_account"
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/RestrictRequest"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "invalid_state, reason already_in_state when the account is already restricted: nothing changes and NO moderation_actions row is written (C3, approved 2026-11-08); or idempotency_key_reused"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/accounts/{account_id}/suspend":
+    post:
+      operationId: "suspendAccount"
+      summary: "Suspend; revokes all families/sessions in the same transaction"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator (member target) / admin (moderator or admin target)"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions suspend_account"
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/RestrictRequest"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "invalid_state, reason already_in_state when the account is already suspended: nothing changes and NO moderation_actions row is written (C3, approved 2026-11-08); or idempotency_key_reused"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/accounts/{account_id}/reinstate":
+    post:
+      operationId: "reinstateAccount"
+      summary: "Lift restriction/suspension"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator (member target) / admin (moderator or admin target)"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions reinstate_account"
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/mod/actions":
+    get:
+      operationId: "listModerationActions"
+      summary: "Append-only audit log (read-only)"
+      tags:
+        - "moderation"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "moderator"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - name: "target_type"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/ModerationTargetType"
+        - name: "target_id"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+        - name: "actor_account_id"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+        - name: "action"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/ModerationActionType"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/admin/accounts/{account_id}/role":
+    post:
+      operationId: "changeRole"
+      summary: "Change role (revokes target families)"
+      tags:
+        - "admin"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "admin"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions change_role (evidence from/to)"
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/RoleChange"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/admin/accounts/{account_id}/totp-reset":
+    post:
+      operationId: "resetTotp"
+      summary: "Reset another account's TOTP (lost authenticator)"
+      tags:
+        - "admin"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "admin"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions reset_totp"
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/admin/verifications":
+    get:
+      operationId: "listVerifications"
+      summary: "Verification queue"
+      tags:
+        - "admin"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "admin"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "default 120/min per account"
+      x-wellapath-audit: "none"
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/VerificationStatus"
+            default: "pending"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/VerificationQueuePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/admin/verifications/{verification_id}/verify":
+    post:
+      operationId: "verifyProfessional"
+      summary: "pending -> verified (never self)"
+      tags:
+        - "admin"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "admin"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions verify_professional"
+      parameters:
+        - $ref: "#/components/parameters/VerificationId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/VerifyRequest"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  "/v1/community/admin/verifications/{verification_id}/revoke":
+    post:
+      operationId: "revokeProfessional"
+      summary: "pending|verified -> revoked"
+      tags:
+        - "admin"
+      security:
+        - bearerAuth: []
+      x-wellapath-role: "admin"
+      x-wellapath-2fa: true
+      x-wellapath-rate-limit: "300/h per actor"
+      x-wellapath-audit: "moderation_actions revoke_professional"
+      parameters:
+        - $ref: "#/components/parameters/VerificationId"
+        - $ref: "#/components/parameters/IdempotencyKeyOptional"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              $ref: "#/components/schemas/ReasonOnly"
+      responses:
+        "200":
+          description: "OK"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/ModerationActionResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "invalid_state, reason not_pending: the verification is neither pending nor verified (C5, approved 2026-11-08)"
+          content:
+            "application/json":
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: "http"
+      scheme: "bearer"
+      bearerFormat: "JWT (EdDSA, <=15 min, claims sub/sid/iss/aud/iat/exp/jti); server-side session check on every request"
+  parameters:
+    Limit:
+      name: "limit"
+      in: "query"
+      required: false
+      schema:
+        type: "integer"
+        minimum: 1
+        maximum: 50
+        default: 20
+    Cursor:
+      name: "cursor"
+      in: "query"
+      required: false
+      schema:
+        type: "string"
+        maxLength: 512
+    IdempotencyKeyRequired:
+      name: "Idempotency-Key"
+      in: "header"
+      required: true
+      schema:
+        type: "string"
+        format: "uuid"
+      description: "Per user intent; replay within 24 h returns the stored response with Idempotent-Replayed: true. The key is bound to the canonical request (method, route template, path parameters, body; SEC-006): the same key with a different body or for a different target is 422 idempotency_key_reused"
+    IdempotencyKeyOptional:
+      name: "Idempotency-Key"
+      in: "header"
+      required: false
+      schema:
+        type: "string"
+        format: "uuid"
+      description: "Optional; same semantics as IdempotencyKeyRequired (bound to method, route template, path parameters and body; a different body or target is 422 idempotency_key_reused)"
+    SpaceId:
+      name: "space_id"
+      in: "path"
+      required: true
+      schema:
+        $ref: "#/components/schemas/SpaceId"
+    PostId:
+      name: "post_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+    CommentId:
+      name: "comment_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+    ReportId:
+      name: "report_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+    NotificationId:
+      name: "notification_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+    AccountId:
+      name: "account_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+        maxLength: 64
+    VerificationId:
+      name: "verification_id"
+      in: "path"
+      required: true
+      schema:
+        type: "string"
+  headers:
+    RetryAfter:
+      description: "Seconds until retry is allowed"
+      schema:
+        type: "integer"
+        minimum: 1
+  responses:
+    BadRequest:
+      description: "validation_failed | invalid_code"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthenticated:
+      description: "token_expired (refresh once) | unauthenticated (sign in again)"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: "forbidden | community_not_allowed | account_restricted | account_suspended | mfa_enrollment_required | mfa_step_up_required | self_action_forbidden"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: "not_found (missing, malformed id, or not visible to this viewer)"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: "conflict (details.reason)"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unprocessable:
+      description: "invalid_state (details.reason) | idempotency_key_reused"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: "rate_limited; never reveals whether an account exists"
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unavailable:
+      description: "community_unavailable (Community DB down; /config unaffected)"
+      content:
+        "application/json":
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "error"
+      properties:
+        error:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "code"
+            - "message"
+            - "request_id"
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: "string"
+            request_id:
+              type: "string"
+            details:
+              type: "object"
+              additionalProperties: true
+              properties:
+                field:
+                  type: "string"
+                rule:
+                  type: "string"
+                  enum:
+                    - "required"
+                    - "type"
+                    - "min_length"
+                    - "max_length"
+                    - "pattern"
+                    - "enum"
+                    - "format"
+                    - "unknown_field"
+                    - "prohibited_key"
+                    - "not_allowed_value"
+                reason:
+                  type: "string"
+                retry_after_seconds:
+                  type: "integer"
+                until:
+                  type:
+                    - "string"
+                    - "null"
+                  format: "date-time"
+    ErrorCode:
+      type: "string"
+      enum:
+        - "validation_failed"
+        - "invalid_code"
+        - "token_expired"
+        - "unauthenticated"
+        - "forbidden"
+        - "community_not_allowed"
+        - "account_restricted"
+        - "account_suspended"
+        - "mfa_enrollment_required"
+        - "mfa_step_up_required"
+        - "self_action_forbidden"
+        - "not_found"
+        - "conflict"
+        - "invalid_state"
+        - "idempotency_key_reused"
+        - "rate_limited"
+        - "internal_error"
+        - "community_unavailable"
+    CommunityMode:
+      type: "string"
+      enum:
+        - "disabled"
+        - "internal"
+        - "closed_beta"
+        - "public"
+    SpaceId:
+      type: "string"
+      enum:
+        - "general_health"
+        - "pregnancy_maternal"
+    DisplayMode:
+      type: "string"
+      enum:
+        - "named"
+        - "pseudonymous"
+    ModContentStatus:
+      type: "string"
+      enum:
+        - "visible"
+        - "hidden"
+        - "removed"
+        - "deleted_by_author"
+        - "tombstoned"
+    Role:
+      type: "string"
+      enum:
+        - "member"
+        - "moderator"
+        - "admin"
+    AccountStatus:
+      type: "string"
+      enum:
+        - "active"
+        - "restricted"
+        - "suspended"
+    VerificationStatus:
+      type: "string"
+      enum:
+        - "pending"
+        - "verified"
+        - "revoked"
+    ReportTargetType:
+      type: "string"
+      enum:
+        - "post"
+        - "comment"
+    ReportReason:
+      type: "string"
+      enum:
+        - "spam"
+        - "harassment"
+        - "misinformation"
+        - "unsafe_medical_advice"
+        - "self_harm_or_emergency"
+        - "personal_information"
+        - "other"
+    ReportStatus:
+      type: "string"
+      enum:
+        - "open"
+        - "actioned"
+        - "dismissed"
+    NotificationType:
+      type: "string"
+      description: "comment_reply (C7(d), approved 2026-11-08) goes only to earlier commenters whose comment on the post is still visible and whose account is active (not suspended, not deleted); never the post author or the new commenter; at most one unread per post per recipient"
+      enum:
+        - "reply_to_post"
+        - "comment_reply"
+        - "moderation_notice"
+    ModerationNotice:
+      type: "string"
+      enum:
+        - "content_hidden"
+        - "content_removed"
+        - "content_restored"
+        - "account_restricted"
+        - "account_suspended"
+        - "account_reinstated"
+        - "verification_updated"
+    ModerationActionType:
+      type: "string"
+      enum:
+        - "dismiss_report"
+        - "reveal_identity"
+        - "hide_content"
+        - "restore_content"
+        - "remove_content"
+        - "restrict_account"
+        - "suspend_account"
+        - "reinstate_account"
+        - "change_role"
+        - "reset_totp"
+        - "verify_professional"
+        - "revoke_professional"
+        - "withdraw_professional"
+        - "delete_account"
+    ModerationTargetType:
+      type: "string"
+      enum:
+        - "post"
+        - "comment"
+        - "account"
+        - "report"
+        - "professional_verification"
+    Features:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "community"
+        - "community_allowed"
+      properties:
+        community:
+          $ref: "#/components/schemas/CommunityMode"
+        community_allowed:
+          type: "boolean"
+    OtpRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "email"
+      properties:
+        email:
+          type: "string"
+          format: "email"
+          maxLength: 254
+    OtpVerify:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "email"
+        - "code"
+        - "device_id"
+      properties:
+        email:
+          type: "string"
+          format: "email"
+          maxLength: 254
+        code:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+        device_id:
+          type: "string"
+          format: "uuid"
+        device_label:
+          type: "string"
+          minLength: 1
+          maxLength: 64
+    RefreshRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "refresh_token"
+        - "device_id"
+      properties:
+        refresh_token:
+          type: "string"
+          description: "C6 (approved): any string passes the schema. A token that is malformed (not ^wprt_[A-Za-z0-9_-]{43,}$, or longer than 256 characters) or unknown gets 401 unauthenticated, reason refresh_invalid, never 400."
+        device_id:
+          type: "string"
+          format: "uuid"
+    LogoutRequest:
+      type: "object"
+      additionalProperties: false
+      required: []
+      description: "refresh_token is required when no Authorization header is sent (A4, P6)"
+      properties:
+        refresh_token:
+          type: "string"
+          pattern: "^wprt_[A-Za-z0-9_-]{43,}$"
+          maxLength: 256
+    TokenPair:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "token_type"
+        - "access_token"
+        - "expires_in"
+        - "access_token_expires_at"
+        - "refresh_token"
+        - "refresh_token_expires_at"
+        - "account_created"
+        - "account"
+      properties:
+        token_type:
+          const: "Bearer"
+        access_token:
+          type: "string"
+        expires_in:
+          type: "integer"
+          minimum: 60
+          maximum: 900
+          description: "P5 (approved 2026-11-08): access-token lifetime in seconds, min 60 / max 900"
+        access_token_expires_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        refresh_token:
+          type: "string"
+          pattern: "^wprt_[A-Za-z0-9_-]{43,}$"
+          description: "P5 (approved 2026-11-08): opaque single-use refresh token"
+        refresh_token_expires_at:
+          type: "string"
+          format: "date-time"
+          description: "Family absolute expiry; idle limit (7 d member / 1 h privileged) may end it sooner"
+        account_created:
+          type: "boolean"
+        account:
+          $ref: "#/components/schemas/Me"
+    Session:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "session_id"
+        - "device_label"
+        - "created_at"
+        - "last_used_at"
+        - "expires_at"
+        - "current"
+      properties:
+        session_id:
+          type: "string"
+          format: "uuid"
+        device_label:
+          type:
+            - "string"
+            - "null"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        last_used_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        expires_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock. The effective expiry: the idle limit capped by the absolute limit (C7(a))"
+        current:
+          type: "boolean"
+    TotpEnrolment:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "otpauth_uri"
+        - "secret_base32"
+        - "digits"
+        - "period"
+      properties:
+        otpauth_uri:
+          type: "string"
+        secret_base32:
+          type: "string"
+        digits:
+          const: 6
+        period:
+          const: 30
+    TotpCode:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "code"
+      properties:
+        code:
+          type: "string"
+          pattern: "^[0-9]{6}$"
+    TotpStepUp:
+      oneOf:
+        - type: "object"
+          additionalProperties: false
+          required:
+            - "code"
+          properties:
+            code:
+              type: "string"
+              pattern: "^[0-9]{6}$"
+        - type: "object"
+          additionalProperties: false
+          required:
+            - "backup_code"
+          properties:
+            backup_code:
+              type: "string"
+              minLength: 8
+              maxLength: 32
+    StepUpResult:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "step_up"
+        - "step_up_expires_at"
+      properties:
+        step_up:
+          const: "verified"
+        step_up_expires_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    Me:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "account_id"
+        - "email"
+        - "role"
+        - "status"
+        - "restricted_until"
+        - "two_factor_enabled"
+        - "community_allowed"
+        - "created_at"
+        - "profile"
+      properties:
+        account_id:
+          type: "string"
+        email:
+          type: "string"
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        restricted_until:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+        two_factor_enabled:
+          type: "boolean"
+        community_allowed:
+          type: "boolean"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        profile:
+          oneOf:
+            - $ref: "#/components/schemas/Profile"
+            - type: "null"
+    Profile:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "display_name"
+        - "professional"
+      properties:
+        display_name:
+          type: "string"
+        professional:
+          description: "The active (pending or verified) claim, or null. GET /v1/community/me/professional-claim returns the latest claim of any status (C7(b))"
+          oneOf:
+            - $ref: "#/components/schemas/ProfessionalVerification"
+            - type: "null"
+    ProfileUpdate:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "display_name"
+      properties:
+        display_name:
+          type: "string"
+          minLength: 3
+          maxLength: 30
+          pattern: "^[A-Za-z0-9 _.-]+$"
+          description: "Founder decision 2026-11-08 (contract section 7.2), identical on server and client: leading and trailing whitespace (exactly what ECMAScript String.prototype.trim removes) is trimmed first; minLength, maxLength, pattern, the 7-or-more-digits rule and the email-like rule all apply to the TRIMMED value, and the trimmed value is what the client sends and the server stores and returns. Empty or whitespace-only after trim, or shorter than 3, is 400 min_length; longer than 30 after trim is 400 max_length. Interior whitespace is unchanged (a run of 2+ spaces or any other whitespace inside the name is 400 pattern). x-wellapath-display-name-cases lists the shared boundary cases both implementations test: stored is the value kept and returned; rule is the details.rule of the 400 validation_failed."
+          x-wellapath-display-name-cases:
+            - { input: "  SunnyMum  ", stored: "SunnyMum" }
+            - { input: " lead", stored: "lead" }
+            - { input: "trail ", stored: "trail" }
+            - { input: "\tSunny Mum\n", stored: "Sunny Mum" }
+            - { input: "\u00a0\u3000Ada\u2028\ufeff", stored: "Ada" }
+            - { input: "  Mum123456  ", stored: "Mum123456" }
+            - { input: "  abcdefghijklmnopqrstuvwxyzabcd  ", stored: "abcdefghijklmnopqrstuvwxyzabcd" }
+            - { input: "", rule: "min_length" }
+            - { input: "   ", rule: "min_length" }
+            - { input: "\t\n \r", rule: "min_length" }
+            - { input: "  ab  ", rule: "min_length" }
+            - { input: " abcdefghijklmnopqrstuvwxyzabcde ", rule: "max_length" }
+            - { input: "  Mum1234567  ", rule: "not_allowed_value" }
+            - { input: " 0 8 0 1 2 3 4 ", rule: "not_allowed_value" }
+            - { input: " me@example.com ", rule: "not_allowed_value" }
+            - { input: "sunny.ng   ", rule: "not_allowed_value" }
+            - { input: "  mum.app\t", rule: "not_allowed_value" }
+            - { input: " two  spaces ", rule: "pattern" }
+            - { input: "  a\tb  ", rule: "pattern" }
+            - { input: "\u0085Sunny", rule: "pattern" }
+    ProfessionalClaim:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "profession"
+      properties:
+        profession:
+          type: "string"
+          minLength: 2
+          maxLength: 80
+        specialty:
+          type: "string"
+          minLength: 2
+          maxLength: 80
+    ProfessionalVerification:
+      type: "object"
+      additionalProperties: false
+      description: "P4 (approved 2026-11-08): verified_at is a timestamp only when status is verified, otherwise null"
+      if:
+        properties:
+          status:
+            const: "verified"
+        required:
+          - "status"
+      then:
+        properties:
+          verified_at:
+            type: "string"
+      else:
+        properties:
+          verified_at:
+            type: "null"
+      required:
+        - "id"
+        - "profession"
+        - "specialty"
+        - "status"
+        - "verified_at"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        profession:
+          type: "string"
+        specialty:
+          type:
+            - "string"
+            - "null"
+        status:
+          $ref: "#/components/schemas/VerificationStatus"
+        verified_at:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+          description: "Non-null iff status == verified"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    DeleteAccount:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "confirm"
+      properties:
+        confirm:
+          const: "DELETE MY ACCOUNT"
+    Export:
+      type: "object"
+      additionalProperties: true
+      required:
+        - "format"
+        - "version"
+        - "exported_at"
+        - "account"
+        - "profile"
+        - "professional_verifications"
+        - "posts"
+        - "comments"
+        - "reports_filed"
+        - "notifications"
+        - "sessions"
+        - "restrictions"
+      properties:
+        format:
+          const: "wellapath-community-export"
+        version:
+          const: 1
+        exported_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        account:
+          type: "object"
+        profile:
+          type:
+            - "object"
+            - "null"
+        professional_verifications:
+          type: "array"
+          items:
+            type: "object"
+        posts:
+          type: "array"
+          items:
+            type: "object"
+        comments:
+          type: "array"
+          items:
+            type: "object"
+        reports_filed:
+          type: "array"
+          items:
+            type: "object"
+        notifications:
+          type: "array"
+          items:
+            type: "object"
+        sessions:
+          type: "array"
+          items:
+            type: "object"
+        restrictions:
+          type: "array"
+          items:
+            type: "object"
+      description: "Own data only. Never tokens, hashes, TOTP secrets, backup codes, or other users' data."
+    Space:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "name"
+        - "description"
+      properties:
+        id:
+          $ref: "#/components/schemas/SpaceId"
+        name:
+          type: "string"
+        description:
+          type: "string"
+    Badge:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "profession"
+        - "specialty"
+      properties:
+        profession:
+          type: "string"
+        specialty:
+          type:
+            - "string"
+            - "null"
+    PublicAuthor:
+      description: "Never contains any account id. Pseudonymous => display_name and badge are null. badge non-null only when the author is verified."
+      oneOf:
+        - type: "object"
+          additionalProperties: false
+          required:
+            - "display_mode"
+            - "display_name"
+            - "badge"
+          properties:
+            display_mode:
+              const: "named"
+            display_name:
+              type: "string"
+            badge:
+              oneOf:
+                - $ref: "#/components/schemas/Badge"
+                - type: "null"
+        - type: "object"
+          additionalProperties: false
+          required:
+            - "display_mode"
+            - "display_name"
+            - "badge"
+          properties:
+            display_mode:
+              const: "pseudonymous"
+            display_name:
+              type: "null"
+            badge:
+              type: "null"
+    PostCreate:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "body"
+        - "display_mode"
+      properties:
+        body:
+          type: "string"
+          minLength: 1
+          maxLength: 2000
+          description: "1-2000 after trim"
+        display_mode:
+          $ref: "#/components/schemas/DisplayMode"
+    Post:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "space_id"
+        - "body"
+        - "author"
+        - "viewer_is_author"
+        - "status"
+        - "comment_count"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        space_id:
+          $ref: "#/components/schemas/SpaceId"
+        body:
+          type: "string"
+        author:
+          $ref: "#/components/schemas/PublicAuthor"
+        viewer_is_author:
+          type: "boolean"
+        status:
+          const: "visible"
+        comment_count:
+          type: "integer"
+          minimum: 0
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    CommentCreate:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "body"
+        - "display_mode"
+      properties:
+        body:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
+          description: "1-1000 after trim"
+        display_mode:
+          $ref: "#/components/schemas/DisplayMode"
+    Comment:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "post_id"
+        - "body"
+        - "author"
+        - "viewer_is_author"
+        - "status"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        post_id:
+          type: "string"
+        body:
+          type: "string"
+        author:
+          $ref: "#/components/schemas/PublicAuthor"
+        viewer_is_author:
+          type: "boolean"
+        status:
+          const: "visible"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    PostPage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Post"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    CommentPage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Comment"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    ReportCreate:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "target_type"
+        - "target_id"
+        - "reason"
+      properties:
+        target_type:
+          $ref: "#/components/schemas/ReportTargetType"
+        target_id:
+          type: "string"
+          maxLength: 64
+          description: "P9 (approved 2026-11-08, with 64)"
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        note:
+          type: "string"
+          maxLength: 500
+    ReportCreated:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "status"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        status:
+          const: "open"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    Notification:
+      type: "object"
+      additionalProperties: false
+      description: "P4 (approved 2026-11-08): notice is a ModerationNotice only when type is moderation_notice, otherwise null"
+      if:
+        properties:
+          type:
+            const: "moderation_notice"
+        required:
+          - "type"
+      then:
+        properties:
+          notice:
+            $ref: "#/components/schemas/ModerationNotice"
+      else:
+        properties:
+          notice:
+            type: "null"
+      required:
+        - "id"
+        - "type"
+        - "post_id"
+        - "comment_id"
+        - "notice"
+        - "created_at"
+        - "read_at"
+      properties:
+        id:
+          type: "string"
+        type:
+          $ref: "#/components/schemas/NotificationType"
+        post_id:
+          type:
+            - "string"
+            - "null"
+        comment_id:
+          type:
+            - "string"
+            - "null"
+        notice:
+          oneOf:
+            - $ref: "#/components/schemas/ModerationNotice"
+            - type: "null"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        read_at:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+    NotificationPage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+        - "unread_count"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Notification"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+        unread_count:
+          type: "integer"
+          minimum: 0
+    ModContent:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "kind"
+        - "space_id"
+        - "post_id"
+        - "body"
+        - "author"
+        - "status"
+        - "open_report_count"
+        - "created_at"
+        - "updated_at"
+      properties:
+        id:
+          type: "string"
+        kind:
+          $ref: "#/components/schemas/ReportTargetType"
+        space_id:
+          $ref: "#/components/schemas/SpaceId"
+        post_id:
+          type:
+            - "string"
+            - "null"
+        body:
+          type:
+            - "string"
+            - "null"
+        author:
+          $ref: "#/components/schemas/PublicAuthor"
+        status:
+          $ref: "#/components/schemas/ModContentStatus"
+        open_report_count:
+          type: "integer"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        updated_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+      description: "Moderator view. No author account id; use POST /v1/community/mod/identity/reveal."
+    ReportQueueItem:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "target_type"
+        - "target_id"
+        - "reason"
+        - "note"
+        - "status"
+        - "created_at"
+        - "target"
+      properties:
+        id:
+          type: "string"
+        target_type:
+          $ref: "#/components/schemas/ReportTargetType"
+        target_id:
+          type: "string"
+        reason:
+          $ref: "#/components/schemas/ReportReason"
+        note:
+          type:
+            - "string"
+            - "null"
+        status:
+          $ref: "#/components/schemas/ReportStatus"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        target:
+          $ref: "#/components/schemas/ModContent"
+    ReportQueuePage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ReportQueueItem"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    RevealRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "target_type"
+        - "target_id"
+        - "reason"
+      properties:
+        target_type:
+          $ref: "#/components/schemas/ReportTargetType"
+        target_id:
+          type: "string"
+        reason:
+          type: "string"
+          minLength: 10
+          maxLength: 500
+          description: "Trimmed length 10-500. Mandatory on every moderation/admin mutation."
+    AccountableIdentity:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "account_id"
+        - "display_name"
+        - "role"
+        - "status"
+        - "created_at"
+        - "prior_moderation_actions"
+        - "reveal_action_id"
+      properties:
+        account_id:
+          type: "string"
+        display_name:
+          type:
+            - "string"
+            - "null"
+        role:
+          $ref: "#/components/schemas/Role"
+        status:
+          $ref: "#/components/schemas/AccountStatus"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        prior_moderation_actions:
+          type: "integer"
+        reveal_action_id:
+          type: "string"
+      description: "Moderator-only. Never includes email."
+    ModerationAction:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "actor_account_id"
+        - "action"
+        - "target_type"
+        - "target_id"
+        - "reason"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        actor_account_id:
+          type: "string"
+        action:
+          $ref: "#/components/schemas/ModerationActionType"
+        target_type:
+          $ref: "#/components/schemas/ModerationTargetType"
+        target_id:
+          type: "string"
+        reason:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+    ModerationActionResult:
+      type: "object"
+      additionalProperties: false
+      description: "C1 (approved): the 200 body of every mutating moderator/admin route. The ModerationAction fields plus the outcome fields below, and nothing else, so no identity key can appear."
+      required:
+        - "id"
+        - "actor_account_id"
+        - "action"
+        - "target_type"
+        - "target_id"
+        - "reason"
+        - "created_at"
+      properties:
+        id:
+          type: "string"
+        actor_account_id:
+          type: "string"
+        action:
+          $ref: "#/components/schemas/ModerationActionType"
+        target_type:
+          $ref: "#/components/schemas/ModerationTargetType"
+        target_id:
+          type: "string"
+        reason:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        target_status:
+          type: "string"
+          description: "The target's state after the action (hidden, removed, visible, dismissed, restricted, suspended, active, verified, revoked)"
+        sessions_revoked:
+          type: "integer"
+          minimum: 0
+          description: "Families revoked by the action (suspend)"
+        target_role:
+          $ref: "#/components/schemas/Role"
+    ModerationActionPage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ModerationAction"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    ReasonOnly:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 10
+          maxLength: 500
+          description: "Trimmed length 10-500. Mandatory on every moderation/admin mutation."
+    RestrictRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 10
+          maxLength: 500
+          description: "Trimmed length 10-500. Mandatory on every moderation/admin mutation."
+        until:
+          type: "string"
+          format: "date-time"
+          description: "Optional; future, <= 365 days ahead"
+    RoleChange:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "role"
+        - "reason"
+      properties:
+        role:
+          $ref: "#/components/schemas/Role"
+        reason:
+          type: "string"
+          minLength: 10
+          maxLength: 500
+          description: "Trimmed length 10-500. Mandatory on every moderation/admin mutation."
+    VerifyRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "reason"
+        - "evidence_ref"
+      properties:
+        reason:
+          type: "string"
+          minLength: 10
+          maxLength: 500
+          description: "Trimmed length 10-500. Mandatory on every moderation/admin mutation."
+        evidence_ref:
+          type: "string"
+          minLength: 1
+          maxLength: 200
+    VerificationQueueItem:
+      type: "object"
+      additionalProperties: false
+      description: "P4 (approved 2026-11-08): verified_at is a timestamp only when status is verified, otherwise null"
+      if:
+        properties:
+          status:
+            const: "verified"
+        required:
+          - "status"
+      then:
+        properties:
+          verified_at:
+            type: "string"
+      else:
+        properties:
+          verified_at:
+            type: "null"
+      required:
+        - "id"
+        - "account_id"
+        - "display_name"
+        - "profession"
+        - "specialty"
+        - "status"
+        - "created_at"
+        - "verified_at"
+        - "verified_by_account_id"
+      properties:
+        id:
+          type: "string"
+        account_id:
+          type: "string"
+        display_name:
+          type:
+            - "string"
+            - "null"
+        profession:
+          type: "string"
+        specialty:
+          type:
+            - "string"
+            - "null"
+        status:
+          $ref: "#/components/schemas/VerificationStatus"
+        created_at:
+          type: "string"
+          format: "date-time"
+          description: "RFC 3339 UTC (Z), server clock"
+        verified_at:
+          type:
+            - "string"
+            - "null"
+          format: "date-time"
+        verified_by_account_id:
+          type:
+            - "string"
+            - "null"
+    VerificationQueuePage:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/VerificationQueueItem"
+        next_cursor:
+          type:
+            - "string"
+            - "null"

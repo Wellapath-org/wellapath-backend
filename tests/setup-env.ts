@@ -24,3 +24,9 @@ process.env.TELEMETRY_ENABLED = 'true';
 process.env.TELEMETRY_SINK = 'none';
 process.env.TELEMETRY_SINK_RETRY_DELAY_MS = '1';
 process.env.METRICS_ENDPOINT_ENABLED = 'true';
+
+// Community PoC: unset (empty) means `disabled`. Set to '' rather than deleted so a developer's
+// local `.env` cannot switch Community on for the suite. Community suites that need a database
+// read COMMUNITY_TEST_DATABASE_URL (migration owner) and COMMUNITY_TEST_APP_DATABASE_URL
+// (runtime role) — never the DB_* staging variables.
+process.env.COMMUNITY_MODE = '';

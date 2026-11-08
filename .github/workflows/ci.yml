@@ -18,7 +18,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
@@ -39,6 +39,101 @@ jobs:
       - name: Run tests
         run: npm test
 
+  community-poc:
+    # Community auth/data PROOF OF CONCEPT (ADR-001). Runs the Community database suites against
+    # a throwaway Postgres service container. No secrets: the database and roles exist only for
+    # the life of this job, and every auth secret is generated inside the tests.
+    # PostgreSQL 18 to match the Neon server major version (ADR-001 B1). `neondb_owner` here is a
+    # stand-in for Neon's branch owner (LOGIN CREATEROLE CREATEDB, owns the database); the three
+    # Community roles are created by the real provisioning script (B2, three-role model).
+    name: Community (Postgres 18, contract suites)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: ci-only-throwaway
+      CI_ADMIN_URL: postgres://neondb_owner:ci-admin@127.0.0.1:5432/wellapath_community_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - name: Create the branch-owner stand-in and the database
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE ROLE neondb_owner LOGIN CREATEROLE CREATEDB PASSWORD 'ci-admin'"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_community_test OWNER neondb_owner"
+      # B2: community_owner (NOLOGIN), community_migrator (LOGIN NOINHERIT, SET-only member of the
+      # owner) and community_app, created by the provisioning script exactly as on Neon. The
+      # generated passwords go only to mode-600 files in the runner's temp dir; the job then
+      # masks them and exports the test URLs. --with-readonly is local-only (never on Neon).
+      - name: Provision the three Community roles (B2)
+        run: |
+          COMMUNITY_DATABASE_URL_DIRECT="$CI_ADMIN_URL" npm run community:provision-runtime-role -- \
+            --runtime-env-out "$RUNNER_TEMP/ci.runtime.env" \
+            --migrator-env-out "$RUNNER_TEMP/ci.migrator.env" --with-readonly
+          node -e '
+            const fs = require("fs"), dotenv = require("dotenv"), t = process.env.RUNNER_TEMP;
+            const app = dotenv.parse(fs.readFileSync(t + "/ci.runtime.env")).COMMUNITY_DATABASE_URL;
+            const mig = dotenv.parse(fs.readFileSync(t + "/ci.migrator.env")).COMMUNITY_DATABASE_URL_DIRECT;
+            for (const u of [app, mig]) console.log("::add-mask::" + decodeURIComponent(new URL(u).password));
+            fs.appendFileSync(process.env.GITHUB_ENV, [
+              "COMMUNITY_TEST_DATABASE_URL=" + mig,
+              "COMMUNITY_TEST_APP_DATABASE_URL=" + app,
+              "COMMUNITY_TEST_ADMIN_DATABASE_URL=" + process.env.CI_ADMIN_URL,
+              "COMMUNITY_TEST_OWNER_ROLE=community_owner",
+              "",
+            ].join("\n"));
+          '
+      - name: Migrate as community_migrator (SET ROLE community_owner per transaction)
+        env:
+          DOTENV_CONFIG_QUIET: 'true'
+        run: |
+          DOTENV_CONFIG_PATH="$RUNNER_TEMP/ci.migrator.env" node -r dotenv/config -r ts-node/register src/community/migrate.ts up
+          DOTENV_CONFIG_PATH="$RUNNER_TEMP/ci.migrator.env" node -r dotenv/config -r ts-node/register src/community/migrate.ts up
+      - name: Install pg_dump 18 (must match the server major version, ADR-001 B1)
+        run: |
+          sudo apt-get install -y postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-18
+      - name: Run Community suites
+        env:
+          PG_DUMP_BIN: /usr/lib/postgresql/18/bin/pg_dump
+        run: npm run test:community
+      # B2: the provisioning script re-run (idempotent: no password generated, nothing to
+      # transfer); --verify fails the job on any deviation from the three-role model or the
+      # runtime privilege matrix.
+      - name: Re-provision and verify the three-role model (B2)
+        run: |
+          COMMUNITY_DATABASE_URL_DIRECT="$CI_ADMIN_URL" npm run community:provision-runtime-role -- --with-readonly --verify
+      - name: Sign-in retention purge CLI, as community_app
+        env:
+          DOTENV_CONFIG_QUIET: 'true'
+        run: |
+          DOTENV_CONFIG_PATH="$RUNNER_TEMP/ci.runtime.env" node -r dotenv/config -r ts-node/register src/community/purge.ts
+      # A4 readiness script, exercised against this job's LOCAL Postgres (not Neon). Proves the
+      # script itself works; it is not Neon evidence. The scratch databases are migrated by the
+      # branch-owner stand-in (no SET ROLE), as a fresh Neon branch would be before provisioning.
+      - name: Neon connectivity PoC script (local Postgres only)
+        run: |
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_neon_poc_branch OWNER neondb_owner"
+          psql -h 127.0.0.1 -U postgres -c "CREATE DATABASE wellapath_restore_check OWNER neondb_owner"
+          APP_URL="$(echo "$COMMUNITY_TEST_APP_DATABASE_URL" | sed 's#/wellapath_community_test#/wellapath_neon_poc_branch#')"
+          COMMUNITY_DATABASE_URL="$APP_URL" \
+          COMMUNITY_DATABASE_URL_DIRECT=postgres://neondb_owner:ci-admin@127.0.0.1:5432/wellapath_neon_poc_branch \
+          COMMUNITY_RESTORE_CHECK_URL=postgres://neondb_owner:ci-admin@127.0.0.1:5432/wellapath_restore_check \
+          NEON_POC_CONFIRM_BRANCH=yes PG_BIN=/usr/lib/postgresql/18/bin \
+            npm run community:neon-poc -- --runs 10 --out neon-connectivity-report.md
+          cat neon-connectivity-report.md >> "$GITHUB_STEP_SUMMARY"
+
   sbom:
     name: SBOM (CycloneDX, production dependencies)
     runs-on: ubuntu-latest
@@ -50,7 +145,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: '.nvmrc'
           cache: 'npm'
 
       - name: Install dependencies
