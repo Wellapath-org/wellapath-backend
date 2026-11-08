@@ -590,6 +590,11 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
           `SELECT "id" FROM "user" WHERE "role" = 'admin' AND "deletedAt" IS NULL
             ORDER BY "id" FOR NO KEY UPDATE`,
         );
+        // SEC-024: the request may have queued on that lock behind a change to the actor (a
+        // demotion takes the same lock; a suspension or deletion locks the actor's row). Re-check
+        // the actor now: from here on the actor's row is locked, so its authority cannot change
+        // before this transaction commits.
+        await ctx.reauthorize(client, actor, 'admin');
         const target = await adminTarget(
           client,
           actor,

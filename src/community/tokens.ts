@@ -195,9 +195,16 @@ export class TokenService {
     return this.principalFor(sub, sid);
   }
 
-  /** Server-side session check for (account, family). */
-  async principalFor(userId: string, familyId: string): Promise<Principal> {
-    const { rows } = await this.pool.query<{
+  /**
+   * Server-side session check for (account, family). `db` lets a caller re-run it inside its own
+   * transaction, so it sees state committed while that transaction waited on a lock (SEC-024).
+   */
+  async principalFor(
+    userId: string,
+    familyId: string,
+    db: Pool | PoolClient = this.pool,
+  ): Promise<Principal> {
+    const { rows } = await db.query<{
       revoked_at: Date | null;
       absolute_expires_at: Date;
       idle_expires_at: Date;

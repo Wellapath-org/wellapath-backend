@@ -197,13 +197,34 @@ export class CommunityContext {
     role: Exclude<Role, 'member'>,
   ): Promise<Principal> {
     const principal = await this.authenticate(request, reply);
+    this.assertPrivileged(principal, role);
+    return principal;
+  }
+
+  private assertPrivileged(principal: Principal, role: Exclude<Role, 'member'>): void {
     if (!hasRole(principal.role, role)) throw new ApiError('forbidden');
     if (!principal.twoFactorEnabled) throw new ApiError('mfa_enrollment_required');
     const fresh =
       principal.stepUpAt !== null &&
       principal.stepUpAt.getTime() > Date.now() - this.s.config.stepUpTtlSeconds * 1000;
     if (!fresh) throw new ApiError('mfa_step_up_required');
-    return principal;
+  }
+
+  /**
+   * SEC-024: re-runs the session check and the privileged gate for `actor` inside `client`'s
+   * transaction. Call it after taking the lock that serialises the operation, so a demotion,
+   * suspension, deletion or sign-out committed while the request was queued is seen (401/403)
+   * instead of the operation proceeding on the authority checked before it queued.
+   */
+  async reauthorize(
+    client: PoolClient,
+    actor: Principal,
+    role: Exclude<Role, 'member'>,
+  ): Promise<void> {
+    this.assertPrivileged(
+      await this.s.tokens.principalFor(actor.userId, actor.familyId, client),
+      role,
+    );
   }
 
   /** Applies limits; sets RateLimit-* headers on success. Auth endpoints audit every 429. */
