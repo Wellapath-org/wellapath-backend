@@ -1422,8 +1422,12 @@ describeDb(
 
 describeDb('SEC-025: every privileged mutation is re-authorised before it commits', () => {
   // As in SEC-024: A1 pins a change to A2 (blocked in A2's session revocation, with A2's row
-  // locked). A2's privileged action then queues inside its own transaction (target row, or the
-  // FK check on A2's row for its audit row). On release it must refuse and write nothing.
+  // locked). A2's privileged action then queues behind it. Where it waits depends on the key:
+  // - with an Idempotency-Key (most tests here), in the idempotency insert, whose FK to A2
+  //   waits on A2's row, i.e. BEFORE its transaction starts;
+  // - without one (the key-less test) and for identity reveal, INSIDE its transaction, at the
+  //   FK check of its audit row on A2's row.
+  // Either way, on release it must refuse and write nothing.
   let app: CommunityTestApp;
   let blocker: Pool;
   const R = 'Queued privileged action authority check';
@@ -1451,11 +1455,16 @@ describeDb('SEC-025: every privileged mutation is re-authorised before it commit
     }
     expect(await waiting()).toBeGreaterThanOrEqual(n);
   };
-  const post = (actor: SignedIn, url: string, payload: Record<string, unknown>, key: string) =>
+  const post = (
+    actor: SignedIn,
+    url: string,
+    payload: Record<string, unknown>,
+    key: string | null,
+  ) =>
     app.server.inject({
       method: 'POST',
       url,
-      headers: { ...bearer(actor.accessToken), 'idempotency-key': key },
+      headers: { ...bearer(actor.accessToken), ...(key ? { 'idempotency-key': key } : {}) },
       payload,
     });
   const one = async <T>(sql: string, params: unknown[] = []): Promise<T> =>
@@ -1683,6 +1692,72 @@ describeDb('SEC-025: every privileged mutation is re-authorised before it commit
       expect(reveal.json()).not.toHaveProperty('account_id');
       expect(await actionsBy(a2.userId, 'reveal_identity')).toBe(0);
     }
+  });
+
+  it('key-less (waits INSIDE its transaction): suspension, TOTP reset and verification by a changed admin are refused', async () => {
+    // No Idempotency-Key, so nothing waits before the transaction: each action passes the gate,
+    // opens its transaction, and blocks at its audit row's FK check on the actor's locked row.
+    const a1 = await privilegedUser(app, 's25l', 'admin');
+    const t = await memberWithProfile(app, 's25v', 'S25KeyLess');
+    const a3 = await privilegedUser(app, 's25n', 'admin');
+    const m = await memberWithProfile(app, 's25x', 'S25KeyLessClaim');
+    const claim = await one<{ id: string }>(
+      `INSERT INTO professional_verifications (user_id, profession, specialty, status)
+       VALUES ($1, 'Nurse', 'General', 'pending') RETURNING id`,
+      [m.userId],
+    );
+    const cases = [
+      {
+        change: suspend,
+        url: `/v1/community/mod/accounts/${t.userId}/suspend`,
+        payload: { reason: R },
+        action: 'suspend_account',
+      },
+      {
+        change: demote,
+        url: `/v1/community/admin/accounts/${a3.userId}/totp-reset`,
+        payload: { reason: R },
+        action: 'reset_totp',
+      },
+      {
+        change: demote,
+        url: `/v1/community/admin/verifications/${claim.id}/verify`,
+        payload: { reason: R, evidence_ref: 'register-check-2' },
+        action: 'verify_professional',
+      },
+    ];
+    for (const [i, c] of cases.entries()) {
+      const a2 = await privilegedUser(app, `s25kl${i}`, 'admin');
+      const [change, res] = await queued(a2.userId, c.change(a1, a2), () =>
+        post(a2, c.url, c.payload, null),
+      );
+      expect(change.statusCode).toBe(200);
+      expectRefused(res);
+      expect(await actionsBy(a2.userId, c.action)).toBe(0);
+    }
+    expect(
+      (
+        await one<{ n: number }>(
+          `SELECT count(*)::int AS n FROM account_restrictions WHERE user_id = $1`,
+          [t.userId],
+        )
+      ).n,
+    ).toBe(0);
+    expect(
+      (
+        await one<{ t: boolean }>(`SELECT "twoFactorEnabled" AS t FROM "user" WHERE "id" = $1`, [
+          a3.userId,
+        ])
+      ).t,
+    ).toBe(true);
+    expect(
+      (
+        await one<{ status: string }>(
+          `SELECT status FROM professional_verifications WHERE id = $1`,
+          [claim.id],
+        )
+      ).status,
+    ).toBe('pending');
   });
 
   it('control: an unchanged admin queued behind a change to someone else still succeeds normally', async () => {

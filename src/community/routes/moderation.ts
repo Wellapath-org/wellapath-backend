@@ -142,6 +142,11 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
           // transaction (on a target row, or on the FK check against the actor's own row) while
           // the actor was demoted, suspended, deleted or had 2FA reset. Re-check now, so such a
           // change is seen (401/403) and the whole action, its audit row included, rolls back.
+          // LOAD-BEARING: this is airtight only because every handler has already written a row
+          // with an FK to the actor (its audit row), whose KEY SHARE on the actor's user row
+          // blocks every authority-removing path (X1 demotion, suspension, X2, deletion: all
+          // take FOR UPDATE on that row) until we commit. Keep the audit write before this
+          // re-check, and keep `loadTarget` / `adminTarget` at FOR UPDATE (see there).
           await ctx.reauthorize(client, actor, role);
           return result;
         }),
@@ -409,6 +414,10 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
   ): Promise<{ id: string; role: Role }> => {
     const id = requireAccountId(rawId);
     const { rows } = await client.query<{ id: string; role: Role }>(
+      // LOAD-BEARING (SEC-025): must stay FOR UPDATE. FOR NO KEY UPDATE does not conflict with
+      // the KEY SHARE that a concurrent action's audit row holds on this account (when the target
+      // is itself a privileged actor), so a suspension could commit after that action's
+      // end-of-transaction re-check. Do not weaken this to fix SEC-023; retry on 40P01 instead.
       `SELECT "id", "role" FROM "user" WHERE "id" = $1 AND "deletedAt" IS NULL FOR UPDATE`,
       [id],
     );
@@ -567,6 +576,7 @@ export const registerModerationRoutes = (server: FastifyInstance, ctx: Community
       role: Role;
       twoFactorEnabled: boolean | null;
     }>(
+      // LOAD-BEARING (SEC-025): must stay FOR UPDATE, for the same reason as `loadTarget`.
       `SELECT "id", "role", "twoFactorEnabled" FROM "user"
         WHERE "id" = $1 AND "deletedAt" IS NULL FOR UPDATE`,
       [id],
