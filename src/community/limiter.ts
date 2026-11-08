@@ -4,11 +4,13 @@
  * - Better Auth's own limiter is disabled (`rateLimit.enabled: false` in ./auth.ts).
  * - Counters are fixed windows in Postgres (`rate_limit_counters`), never per-instance memory, so
  *   limits hold across restarts and instances.
- * - The IP dimension uses only `request.ip`, which Fastify derives from the socket and, when
- *   `TRUST_PROXY_HOPS` is set, the trusted hop of `X-Forwarded-For`. `X-Real-IP`,
- *   `CF-Connecting-IP`, `True-Client-IP` and `Forwarded` are never read here.
- * - Until the hop count is measured (`TRUST_PROXY_HOPS` unset) the socket peer behind Render is
- *   the proxy itself, so the per-IP rules use the interim GLOBAL ceilings (contract F2).
+ * - The IP dimension uses only the security client IP (`ctx.ip`, `src/config/client-ip.ts`):
+ *   the edge-set `CF-Connecting-IP` when `CLIENT_IP_SOURCE=cf-connecting-ip`, otherwise
+ *   `request.ip`. `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP` and `Forwarded` are never
+ *   read for it.
+ * - Until that IP identifies individual clients (`clientIpAttributed` false: socket source and no
+ *   `TRUST_PROXY_HOPS`) the socket peer behind Render is the proxy itself, so the per-IP rules use
+ *   the interim GLOBAL ceilings (contract F2).
  * - Bucket keys are HMACs: no plaintext email or IP is stored.
  */
 import { Pool } from 'pg';
@@ -79,21 +81,31 @@ export class RateLimiter {
   constructor(
     private readonly pool: Pool,
     private readonly hasher: Hasher,
-    private readonly options: { trustProxyConfigured: boolean; overrides?: LimitOverrides },
+    private readonly options: {
+      clientIpAttributed: boolean;
+      /** SEC-027: keys the app produced as unattributed (edge header missing/malformed). */
+      isUnattributedKey?: (key: string) => boolean;
+      overrides?: LimitOverrides;
+    },
   ) {}
 
-  rule(name: LimitName): { max: number; windowSeconds: number } {
+  /**
+   * The ceiling for `name`. The conservative interim/global ceiling applies when the IP does not
+   * identify an individual client: either no per-client source is configured, or (SEC-027) this
+   * particular key is unattributed, so every such request shares it.
+   */
+  rule(name: LimitName, key?: string): { max: number; windowSeconds: number } {
     const base: LimitRule = LIMITS[name];
     const merged = { ...base, ...(this.options.overrides?.[name] ?? {}) };
-    const max =
-      !this.options.trustProxyConfigured && merged.interimMax !== undefined
-        ? merged.interimMax
-        : merged.max;
+    const conservative =
+      !this.options.clientIpAttributed ||
+      (key !== undefined && (this.options.isUnattributedKey?.(key) ?? false));
+    const max = conservative && merged.interimMax !== undefined ? merged.interimMax : merged.max;
     return { max, windowSeconds: merged.windowSeconds };
   }
 
   private async hit(check: LimitCheck): Promise<LimitState & { exceeded: boolean }> {
-    const { max, windowSeconds } = this.rule(check.name);
+    const { max, windowSeconds } = this.rule(check.name, check.key);
     const bucket = `${check.name}:${this.hasher.lookup(check.name, check.key)}`;
     const { rows } = await this.pool.query<{ count: number; reset: string }>(
       `INSERT INTO rate_limit_counters (bucket, window_start, window_seconds, count)

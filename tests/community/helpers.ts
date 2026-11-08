@@ -115,6 +115,8 @@ export interface CommunityTestApp {
 export interface TestAppOptions {
   config?: Partial<CommunityEnabledConfig>;
   trustProxyHops?: number;
+  /** SEC-001/SEC-002: where the security client IP comes from (default `socket`). */
+  clientIpSource?: 'socket' | 'cf-connecting-ip';
   /** Shared outbox (so a restarted app still sees earlier OTPs). */
   outbox?: MemoryOutbox;
   /** A different sender under test (e.g. ResendSender with a mocked fetch). */
@@ -156,6 +158,7 @@ export const createCommunityApp = async (
     telemetryEnabled: false,
     rateLimitMax: 100000,
     trustProxyHops: options.trustProxyHops,
+    clientIpSource: options.clientIpSource,
     websiteOrigin: options.websiteOrigin ?? null,
     community: { config, email: options.email ?? outbox },
   });

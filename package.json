@@ -134,6 +134,7 @@
     "import-meta-resolve": "^4.2.0",
     "imurmurhash": "^0.1.4",
     "ini": "^4.1.1",
+    "ipaddr.js": "^2.3.0",
     "is-arrayish": "^0.2.1",
     "is-extglob": "^2.1.1",
     "is-fullwidth-code-point": "^5.1.0",
