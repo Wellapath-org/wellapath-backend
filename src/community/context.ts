@@ -6,7 +6,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Pool, PoolClient } from 'pg';
 import { CommunityAuth } from './auth';
-import { CommunityEnabledConfig } from './config';
+import { CommunityEnabledConfig, normalizeTesterEmail } from './config';
 import { Hasher } from './crypto';
 import { EmailSender } from './email';
 import { AuthEvents } from './events';
@@ -147,13 +147,61 @@ export class CommunityContext {
     return this.s.clientIp(request);
   }
 
-  isAllowed(principal: Pick<Principal, 'role' | 'userId'>): boolean {
+  isAllowed(principal: Pick<Principal, 'role' | 'userId' | 'email' | 'emailVerified'>): boolean {
     const { config } = this.s;
-    return (
+    if (
       config.mode === 'public' ||
       hasRole(principal.role, 'moderator') ||
       config.allowlist.has(principal.userId)
+    ) {
+      return true;
+    }
+    if (this.isApprovedInternalTester(principal)) {
+      this.noteInternalTesterGrant(principal.userId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * F-077: in `internal` mode only, an account whose server-side email is VERIFIED (OTP proved
+   * the mailbox) and exactly equals an entry of COMMUNITY_INTERNAL_TESTER_EMAILS after trim +
+   * lower-case. The email comes from the account row behind the access token, never from the
+   * client. No wildcard or domain matching exists: it is a Set lookup of the whole address.
+   */
+  private isApprovedInternalTester(principal: Pick<Principal, 'email' | 'emailVerified'>): boolean {
+    const { config } = this.s;
+    return (
+      config.mode === 'internal' &&
+      config.internalTesterEmails.size > 0 &&
+      principal.emailVerified === true &&
+      typeof principal.email === 'string' &&
+      config.internalTesterEmails.has(normalizeTesterEmail(principal.email))
     );
+  }
+
+  /** Accounts whose first tester-email grant this process has already recorded (or is recording). */
+  private readonly testerGrantsNoted = new Set<string>();
+
+  /**
+   * One `internal_tester_access_granted` audit row per account, ever: deduplicated in memory per
+   * process and by a NOT EXISTS guard across processes. Best effort and off the request path; a
+   * failure is retried on a later request. Carries no email (only the account id).
+   */
+  private noteInternalTesterGrant(userId: string): void {
+    if (this.testerGrantsNoted.has(userId)) return;
+    this.testerGrantsNoted.add(userId);
+    this.s.pool
+      .query(
+        `INSERT INTO auth_events (event, account_id, detail)
+         SELECT 'internal_tester_access_granted', $1::text, '{"via":"internal_tester_emails"}'::jsonb
+          WHERE NOT EXISTS (SELECT 1 FROM auth_events
+                             WHERE event = 'internal_tester_access_granted' AND account_id = $1::text)`,
+        [userId],
+      )
+      .catch(() => {
+        this.testerGrantsNoted.delete(userId);
+      });
   }
 
   /** Bearer access token → principal. Counts the per-account default limit unless disabled. */

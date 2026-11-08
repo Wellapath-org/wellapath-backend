@@ -53,6 +53,11 @@ export interface CommunityEnabledConfig {
   baseUrl: string;
   /** Account ids allowed to use Community in `internal` / `closed_beta`. */
   allowlist: Set<string>;
+  /**
+   * `COMMUNITY_INTERNAL_TESTER_EMAILS` (F-077): exact, lower-cased email addresses whose
+   * VERIFIED account is allowed in `internal` mode only. Never logged or returned.
+   */
+  internalTesterEmails: ReadonlySet<string>;
   /** `COMMUNITY_EMAIL_PROVIDER` (legacy name `COMMUNITY_EMAIL_SINK`). */
   emailSink: EmailSinkKind;
   /** Present when `emailSink` is `resend`. */
@@ -79,6 +84,43 @@ export interface CommunityEnabledConfig {
 export type CommunityConfig = { mode: 'disabled' } | CommunityEnabledConfig;
 
 type Env = Record<string, string | undefined>;
+
+/**
+ * One exact address: ASCII local part of letters, digits and `. _ % + -`, then `@`, then a
+ * dotted domain of letter/digit labels. No `*`, `?`, whitespace, quotes or a bare `@domain`, so
+ * nothing here can act as a wildcard or a domain rule.
+ */
+const EXACT_EMAIL =
+  /^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9_%+-])?@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Trim + lower-case: the only normalisation applied to both the list and the account email. */
+export const normalizeTesterEmail = (email: string): string => email.trim().toLowerCase();
+
+/**
+ * Parses `COMMUNITY_INTERNAL_TESTER_EMAILS` (comma-separated exact addresses; empty entries
+ * ignored; duplicates harmless). Fails closed: any malformed entry refuses to boot, and so does a
+ * non-empty list outside `internal` mode. Errors name the position, never the value.
+ */
+export const parseInternalTesterEmails = (
+  raw: string | undefined,
+  mode: CommunityMode,
+): ReadonlySet<string> => {
+  const entries = (raw ?? '').split(',').map(normalizeTesterEmail).filter(Boolean);
+  if (entries.length === 0) return new Set<string>();
+  if (mode !== 'internal') {
+    throw new Error(
+      'COMMUNITY_INTERNAL_TESTER_EMAILS is only allowed with COMMUNITY_MODE=internal. Refusing to boot.',
+    );
+  }
+  entries.forEach((entry, index) => {
+    if (entry.length > 254 || !EXACT_EMAIL.test(entry) || entry.includes('..')) {
+      throw new Error(
+        `Invalid COMMUNITY_INTERNAL_TESTER_EMAILS entry at position ${index + 1}: expected one exact email address`,
+      );
+    }
+  });
+  return new Set(entries);
+};
 
 const required = (env: Env, key: string): string => {
   const value = env[key];
@@ -241,6 +283,7 @@ export const loadCommunityConfig = (env: Env = process.env): CommunityConfig => 
         .map(id => id.trim())
         .filter(Boolean),
     ),
+    internalTesterEmails: parseInternalTesterEmails(env.COMMUNITY_INTERNAL_TESTER_EMAILS, mode),
     emailSink,
     resend,
     emailOutboxDir: env.COMMUNITY_EMAIL_OUTBOX_DIR,

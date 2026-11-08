@@ -134,6 +134,7 @@ export const testConfig = (
   refreshPeppers: [{ version: 1, value: TEST_PEPPER }],
   baseUrl: 'http://localhost:3000',
   allowlist: new Set<string>(),
+  internalTesterEmails: new Set<string>(),
   emailSink: 'memory',
   // The retention timer is exercised explicitly (purge.test.ts), not in every suite.
   authPurgeIntervalSeconds: 0,
