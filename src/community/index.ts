@@ -7,7 +7,7 @@
  * the enabled code (Better Auth, pg pool) is not even loaded in `disabled` mode.
  */
 import { randomUUID } from 'crypto';
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { CommunityConfig } from './config';
 import type { EmailSender } from './email';
 
@@ -15,8 +15,16 @@ export interface RegisterCommunityOptions {
   config: CommunityConfig;
   /** Overrides the configured sink (tests pass a MemoryOutbox). */
   email?: EmailSender;
-  /** Whether TRUST_PROXY_HOPS is configured (per-IP vs interim global ceilings). */
-  trustProxyConfigured?: boolean;
+  /**
+   * The security client IP (SEC-001/SEC-002), derived once by the app (`src/config/client-ip.ts`)
+   * and injected, so Community imports nothing outside src/community. Default: `request.ip`.
+   */
+  clientIp?: (request: FastifyRequest) => string;
+  /**
+   * Whether the security IP identifies individual clients (CLIENT_IP_SOURCE=cf-connecting-ip, or
+   * a measured TRUST_PROXY_HOPS). Selects per-IP vs interim global ceilings.
+   */
+  clientIpAttributed?: boolean;
 }
 
 export interface CommunityFeatures {
@@ -47,6 +55,7 @@ export const registerCommunity = async (
   const { registerEnabledCommunity } = await import('./enabled');
   await registerEnabledCommunity(server, config, {
     email: options.email,
-    trustProxyConfigured: options.trustProxyConfigured ?? false,
+    clientIp: options.clientIp ?? ((request: FastifyRequest): string => request.ip),
+    clientIpAttributed: options.clientIpAttributed ?? false,
   });
 };

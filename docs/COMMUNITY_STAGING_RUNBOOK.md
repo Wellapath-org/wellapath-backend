@@ -109,7 +109,7 @@ Record in `DATABASE_ACCESS_MATRIX.md`: branch `staging`, date, the `--verify` bo
 | `COMMUNITY_EMAIL_FROM`                  | from `resend/staging.env`, e.g. `WellaPath <no-reply@…>` on the verified domain                                                                                 |
 | `COMMUNITY_EMAIL_TIMEOUT_MS`            | optional, default 5000 (1000–15000)                                                                                                                             |
 | `COMMUNITY_AUTH_PURGE_INTERVAL_SECONDS` | optional, default 900 (60–3600): sign-in retention purge                                                                                                        |
-| `TRUST_PROXY_HOPS`                      | **unset** until measured (step 5); then the measured integer (1–10). Never `true`                                                                               |
+| `CLIENT_IP_SOURCE`                      | `cf-connecting-ip` once §5 verification passes on every hostname. `TRUST_PROXY_HOPS` stays **unset** (mutually exclusive; refused at boot)                      |
 
 **Resend sender (implemented).** One HTTPS POST to `https://api.resend.com/emails` per OTP
 (plain-text + HTML, no clinical content), 5 s timeout, **no retry** (an ambiguous failure must not
@@ -158,37 +158,44 @@ node dist/community/latency-gate.js --runs 100 --gate
 - Record the job id, timestamp, runs, p50/p95 for both metrics and PASS/FAIL in
   `POC_COMMUNITY_AUTH_RESULTS.md`.
 
-## 5. Trusted-proxy hop count (`TRUST_PROXY_HOPS`)
+## 5. Security client IP (`CLIENT_IP_SOURCE`), SEC-001 / SEC-002
 
-Until measured, the limiter keys on the socket peer plus account/email dimensions with interim
-global IP ceilings (safe, coarse; contract F2). The service deliberately never logs client IPs
-or `X-Forwarded-For` (the request serializer drops them), so the hop count is measured
-**black-box** through the app-wide limiter (`@fastify/rate-limit`, 100 requests/minute keyed on
-`request.ip`, which honours `TRUST_PROXY_HOPS`). No code change and no IP logging are needed.
+Every security control keys on ONE address: the app-wide limiter (and the telemetry route limit),
+every Community per-IP limit, and the IP HMAC in audit events. It comes from
+`src/config/client-ip.ts`:
 
-Expected chain: client → Cloudflare → Render proxy → app, i.e. a candidate of **2** (verify; do
-not assume).
+- `CLIENT_IP_SOURCE` unset or `socket`: `request.ip` (the socket peer). Behind Render that is the
+  proxy, so every client shares one bucket, and Community uses the interim **global** ceilings
+  (contract F2). Safe but coarse; this is SEC-001.
+- `CLIENT_IP_SOURCE=cf-connecting-ip` (**Render only**): the `CF-Connecting-IP` header that Render's
+  Cloudflare edge sets to the connecting client. It must be exactly one valid IPv4 or IPv6 address.
+  A missing, duplicated, comma-separated or malformed value keys on `unattributed:<socket>` (never
+  refused: Render's health checks bypass Cloudflare). `X-Forwarded-For`, `Forwarded`,
+  `X-Real-IP` and `True-Client-IP` are never read.
 
-You need two clients with **different real public IPs** (e.g. laptop on office Wi-Fi and a
-phone hotspot). For each candidate `N` in 1, 2, 3:
+**Why not an `X-Forwarded-For` hop count (`TRUST_PROXY_HOPS`)?**
 
-1. Render staging: set `TRUST_PROXY_HOPS=N`; wait for the restart.
-2. **Spoof test** (client A): send 110 requests to `/version` within one minute, each with a
-   different spoofed header, e.g.
-   `for i in $(seq 1 110); do curl -s -o /dev/null -w '%{http_code}\n' -H "X-Forwarded-For: 198.51.100.$i" https://<staging>/version; done | sort | uniq -c`.
-   - Some `429` ⇒ the spoofed value did **not** choose the bucket (N is not too large).
-   - No `429` at all ⇒ N is **too large** (the client-written value is trusted). Reject N.
-3. **Isolation test**: immediately after client A is limited, client B (other real IP, no
-   spoofed header) requests `/version` once.
-   - `200` ⇒ buckets are per real client IP: **N is correct**.
-   - `429` ⇒ A and B share a bucket (keyed on a Cloudflare/Render edge address): N is **too
-     small**.
-4. The correct value is the N that gives "some 429" for A **and** "200" for B. Exactly one N
-   should satisfy both; if none does, stop and escalate (proxy chain differs from the
-   expectation).
-5. Leave `TRUST_PROXY_HOPS` at that N, repeat steps 2–3 once more to confirm, and record the
-   date, candidate results and final value in the ops log. Re-measure whenever Cloudflare or
-   Render routing changes.
+- Cloudflare **appends** to a client-supplied `X-Forwarded-For`, so its left side is attacker-controlled.
+- A hop count is only safe if every path has the same number of appending proxies.
+- That number cannot be found from outside without running, at least briefly, with a value that permits spoofing.
+- `TRUST_PROXY_HOPS` must stay **unset** on Render. The app refuses to boot with both set.
+
+**Verification (per environment, per hostname; no spoofable window).** Run
+`staging-e2e/xff-probe.mjs` (engineering workspace) with `PROBE_BASE=https://<host>`. It sends
+only `GET /health` with documentation-range addresses, reads the app-wide limiter's
+`x-ratelimit-remaining`, and prints bucket counts only. It never prints a real IP. Pass criteria with
+`CLIENT_IP_SOURCE=cf-connecting-ip` live:
+
+| Check                                                                                                                 | Pass                                                                                                                                              |
+| --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Repeated requests, no forged header                                                                                   | One bucket (remaining decreases by 1 per request)                                                                                                 |
+| Forged `X-Forwarded-For` (single and 7-entry lists, each position varied), `Forwarded`, `X-Real-IP`, `True-Client-IP` | Never a fresh bucket: the same bucket as the client                                                                                               |
+| Forged `CF-Connecting-IP`                                                                                             | Rejected at the edge (403), or overwritten (same bucket as the client). **A fresh bucket ⇒ STOP: the header is attacker-controlled on that path** |
+| A second client on a different network (e.g. a phone hotspot)                                                         | A different bucket from the first client                                                                                                          |
+
+Record date, host, result table and the edge colo in the ops log, never the IPs. Repeat whenever
+Render, Cloudflare or DNS routing changes (for example if `wellapath.org` DNS moves to a
+WellaPath-owned Cloudflare zone, which would put a second Cloudflare in front: re-verify).
 
 ## 6. Smoke test on staging (engineering-only)
 
@@ -234,6 +241,6 @@ themselves through the retention purge.
 - [ ] Deploy of an approved commit; no `Refusing to start` / `Refusing to boot`; `/config`
       byte-identical
 - [ ] B4 job from Render Frankfurt: query p95 < 20 ms, connect p95 < 150 ms, recorded
-- [ ] `TRUST_PROXY_HOPS` measured, set, verified with spoofed headers
+- [ ] `CLIENT_IP_SOURCE=cf-connecting-ip` set and §5 verification passed on every hostname (`TRUST_PROXY_HOPS` unset)
 - [ ] Smoke test passed (real inbox); test accounts deleted
 - [ ] Rollback (`COMMUNITY_MODE=disabled`) rehearsed once

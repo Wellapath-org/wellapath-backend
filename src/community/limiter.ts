@@ -4,11 +4,13 @@
  * - Better Auth's own limiter is disabled (`rateLimit.enabled: false` in ./auth.ts).
  * - Counters are fixed windows in Postgres (`rate_limit_counters`), never per-instance memory, so
  *   limits hold across restarts and instances.
- * - The IP dimension uses only `request.ip`, which Fastify derives from the socket and, when
- *   `TRUST_PROXY_HOPS` is set, the trusted hop of `X-Forwarded-For`. `X-Real-IP`,
- *   `CF-Connecting-IP`, `True-Client-IP` and `Forwarded` are never read here.
- * - Until the hop count is measured (`TRUST_PROXY_HOPS` unset) the socket peer behind Render is
- *   the proxy itself, so the per-IP rules use the interim GLOBAL ceilings (contract F2).
+ * - The IP dimension uses only the security client IP (`ctx.ip`, `src/config/client-ip.ts`):
+ *   the edge-set `CF-Connecting-IP` when `CLIENT_IP_SOURCE=cf-connecting-ip`, otherwise
+ *   `request.ip`. `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP` and `Forwarded` are never
+ *   read for it.
+ * - Until that IP identifies individual clients (`clientIpAttributed` false: socket source and no
+ *   `TRUST_PROXY_HOPS`) the socket peer behind Render is the proxy itself, so the per-IP rules use
+ *   the interim GLOBAL ceilings (contract F2).
  * - Bucket keys are HMACs: no plaintext email or IP is stored.
  */
 import { Pool } from 'pg';
@@ -79,14 +81,14 @@ export class RateLimiter {
   constructor(
     private readonly pool: Pool,
     private readonly hasher: Hasher,
-    private readonly options: { trustProxyConfigured: boolean; overrides?: LimitOverrides },
+    private readonly options: { clientIpAttributed: boolean; overrides?: LimitOverrides },
   ) {}
 
   rule(name: LimitName): { max: number; windowSeconds: number } {
     const base: LimitRule = LIMITS[name];
     const merged = { ...base, ...(this.options.overrides?.[name] ?? {}) };
     const max =
-      !this.options.trustProxyConfigured && merged.interimMax !== undefined
+      !this.options.clientIpAttributed && merged.interimMax !== undefined
         ? merged.interimMax
         : merged.max;
     return { max, windowSeconds: merged.windowSeconds };

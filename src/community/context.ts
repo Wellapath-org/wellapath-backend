@@ -128,6 +128,8 @@ export interface CommunityServices {
   tokens: TokenService;
   limiter: RateLimiter;
   idempotency: IdempotencyStore;
+  /** The security client IP, injected by the app (`src/config/client-ip.ts`). */
+  clientIp: (request: FastifyRequest) => string;
 }
 
 export class CommunityContext {
@@ -137,9 +139,12 @@ export class CommunityContext {
     return this.s.pool;
   }
 
-  /** The client IP for rate limiting: only Fastify's trusted-proxy-derived `request.ip`. */
+  /**
+   * The security client IP (SEC-001/SEC-002): the only IP used by Community rate limits and by
+   * the IP HMAC in audit events. Never a client-chosen header (`src/config/client-ip.ts`).
+   */
   ip(request: FastifyRequest): string {
-    return request.ip;
+    return this.s.clientIp(request);
   }
 
   isAllowed(principal: Pick<Principal, 'role' | 'userId'>): boolean {

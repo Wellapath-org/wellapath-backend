@@ -30,6 +30,7 @@ import {
   uniqueEmail,
   wrongTotp,
 } from './helpers';
+import { Hasher } from '../../src/community/crypto';
 
 const SPOOF_HEADERS = (n: number): Record<string, string> => ({
   'x-forwarded-for': `198.51.100.${n}`,
@@ -173,6 +174,80 @@ describeDb('WellaPath rate limiter (A3)', () => {
           (await requestOtp(app, uniqueEmail('hop-y'), from('203.0.113.20', '10.0.0.1')))
             .statusCode,
         ).toBe(202);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  describe('SEC-001/SEC-002: CLIENT_IP_SOURCE=cf-connecting-ip (Render edge header)', () => {
+    const tightIp = { ...RELAXED_LIMITS, otp_request_ip: { max: 3, interimMax: 3 } };
+    const edge = (ip: string, n: number): Record<string, string> => ({
+      ...SPOOF_HEADERS(n),
+      'cf-connecting-ip': ip,
+    });
+
+    it('per-client limits use the edge IP only; spoofed headers cannot escape or move a bucket', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        clientIpSource: 'cf-connecting-ip',
+        config: { limitOverrides: tightIp },
+      });
+      try {
+        // The per-IP rule (max 3) applies, not an interim global ceiling.
+        for (let i = 0; i < 3; i += 1) {
+          expect(
+            (await requestOtp(app, uniqueEmail(`cf${i}`), edge('203.0.113.70', i))).statusCode,
+          ).toBe(202);
+        }
+        // Different spoofed XFF / Forwarded / X-Real-IP / True-Client-IP: still the same client.
+        expect429(await requestOtp(app, uniqueEmail('cf-x'), edge('203.0.113.70', 99)));
+        // The same client written as IPv4-mapped IPv6 is the same bucket.
+        expect429(await requestOtp(app, uniqueEmail('cf-m'), edge('::ffff:203.0.113.70', 5)));
+        // A genuinely different client (different edge IP) has its own bucket.
+        expect(
+          (await requestOtp(app, uniqueEmail('cf-y'), edge('203.0.113.71', 1))).statusCode,
+        ).toBe(202);
+        // A request without the edge header (Render-internal) falls back to the unattributed bucket,
+        // even when it forges every other header with the victim's address.
+        const { 'cf-connecting-ip': _dropped, ...noEdge } = SPOOF_HEADERS(70);
+        noEdge['x-forwarded-for'] = '203.0.113.70';
+        noEdge['x-real-ip'] = '203.0.113.70';
+        expect((await requestOtp(app, uniqueEmail('cf-z'), noEdge)).statusCode).toBe(202);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('the limiter bucket and the audit ip_hash come from the same canonical security IP', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        clientIpSource: 'cf-connecting-ip',
+        config: { limitOverrides: tightIp },
+      });
+      try {
+        const ip = '2001:db8::70';
+        for (let i = 0; i < 3; i += 1) {
+          await requestOtp(app, uniqueEmail(`ah${i}`), edge('2001:DB8:0::70', i));
+        }
+        expect429(await requestOtp(app, uniqueEmail('ah-x'), edge('2001:db8:0:0::70', 9)));
+        const hasher = new Hasher(app.config.refreshPeppers);
+        const buckets = (await ownerQuery(
+          `SELECT bucket FROM rate_limit_counters WHERE bucket = $1`,
+          [`otp_request_ip:${hasher.lookup('otp_request_ip', ip)}`],
+        )) as unknown[];
+        expect(buckets.length).toBe(1);
+        const audited = (await ownerQuery(
+          `SELECT ip_hash FROM auth_events WHERE event = 'rate_limited' ORDER BY id DESC LIMIT 1`,
+        )) as { ip_hash: string }[];
+        expect(audited[0].ip_hash).toBe(hasher.lookup('ip', ip));
+        // No bucket or audit row was keyed on any spoofed header value.
+        const spoofHash = hasher.lookup('ip', '198.51.100.9');
+        expect(
+          (await ownerQuery(`SELECT 1 FROM auth_events WHERE ip_hash = $1`, [
+            spoofHash,
+          ])) as unknown[],
+        ).toHaveLength(0);
       } finally {
         await app.close();
       }

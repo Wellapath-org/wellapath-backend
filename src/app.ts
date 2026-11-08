@@ -15,6 +15,7 @@ import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
 import { corsDelegator, parseWebsiteOrigin } from './config/cors';
 import { parseTrustProxyHops } from './config/trust-proxy';
+import { ClientIpSource, parseClientIpSource, securityClientIp } from './config/client-ip';
 import { loadCommunityConfig } from './community/config';
 import { registerCommunity, RegisterCommunityOptions } from './community';
 import { scrubbingStream, scrubLogArgs, scrubLogValue } from './community/log-safety';
@@ -57,6 +58,11 @@ export interface BuildAppOptions {
    */
   trustProxyHops?: number;
   /**
+   * Where the security client IP comes from (SEC-001/SEC-002). Omitted → `CLIENT_IP_SOURCE`
+   * (unset ⇒ `socket`, i.e. `request.ip`). `cf-connecting-ip` is for Render only.
+   */
+  clientIpSource?: ClientIpSource;
+  /**
    * The website origin granted CORS on `/v1/community/*` and `/v1/auth/*` (C8). Omitted →
    * `COMMUNITY_WEBSITE_ORIGIN`; `null` → none.
    */
@@ -85,6 +91,14 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
     'trustProxyHops' in options
       ? options.trustProxyHops
       : parseTrustProxyHops(process.env.TRUST_PROXY_HOPS);
+  const clientIpSource =
+    options.clientIpSource ?? parseClientIpSource(process.env.CLIENT_IP_SOURCE);
+  if (clientIpSource === 'cf-connecting-ip' && trustProxyHops !== undefined) {
+    // Two IP sources at once would make `request.ip` and the security IP disagree.
+    throw new Error(
+      'CLIENT_IP_SOURCE=cf-connecting-ip and TRUST_PROXY_HOPS are mutually exclusive: unset TRUST_PROXY_HOPS',
+    );
+  }
   const server = Fastify({
     // An explicit integer hop count, or nothing. With a hop count, Fastify takes the address that
     // many positions from the right of X-Forwarded-For; client-written values on the left cannot
@@ -156,6 +170,9 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   await server.register(rateLimit, {
     max: options.rateLimitMax ?? 100,
     timeWindow: '1 minute',
+    // SEC-001: the canonical security client IP, never a client-chosen header. Route-level
+    // limits (telemetry) inherit this key.
+    keyGenerator: request => securityClientIp(request, clientIpSource).ip,
     /**
      * `@fastify/rate-limit` *throws* whatever this builder returns. The previous version
      * returned a plain `{ error: { statusCode: 429 } }` object, which has no top-level
@@ -241,7 +258,8 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   await registerCommunity(server, {
     ...options.community,
     config: communityConfig,
-    trustProxyConfigured: trustProxyHops !== undefined,
+    clientIp: (request): string => securityClientIp(request, clientIpSource).ip,
+    clientIpAttributed: trustProxyHops !== undefined || clientIpSource === 'cf-connecting-ip',
   });
 
   server.addHook('onClose', async () => {

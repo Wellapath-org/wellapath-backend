@@ -2,7 +2,7 @@
  * Enabled-mode Community wiring. Loaded lazily by `./index` only when COMMUNITY_MODE is
  * enabled, so a disabled deployment never even loads Better Auth or opens a pool.
  */
-import { FastifyInstance } from 'fastify';
+import { FastifyInstance, FastifyRequest } from 'fastify';
 import { Pool } from 'pg';
 import { createCommunityAuth } from './auth';
 import { CommunityEnabledConfig } from './config';
@@ -26,8 +26,10 @@ declare module 'fastify' {
 
 export interface EnabledOptions {
   email?: EmailSender;
-  /** Whether TRUST_PROXY_HOPS is configured (selects per-IP vs interim global ceilings). */
-  trustProxyConfigured: boolean;
+  /** The security client IP, injected by the app (see `RegisterCommunityOptions.clientIp`). */
+  clientIp: (request: FastifyRequest) => string;
+  /** Whether that IP identifies individual clients (selects per-IP vs interim global ceilings). */
+  clientIpAttributed: boolean;
 }
 
 const createSender = (config: CommunityEnabledConfig): EmailSender => {
@@ -75,7 +77,7 @@ export const registerEnabledCommunity = async (
   const events = new AuthEvents(pool, hasher);
   const tokens = new TokenService(pool, auth, hasher, events, config);
   const limiter = new RateLimiter(pool, hasher, {
-    trustProxyConfigured: options.trustProxyConfigured,
+    clientIpAttributed: options.clientIpAttributed,
     overrides: config.limitOverrides,
   });
   const ctx = new CommunityContext({
@@ -88,6 +90,7 @@ export const registerEnabledCommunity = async (
     tokens,
     limiter,
     idempotency: new IdempotencyStore(pool),
+    clientIp: options.clientIp,
   });
 
   // Route registry (method + URL of every auth/community route) for the contract test, which
