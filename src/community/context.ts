@@ -130,6 +130,8 @@ export interface CommunityServices {
   idempotency: IdempotencyStore;
   /** The security client IP, injected by the app (`src/config/client-ip.ts`). */
   clientIp: (request: FastifyRequest) => string;
+  /** Operational warnings (the app logger). Never given an email or an approved list. */
+  warn?: (fields: Record<string, unknown>, message: string) => void;
 }
 
 export class CommunityContext {
@@ -180,28 +182,57 @@ export class CommunityContext {
     );
   }
 
-  /** Accounts whose first tester-email grant this process has already recorded (or is recording). */
+  /** Accounts whose first tester-email grant this process has recorded, or is recording. */
   private readonly testerGrantsNoted = new Set<string>();
+  /** Set after a permanent audit failure (e.g. migration 0011 missing): no more attempts. */
+  private testerGrantAuditDisabled = false;
 
   /**
-   * One `internal_tester_access_granted` audit row per account, ever: deduplicated in memory per
-   * process and by a NOT EXISTS guard across processes. Best effort and off the request path; a
-   * failure is retried on a later request. Carries no email (only the account id).
+   * One `internal_tester_access_granted` audit row per account, ever. Deduplicated in memory per
+   * process, and across processes by a per-account advisory lock held while NOT EXISTS is
+   * checked. Best effort and off the request path: access never depends on it. Carries the
+   * account id only, never an email. A transient failure is retried on a later request; a
+   * permanent one (CHECK violation: migration 0011 not applied; or a privilege error) is logged
+   * once and stops further attempts in this process.
    */
   private noteInternalTesterGrant(userId: string): void {
-    if (this.testerGrantsNoted.has(userId)) return;
+    if (this.testerGrantAuditDisabled || this.testerGrantsNoted.has(userId)) return;
     this.testerGrantsNoted.add(userId);
-    this.s.pool
-      .query(
+    void this.writeInternalTesterGrant(userId).catch((error: { code?: string }) => {
+      const permanent = error?.code === '23514' || error?.code === '42501';
+      if (permanent) {
+        this.testerGrantAuditDisabled = true;
+      } else {
+        this.testerGrantsNoted.delete(userId);
+      }
+      this.s.warn?.(
+        { event: 'internal_tester_audit_failed', code: error?.code ?? 'unknown', permanent },
+        'internal tester access audit row could not be written',
+      );
+    });
+  }
+
+  private async writeInternalTesterGrant(userId: string): Promise<void> {
+    const client = await this.s.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('internal_tester_grant:' || $1))`, [
+        userId,
+      ]);
+      await client.query(
         `INSERT INTO auth_events (event, account_id, detail)
          SELECT 'internal_tester_access_granted', $1::text, '{"via":"internal_tester_emails"}'::jsonb
           WHERE NOT EXISTS (SELECT 1 FROM auth_events
                              WHERE event = 'internal_tester_access_granted' AND account_id = $1::text)`,
         [userId],
-      )
-      .catch(() => {
-        this.testerGrantsNoted.delete(userId);
-      });
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Bearer access token → principal. Counts the per-account default limit unless disabled. */

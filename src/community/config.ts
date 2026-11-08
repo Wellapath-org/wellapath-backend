@@ -105,7 +105,20 @@ export const parseInternalTesterEmails = (
   raw: string | undefined,
   mode: CommunityMode,
 ): ReadonlySet<string> => {
-  const entries = (raw ?? '').split(',').map(normalizeTesterEmail).filter(Boolean);
+  const rawEntries = (raw ?? '')
+    .split(',')
+    .map(e => e.trim())
+    .filter(Boolean);
+  // ASCII only, checked BEFORE lower-casing: toLowerCase() maps some non-ASCII characters (e.g.
+  // the Kelvin sign) onto ASCII letters.
+  rawEntries.forEach((entry, index) => {
+    if (!/^[\x21-\x7e]+$/.test(entry)) {
+      throw new Error(
+        `Invalid COMMUNITY_INTERNAL_TESTER_EMAILS entry at position ${index + 1}: expected one exact email address`,
+      );
+    }
+  });
+  const entries = rawEntries.map(normalizeTesterEmail);
   if (entries.length === 0) return new Set<string>();
   if (mode !== 'internal') {
     throw new Error(

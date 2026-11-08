@@ -200,6 +200,7 @@ const failureHandling = async (): Promise<Step> => {
         refreshPeppers: [{ version: 1, value: randomBytes(32).toString('base64url') }],
         baseUrl: 'http://localhost:3000',
         allowlist: new Set(),
+        internalTesterEmails: new Set(),
         emailSink: 'memory',
         authPurgeIntervalSeconds: 0,
         accessTokenTtlSeconds: 900,

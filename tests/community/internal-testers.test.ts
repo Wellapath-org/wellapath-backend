@@ -5,6 +5,8 @@
  * never leaves the server.
  */
 import { randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
   loadCommunityConfig,
   normalizeTesterEmail,
@@ -59,6 +61,8 @@ describe('COMMUNITY_INTERNAL_TESTER_EMAILS parsing', () => {
     ['ada..b@example.org'],
     ['ada?@example.org'],
     ['%@example.org.'],
+    ['\u212Aate@example.org'],
+    ['ad\u00e9@example.org'],
   ])('rejects %j: refuses to boot (fail closed), without echoing the value', raw => {
     let message = '';
     try {
@@ -138,7 +142,13 @@ describeDb('internal tester email access (F-077)', () => {
       `SELECT detail FROM auth_events WHERE event = 'internal_tester_access_granted' AND account_id = $1`,
       [userId],
     )) as Array<{ detail: unknown }>;
-  const settle = () => new Promise(resolve => setTimeout(resolve, 150));
+  /** Polls until the background audit write has landed (or the timeout passes). */
+  const waitForGrantRows = async (userId: string, n: number): Promise<void> => {
+    for (let i = 0; i < 40 && (await grantEvents(userId)).length < n; i += 1) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+  };
+  const settle = () => new Promise(resolve => setTimeout(resolve, 300));
 
   beforeAll(async () => {
     await resetDatabase();
@@ -258,6 +268,7 @@ describeDb('internal tester email access (F-077)', () => {
     const user = await signIn(app, email);
     for (let i = 0; i < 5; i += 1) await features(user);
     await spaces(user);
+    await waitForGrantRows(user.userId, 1);
     await settle();
     const rows = await grantEvents(user.userId);
     expect(rows).toHaveLength(1);
@@ -270,6 +281,20 @@ describeDb('internal tester email access (F-077)', () => {
     await features(byId);
     await settle();
     expect(await grantEvents(byId.userId)).toHaveLength(0);
+
+    // Cross-process guard: a row already written by another instance (inserted directly here,
+    // so this process's memory is empty) is not duplicated by this process's first grant.
+    const preEmail = uniqueEmail('preexisting').toLowerCase();
+    const pre = await signIn(app, preEmail); // not yet approved: no grant, no row
+    await ownerQuery(
+      `INSERT INTO auth_events (event, account_id, detail)
+       VALUES ('internal_tester_access_granted', $1, '{"via":"internal_tester_emails"}')`,
+      [pre.userId],
+    );
+    app.config.internalTesterEmails = new Set([...listed(), email, preEmail]);
+    expect((await features(pre)).json().community_allowed).toBe(true);
+    await settle();
+    expect(await grantEvents(pre.userId)).toHaveLength(1);
 
     // A second process (fresh app, empty memory) does not duplicate the row.
     const second = await createCommunityApp({ config: { internalTesterEmails: new Set([email]) } });
@@ -284,6 +309,52 @@ describeDb('internal tester email access (F-077)', () => {
       expect(await grantEvents(user.userId)).toHaveLength(1);
     } finally {
       await second.close();
+    }
+  });
+
+  it('a failing audit write never blocks access and logs one warning without the email', async () => {
+    const email = uniqueEmail('auditfail').toLowerCase();
+    const broken = await createCommunityApp({ config: { internalTesterEmails: new Set([email]) } });
+    try {
+      // Simulate migration 0011 missing: the CHECK no longer accepts the event.
+      await ownerQuery(`ALTER TABLE auth_events DROP CONSTRAINT auth_events_event_check`);
+      await ownerQuery(
+        `ALTER TABLE auth_events ADD CONSTRAINT auth_events_event_check
+           CHECK (event <> 'internal_tester_access_granted') NOT VALID`,
+      );
+      const user = await signIn(broken, email);
+      for (let i = 0; i < 3; i += 1) {
+        const res = await broken.server.inject({
+          method: 'GET',
+          url: '/v1/features',
+          headers: bearer(user.accessToken),
+        });
+        expect(res.json().community_allowed).toBe(true);
+        await settle();
+      }
+      const warnings = broken.logs
+        .text()
+        .split('\n')
+        .filter(line => line.includes('internal_tester_audit_failed'));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('"permanent":true');
+      expect(warnings[0]).toContain('23514');
+      expect(broken.logs.text()).not.toContain(email);
+      expect(await grantEvents(user.userId)).toHaveLength(0);
+    } finally {
+      await broken.close();
+      // Restore the real constraint exactly as migration 0011 defines it.
+      await ownerQuery(
+        readFileSync(
+          join(__dirname, '../../src/community/migrations/0011_internal_tester_event.up.sql'),
+          'utf8',
+        ),
+      );
+      const [{ def }] = (await ownerQuery(
+        `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = 'auth_events_event_check'`,
+      )) as Array<{ def: string }>;
+      expect(def).toContain('internal_tester_access_granted');
+      expect(def).toContain('refresh_race');
     }
   });
 
