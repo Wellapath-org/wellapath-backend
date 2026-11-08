@@ -132,6 +132,13 @@ class MetricsRegistry {
   );
   /** Backend-wide error counter (5xx responses). */
   readonly httpServerErrors = new Counter();
+  /**
+   * SEC-027: requests whose security client IP is unattributed (CLIENT_IP_SOURCE=cf-connecting-ip
+   * and the edge header was missing or malformed). Counts only: never an IP.
+   */
+  readonly securityClientIpUnattributed = new LabelledCounter(['missing', 'malformed']);
+  /** SEC-027: requests attributed from the edge header (denominator for an unattributed ratio). */
+  readonly securityClientIpAttributed = new Counter();
   /** Backend-wide request latency, by route. */
   private readonly httpDurations = new Map<string, Histogram>(
     METRIC_ROUTE_LABELS.concat(OTHER).map(route => [route, createHistogram()]),
@@ -177,6 +184,10 @@ class MetricsRegistry {
         server_errors_total: this.httpServerErrors.snapshot(),
         request_duration_ms: httpLatency,
       },
+      security: {
+        client_ip_unattributed_total: this.securityClientIpUnattributed.snapshot(),
+        client_ip_attributed_total: this.securityClientIpAttributed.snapshot(),
+      },
     };
   }
 
@@ -191,6 +202,8 @@ class MetricsRegistry {
     this.telemetrySinkRetries.reset();
     this.httpRequests.reset();
     this.httpServerErrors.reset();
+    this.securityClientIpUnattributed.reset();
+    this.securityClientIpAttributed.reset();
     this.telemetryRequestDurationMs.count = 0;
     this.telemetryRequestDurationMs.sumMs = 0;
     this.telemetryRequestDurationMs.buckets.fill(0);

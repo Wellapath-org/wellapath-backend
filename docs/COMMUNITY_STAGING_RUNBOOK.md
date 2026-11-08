@@ -173,6 +173,26 @@ every Community per-IP limit, and the IP HMAC in audit events. It comes from
   refused: Render's health checks bypass Cloudflare). `X-Forwarded-For`, `Forwarded`,
   `X-Real-IP` and `True-Client-IP` are never read.
 
+**Identity (SEC-026).** IPv4 keys on the full address; IPv6 keys on its canonical **/64**
+(`2001:db8:1:2::/64`), so rotating addresses inside one /64 cannot open fresh buckets. IPv4-mapped IPv6
+is the IPv4 identity. Limits and audit `ip_hash` use the same identity.
+
+**Unattributed traffic (SEC-027).**
+
+- **What it is:** with `cf-connecting-ip`, a request whose header is missing, empty or malformed is
+  _unattributed_. It keys on `unattributed:<socket>`, which the client cannot choose.
+- **Limits:** it gets the conservative interim/global Community ceilings, and the app-wide 100/min
+  as one shared bucket (never worse than today).
+- **Counting and logging:**
+  - It is counted in `security.client_ip_unattributed_total{missing,malformed}`, next to
+    `client_ip_attributed_total` (non-production `/internal/metrics`).
+  - At most once a minute, the app logs a `warn` line `event=security_client_ip_unattributed` with
+    `missing`, `malformed` and `attributed` counts. The line never contains an IP.
+- **Alerting (production):** Render's health checks are expected to produce a small, steady
+  `missing` count. Alert on the log line when `missing + malformed` rises well above that baseline,
+  or exceeds about 20% of `attributed`. A sustained jump means the edge header has stopped arriving
+  and per-client limits are degraded.
+
 **Why not an `X-Forwarded-For` hop count (`TRUST_PROXY_HOPS`)?**
 
 - Cloudflare **appends** to a client-supplied `X-Forwarded-For`, so its left side is attacker-controlled.

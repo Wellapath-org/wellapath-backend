@@ -28,6 +28,8 @@ export interface EnabledOptions {
   email?: EmailSender;
   /** The security client IP, injected by the app (see `RegisterCommunityOptions.clientIp`). */
   clientIp: (request: FastifyRequest) => string;
+  /** SEC-027: unattributed IP keys get the conservative (interim/global) ceilings. */
+  isUnattributedKey: (key: string) => boolean;
   /** Whether that IP identifies individual clients (selects per-IP vs interim global ceilings). */
   clientIpAttributed: boolean;
 }
@@ -78,6 +80,7 @@ export const registerEnabledCommunity = async (
   const tokens = new TokenService(pool, auth, hasher, events, config);
   const limiter = new RateLimiter(pool, hasher, {
     clientIpAttributed: options.clientIpAttributed,
+    isUnattributedKey: options.isUnattributedKey,
     overrides: config.limitOverrides,
   });
   const ctx = new CommunityContext({

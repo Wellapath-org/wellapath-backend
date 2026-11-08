@@ -20,6 +20,8 @@ export interface RegisterCommunityOptions {
    * and injected, so Community imports nothing outside src/community. Default: `request.ip`.
    */
   clientIp?: (request: FastifyRequest) => string;
+  /** SEC-027: true for keys `clientIp` produced as unattributed (conservative limits apply). */
+  isUnattributedKey?: (key: string) => boolean;
   /**
    * Whether the security IP identifies individual clients (CLIENT_IP_SOURCE=cf-connecting-ip, or
    * a measured TRUST_PROXY_HOPS). Selects per-IP vs interim global ceilings.
@@ -56,6 +58,7 @@ export const registerCommunity = async (
   await registerEnabledCommunity(server, config, {
     email: options.email,
     clientIp: options.clientIp ?? ((request: FastifyRequest): string => request.ip),
+    isUnattributedKey: options.isUnattributedKey ?? ((): boolean => false),
     clientIpAttributed: options.clientIpAttributed ?? false,
   });
 };

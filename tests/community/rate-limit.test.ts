@@ -226,11 +226,12 @@ describeDb('WellaPath rate limiter (A3)', () => {
         config: { limitOverrides: tightIp },
       });
       try {
-        const ip = '2001:db8::70';
+        // SEC-026: the identity of an IPv6 client is its /64; limits and audit both use it.
+        const ip = '2001:db8::/64';
         for (let i = 0; i < 3; i += 1) {
-          await requestOtp(app, uniqueEmail(`ah${i}`), edge('2001:DB8:0::70', i));
+          await requestOtp(app, uniqueEmail(`ah${i}`), edge(`2001:DB8:0::7${i}`, i));
         }
-        expect429(await requestOtp(app, uniqueEmail('ah-x'), edge('2001:db8:0:0::70', 9)));
+        expect429(await requestOtp(app, uniqueEmail('ah-x'), edge('2001:db8:0:0:1::70', 9)));
         const hasher = new Hasher(app.config.refreshPeppers);
         const buckets = (await ownerQuery(
           `SELECT bucket FROM rate_limit_counters WHERE bucket = $1`,
@@ -248,6 +249,87 @@ describeDb('WellaPath rate limiter (A3)', () => {
             spoofHash,
           ])) as unknown[],
         ).toHaveLength(0);
+      } finally {
+        await app.close();
+      }
+    });
+  });
+
+  describe('SEC-026/SEC-027: identity and conservative limits for unattributed traffic', () => {
+    // Distinct per-IP (max 2) and interim/global (interimMax 5) ceilings, so the tests can tell
+    // which one applied.
+    const split = { ...RELAXED_LIMITS, otp_request_ip: { max: 2, interimMax: 5 } };
+    const cf = (ip: string): Record<string, string> => ({ 'cf-connecting-ip': ip });
+    const run = async (
+      app: CommunityTestApp,
+      tag: string,
+      headers: (i: number) => Record<string, string>,
+      n: number,
+    ): Promise<number[]> => {
+      const codes: number[] = [];
+      for (let i = 0; i < n; i += 1) {
+        codes.push((await requestOtp(app, uniqueEmail(`${tag}${i}`), headers(i))).statusCode);
+      }
+      return codes;
+    };
+
+    it('attributed clients get the per-IP ceiling; socket mode keeps the interim ceiling', async () => {
+      await resetDatabase();
+      const edgeApp = await createCommunityApp({
+        clientIpSource: 'cf-connecting-ip',
+        config: { limitOverrides: split },
+      });
+      try {
+        expect(await run(edgeApp, 'pa', () => cf('203.0.113.80'), 3)).toEqual([202, 202, 429]);
+      } finally {
+        await edgeApp.close();
+      }
+      await resetDatabase();
+      const socketApp = await createCommunityApp({ config: { limitOverrides: split } });
+      try {
+        expect(await run(socketApp, 'ps', () => ({}), 6)).toEqual([202, 202, 202, 202, 202, 429]);
+      } finally {
+        await socketApp.close();
+      }
+    });
+
+    it('SEC-026: rotating IPv6 addresses inside one /64 hits the per-IP ceiling', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        clientIpSource: 'cf-connecting-ip',
+        config: { limitOverrides: split },
+      });
+      try {
+        expect(await run(app, 'r64', i => cf(`2001:db8:cc:dd::${i + 1}`), 3)).toEqual([
+          202, 202, 429,
+        ]);
+        // The neighbouring /64 is another client.
+        expect(await run(app, 'n64', () => cf('2001:db8:cc:de::1'), 1)).toEqual([202]);
+      } finally {
+        await app.close();
+      }
+    });
+
+    it('SEC-027: missing, empty and malformed edge headers share one bucket at the interim ceiling', async () => {
+      await resetDatabase();
+      const app = await createCommunityApp({
+        clientIpSource: 'cf-connecting-ip',
+        config: { limitOverrides: split },
+      });
+      try {
+        const bad: Record<string, string>[] = [
+          {},
+          { 'cf-connecting-ip': '' },
+          { 'cf-connecting-ip': '203.0.113.81, 198.51.100.2' },
+          { 'cf-connecting-ip': 'unattributed:203.0.113.81' },
+          { 'cf-connecting-ip': '203.0.113.81:443' },
+          { 'cf-connecting-ip': 'x' },
+        ];
+        // One shared, conservative bucket: five pass (interimMax), the sixth is limited; a client
+        // cannot pick or reset it by varying the malformed value.
+        expect(await run(app, 'un', i => bad[i], 6)).toEqual([202, 202, 202, 202, 202, 429]);
+        // An attributed client is unaffected, and keeps its own per-IP ceiling.
+        expect(await run(app, 'ok', () => cf('203.0.113.81'), 3)).toEqual([202, 202, 429]);
       } finally {
         await app.close();
       }

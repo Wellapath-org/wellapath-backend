@@ -9,13 +9,19 @@
  *
  * `server.ts` keeps exactly the same runtime behaviour: build, then listen.
  */
-import Fastify, { FastifyInstance } from 'fastify';
+import Fastify, { FastifyInstance, FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import { config } from './config/env';
 import { corsDelegator, parseWebsiteOrigin } from './config/cors';
 import { parseTrustProxyHops } from './config/trust-proxy';
-import { ClientIpSource, parseClientIpSource, securityClientIp } from './config/client-ip';
+import {
+  ClientIpSource,
+  isUnattributedKey,
+  parseClientIpSource,
+  securityClientIp,
+  SecurityClientIp,
+} from './config/client-ip';
 import { loadCommunityConfig } from './community/config';
 import { registerCommunity, RegisterCommunityOptions } from './community';
 import { scrubbingStream, scrubLogArgs, scrubLogValue } from './community/log-safety';
@@ -167,12 +173,55 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
     }),
   });
 
+  // SEC-001/SEC-027: derive the security client IP ONCE per request, before any limiter runs.
+  // Unattributed requests (cf-connecting-ip source, edge header missing or malformed) are counted
+  // and, at most once a minute, logged as counts only (never an IP): the production alert signal,
+  // because /internal/metrics is off in production.
+  const securityIps = new WeakMap<FastifyRequest, SecurityClientIp>();
+  const securityIpOf = (request: FastifyRequest): SecurityClientIp => {
+    let found = securityIps.get(request);
+    if (!found) {
+      found = securityClientIp(request, clientIpSource);
+      securityIps.set(request, found);
+    }
+    return found;
+  };
+  let unattributedWindow = { missing: 0, malformed: 0, attributed: 0, since: Date.now() };
+  server.addHook('onRequest', async request => {
+    if (clientIpSource !== 'cf-connecting-ip') return;
+    const derived = securityIpOf(request);
+    if (derived.via === 'unattributed' && derived.reason) {
+      metrics.securityClientIpUnattributed.increment(derived.reason);
+      unattributedWindow[derived.reason] += 1;
+    } else {
+      metrics.securityClientIpAttributed.increment();
+      unattributedWindow.attributed += 1;
+    }
+    const now = Date.now();
+    if (now - unattributedWindow.since >= 60_000) {
+      const w = unattributedWindow;
+      if (w.missing + w.malformed > 0) {
+        server.log.warn(
+          {
+            event: 'security_client_ip_unattributed',
+            window_seconds: Math.round((now - w.since) / 1000),
+            missing: w.missing,
+            malformed: w.malformed,
+            attributed: w.attributed,
+          },
+          'unattributed security client IP requests (edge header missing or malformed)',
+        );
+      }
+      unattributedWindow = { missing: 0, malformed: 0, attributed: 0, since: now };
+    }
+  });
+
   await server.register(rateLimit, {
     max: options.rateLimitMax ?? 100,
     timeWindow: '1 minute',
     // SEC-001: the canonical security client IP, never a client-chosen header. Route-level
     // limits (telemetry) inherit this key.
-    keyGenerator: request => securityClientIp(request, clientIpSource).ip,
+    keyGenerator: request => securityIpOf(request).ip,
     /**
      * `@fastify/rate-limit` *throws* whatever this builder returns. The previous version
      * returned a plain `{ error: { statusCode: 429 } }` object, which has no top-level
@@ -258,7 +307,8 @@ export const buildApp = async (options: BuildAppOptions = {}): Promise<BuiltApp>
   await registerCommunity(server, {
     ...options.community,
     config: communityConfig,
-    clientIp: (request): string => securityClientIp(request, clientIpSource).ip,
+    clientIp: (request): string => securityIpOf(request).ip,
+    isUnattributedKey,
     clientIpAttributed: trustProxyHops !== undefined || clientIpSource === 'cf-connecting-ip',
   });
 

@@ -81,21 +81,31 @@ export class RateLimiter {
   constructor(
     private readonly pool: Pool,
     private readonly hasher: Hasher,
-    private readonly options: { clientIpAttributed: boolean; overrides?: LimitOverrides },
+    private readonly options: {
+      clientIpAttributed: boolean;
+      /** SEC-027: keys the app produced as unattributed (edge header missing/malformed). */
+      isUnattributedKey?: (key: string) => boolean;
+      overrides?: LimitOverrides;
+    },
   ) {}
 
-  rule(name: LimitName): { max: number; windowSeconds: number } {
+  /**
+   * The ceiling for `name`. The conservative interim/global ceiling applies when the IP does not
+   * identify an individual client: either no per-client source is configured, or (SEC-027) this
+   * particular key is unattributed, so every such request shares it.
+   */
+  rule(name: LimitName, key?: string): { max: number; windowSeconds: number } {
     const base: LimitRule = LIMITS[name];
     const merged = { ...base, ...(this.options.overrides?.[name] ?? {}) };
-    const max =
-      !this.options.clientIpAttributed && merged.interimMax !== undefined
-        ? merged.interimMax
-        : merged.max;
+    const conservative =
+      !this.options.clientIpAttributed ||
+      (key !== undefined && (this.options.isUnattributedKey?.(key) ?? false));
+    const max = conservative && merged.interimMax !== undefined ? merged.interimMax : merged.max;
     return { max, windowSeconds: merged.windowSeconds };
   }
 
   private async hit(check: LimitCheck): Promise<LimitState & { exceeded: boolean }> {
-    const { max, windowSeconds } = this.rule(check.name);
+    const { max, windowSeconds } = this.rule(check.name, check.key);
     const bucket = `${check.name}:${this.hasher.lookup(check.name, check.key)}`;
     const { rows } = await this.pool.query<{ count: number; reset: string }>(
       `INSERT INTO rate_limit_counters (bucket, window_start, window_seconds, count)
