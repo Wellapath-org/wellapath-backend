@@ -9,6 +9,12 @@
 > Any rollback that changes what `/config` serves is a **clinical** change. It needs
 > engineering-lead approval and a decision reference, the same as a forward release.
 
+> [!WARNING]
+> **Render "Rollback" to any production deploy older than `fd7190b` is unsafe (WP-032).** Those
+> builds serve the deleted `facilities.ng.v1.1.json` (HTTP 404), so fresh installs get no
+> facility data. The Render dashboard cannot hide or block old deploys. This page is the
+> control: follow §4, not the button. If it has already happened, go to §7.
+
 ## 1. The rule
 
 **Do not use Render's "Rollback" button on any production deploy whose commit predates
@@ -73,7 +79,8 @@ Exact dashboard labels can change. If they differ from this description, update 
 This is the PR #40 pattern (`chore/facilities-rollback-to-v1-0`, a draft prepared in advance).
 
 1. Pick the target version from the **valid** list in the KB `docs/ROLLBACK_TARGETS.md`
-   (facilities 1.0, kb 2.3 or 2.2, rules 2.1, token_dictionary 1.0, verified 2026-11-07).
+   (facilities 1.0, kb 2.3 or 2.2, rules 2.1, token_dictionary 1.0; re-verified by anonymous GET
+   2026-11-07 21:44Z).
    **Never** use facilities 1.1, kb 2.0, kb 2.1 or rules 2.0.
 2. Open a PR to `develop` that edits only that artifact's block in `src/routes/config.ts`
    (version, url, hash, release_date). Update the frozen literals in the regression test and in
@@ -148,3 +155,30 @@ EOF
 - [ ] `/version` gives `0.3.0` / `production`.
 - [ ] Every artifact prints `OK`. Any `FAIL`, or any HTTP error: roll forward immediately.
 - [ ] Result, commit, time and approver recorded in `PROGRESS.md` and in `CLINICAL_CHANGE_LOG.md`.
+
+## 6. Guards and their limits
+
+| Guard                                                                                                                 | What it catches                                                                                                                                                                                                                              | What it cannot catch                                                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tests/regression/rollback-targets-guard.test.ts` (every `npm test` / CI run)                                         | A `/config` change on `develop` that names a retired file or hash (facilities 1.1, kb 2.0, kb 2.1, rules 2.0) or any (file, hash) pair outside the KB registry's active and rollback-target list. Accepts the PR #40 facilities 1.0 rollback | A Render "Rollback" to an old build: that build predates the test. It also does not check that URLs resolve (unit tests do not use the network) |
+| This runbook (§1, §2, §4, §5)                                                                                         | Operator error, by procedure                                                                                                                                                                                                                 | Anything done without reading it                                                                                                                |
+| Live artifact monitor (`scripts/verify-live-artifacts.sh`, backend PR #45, hourly, **not merged at time of writing**) | A live production `/config` that names a 404 or hash-mismatched URL, including after a mistaken Render rollback                                                                                                                              | Nothing before the next hourly run                                                                                                              |
+
+When the KB registry changes (a new release, a new retirement), update the two lists in the
+guard test in the same PR as the `/config` change.
+
+## 7. If an unsafe Render rollback has already happened
+
+Symptom: production `/config` names `facilities.ng.v1.1.json` (or kb 2.0/2.1, rules 2.0), the
+§5 step 3 script prints `FAIL`, or the monitor alerts.
+
+1. **Do not roll back further.** Every earlier production deploy is also unsafe.
+2. Render dashboard → `wellapath-backend-production` → **Events**: find the most recent deploy
+   whose commit equals `git rev-parse origin/production` (today `fd7190b`, or a descendant). Use
+   **Rollback** to that deploy, or **Manual Deploy → Deploy latest commit** on branch
+   `production`. Both are forward to the safe boundary.
+3. Run §5 step 3 against production. Every artifact must print `OK`.
+4. Record the incident (time it started, time it was fixed, deploy IDs) in `PROGRESS.md`, the
+   workspace `SECURITY_INCIDENT_LOG.md` if data exposure is possible, and `CLINICAL_CHANGE_LOG.md`.
+   Devices that fetched `/config` during the window may have cached no facilities (fresh
+   installs) or kept a cached withdrawn v1.1 (WP-025; fixed only in builds that carry mobile #100).

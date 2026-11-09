@@ -63,8 +63,10 @@
    is then issued automatically by Render for the custom domain.
    **Every existing record must be preserved untouched** — verified live
    2026-09-21: the apex A record (`216.198.79.1`) and `www` serve the marketing
-   website on **Vercel**, and the MX records (`mx1`/`mx2.hostinger.com`) carry
-   company email on **Hostinger**. Do not use any "replace all records" or
+   website on **Vercel**, and the MX records carry company email. (Corrected
+   2026-11-07: live MX is **Zoho**, `mx`/`mx2`/`mx3.zoho.com` at priorities
+   10/20/50, with SPF `include:zohomail.com` and DKIM selector `zmail`. The
+   original 2026-09-21 note said Hostinger.) Do not use any "replace all records" or
    template flow in the registrar panel; a removed apex/`www` record takes the
    website down and a removed MX record silently drops company email.
 3. Run the verification checklist in §5 and record results in `PROGRESS.md`.

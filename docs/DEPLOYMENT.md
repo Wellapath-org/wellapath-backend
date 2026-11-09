@@ -256,6 +256,11 @@ Secrets are set in the Render service environment. No credentials appear in sour
 
 ## 7. Rollback
 
+> [!WARNING]
+> **Never use Render "Rollback to previous deploy" to a production deploy older than `fd7190b`
+> (WP-032).** It would serve the deleted facilities v1.1 URL (404). Roll back by changing `/config`
+> (§7.3, §7.5). Operator runbook, guards and recovery: `OPERATIONS_RENDER_ROLLBACK.md` §6–§7.
+
 Rolling anything back is a **clinical** change, not just a technical one. It requires
 engineering-lead approval and a decision reference, exactly like a forward release.
 
@@ -273,7 +278,7 @@ sweeps nothing; the only delete is the same version's entry on a hash failure. C
 - If `/config` names a URL that returns 404, a fresh install cannot obtain that artifact. That is
   why a rollback target must be proven reachable _at the time of rollback_.
 
-### 7.2 Verified rollback targets (re-checked 2026-11-07 09:36Z)
+### 7.2 Verified rollback targets (re-checked 2026-11-07 09:36Z and 21:44Z, anonymous GET)
 
 Every object `/config` has ever named was fetched from R2 and its sha256 recomputed against the
 hash in `src/routes/config.ts` history.
@@ -290,6 +295,11 @@ The `kb` v2.1 mismatch traces to knowledge-base commit `2a8ffaf` (2026-07-22), w
 original hash holds different content from what the URL now returns. It is recorded here, not
 repaired: repairing it is a data-engineering decision. Clinical compatibility of any older
 target with the current token dictionary must be re-validated before use.
+
+kb 1.0 and rules 1.0 are hash-intact on R2 but **superseded** pilot content, not supported
+targets. The canonical list is the KB `docs/ROLLBACK_TARGETS.md` and
+`publication/published_artifacts_registry_v1.json`; `tests/regression/rollback-targets-guard.test.ts`
+mirrors it and fails CI if `/config` names anything else.
 
 ### 7.3 Facilities rollback to v1.0 — tested procedure
 

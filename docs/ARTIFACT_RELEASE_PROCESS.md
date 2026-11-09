@@ -63,7 +63,10 @@ The backend's job is to verify and distribute.
 - [ ] **Recompute the SHA256 locally** and confirm it matches the supplied hash **exactly** —
       never copy a hash into `config.ts` without independently reproducing it
 - [ ] **Confirm every prior version still returns HTTP 200** with its original hash — proves no
-      overwrite occurred (formally retired versions excepted; they must return 404, see §7)
+      overwrite occurred. Formally retired versions are excepted (see §7): a version retired by
+      deletion (facilities 1.1) must return 404; a version retired because it was edited in place
+      (kb 2.0, kb 2.1, rules 2.0) still returns 200 with the edited bytes and must match the
+      KB registry hash, not the hash `/config` once served
 - [ ] **Diff the new version against the previous one** and confirm the change matches what was
       described — nothing else changed silently
 - [ ] **Validate referential integrity** — every token referenced by the KB or rules must exist
