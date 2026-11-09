@@ -6,7 +6,7 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
 import { Pool, PoolClient } from 'pg';
 import { CommunityAuth } from './auth';
-import { CommunityEnabledConfig } from './config';
+import { CommunityEnabledConfig, normalizeTesterEmail } from './config';
 import { Hasher } from './crypto';
 import { EmailSender } from './email';
 import { AuthEvents } from './events';
@@ -130,6 +130,8 @@ export interface CommunityServices {
   idempotency: IdempotencyStore;
   /** The security client IP, injected by the app (`src/config/client-ip.ts`). */
   clientIp: (request: FastifyRequest) => string;
+  /** Operational warnings (the app logger). Never given an email or an approved list. */
+  warn?: (fields: Record<string, unknown>, message: string) => void;
 }
 
 export class CommunityContext {
@@ -147,13 +149,90 @@ export class CommunityContext {
     return this.s.clientIp(request);
   }
 
-  isAllowed(principal: Pick<Principal, 'role' | 'userId'>): boolean {
+  isAllowed(principal: Pick<Principal, 'role' | 'userId' | 'email' | 'emailVerified'>): boolean {
     const { config } = this.s;
-    return (
+    if (
       config.mode === 'public' ||
       hasRole(principal.role, 'moderator') ||
       config.allowlist.has(principal.userId)
+    ) {
+      return true;
+    }
+    if (this.isApprovedInternalTester(principal)) {
+      this.noteInternalTesterGrant(principal.userId);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * F-077: in `internal` mode only, an account whose server-side email is VERIFIED (OTP proved
+   * the mailbox) and exactly equals an entry of COMMUNITY_INTERNAL_TESTER_EMAILS after trim +
+   * lower-case. The email comes from the account row behind the access token, never from the
+   * client. No wildcard or domain matching exists: it is a Set lookup of the whole address.
+   */
+  private isApprovedInternalTester(principal: Pick<Principal, 'email' | 'emailVerified'>): boolean {
+    const { config } = this.s;
+    return (
+      config.mode === 'internal' &&
+      config.internalTesterEmails.size > 0 &&
+      principal.emailVerified === true &&
+      typeof principal.email === 'string' &&
+      config.internalTesterEmails.has(normalizeTesterEmail(principal.email))
     );
+  }
+
+  /** Accounts whose first tester-email grant this process has recorded, or is recording. */
+  private readonly testerGrantsNoted = new Set<string>();
+  /** Set after a permanent audit failure (e.g. migration 0011 missing): no more attempts. */
+  private testerGrantAuditDisabled = false;
+
+  /**
+   * One `internal_tester_access_granted` audit row per account, ever. Deduplicated in memory per
+   * process, and across processes by a per-account advisory lock held while NOT EXISTS is
+   * checked. Best effort and off the request path: access never depends on it. Carries the
+   * account id only, never an email. A transient failure is retried on a later request; a
+   * permanent one (CHECK violation: migration 0011 not applied; or a privilege error) is logged
+   * once and stops further attempts in this process.
+   */
+  private noteInternalTesterGrant(userId: string): void {
+    if (this.testerGrantAuditDisabled || this.testerGrantsNoted.has(userId)) return;
+    this.testerGrantsNoted.add(userId);
+    void this.writeInternalTesterGrant(userId).catch((error: { code?: string }) => {
+      const permanent = error?.code === '23514' || error?.code === '42501';
+      if (permanent) {
+        this.testerGrantAuditDisabled = true;
+      } else {
+        this.testerGrantsNoted.delete(userId);
+      }
+      this.s.warn?.(
+        { event: 'internal_tester_audit_failed', code: error?.code ?? 'unknown', permanent },
+        'internal tester access audit row could not be written',
+      );
+    });
+  }
+
+  private async writeInternalTesterGrant(userId: string): Promise<void> {
+    const client = await this.s.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(`SELECT pg_advisory_xact_lock(hashtext('internal_tester_grant:' || $1))`, [
+        userId,
+      ]);
+      await client.query(
+        `INSERT INTO auth_events (event, account_id, detail)
+         SELECT 'internal_tester_access_granted', $1::text, '{"via":"internal_tester_emails"}'::jsonb
+          WHERE NOT EXISTS (SELECT 1 FROM auth_events
+                             WHERE event = 'internal_tester_access_granted' AND account_id = $1::text)`,
+        [userId],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   /** Bearer access token → principal. Counts the per-account default limit unless disabled. */

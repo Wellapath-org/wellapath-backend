@@ -11,7 +11,7 @@ import {
 } from '../../src/community/migrate';
 import { describeDb, ownerPool } from './helpers';
 
-const ALL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const ALL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 const EXPECTED_TABLES = [
   'account',
@@ -106,6 +106,9 @@ describeDb('migrations against Postgres', () => {
     ).rows[0].def;
 
   it('steps down one migration at a time and back', async () => {
+    expect(await eventCheck()).toContain('internal_tester_access_granted');
+    expect(await migrateDown(pool, 1)).toEqual([11]);
+    expect(await eventCheck()).not.toContain('internal_tester_access_granted');
     expect(await eventCheck()).toContain('refresh_race');
     expect(await migrateDown(pool, 1)).toEqual([10]);
     expect(await eventCheck()).not.toContain('refresh_race');
@@ -115,7 +118,7 @@ describeDb('migrations against Postgres', () => {
     expect(await tables(pool)).not.toContain('rate_limit_counters');
     expect(await migrateDown(pool, 1)).toEqual([7]);
     expect(await tables(pool)).not.toContain('auth_events');
-    expect(await migrateUp(pool)).toEqual([7, 8, 9, 10]);
+    expect(await migrateUp(pool)).toEqual([7, 8, 9, 10, 11]);
     expect(await eventCheck()).toContain('refresh_race');
     expect(await indexes(pool, 'verification')).toEqual(
       expect.arrayContaining(['verification_expires_at_idx', 'verification_created_at_idx']),

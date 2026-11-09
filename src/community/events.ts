@@ -24,7 +24,9 @@ export type AuthEvent =
   | 'totp_lockout'
   | 'rate_limited'
   | 'data_exported'
-  | 'account_deleted';
+  | 'account_deleted'
+  /** F-077: first Community access through COMMUNITY_INTERNAL_TESTER_EMAILS. Migration 0011. */
+  | 'internal_tester_access_granted';
 
 export interface AuthEventFields {
   accountId?: string | null;

@@ -42,6 +42,8 @@ export interface Principal {
   role: Role;
   twoFactorEnabled: boolean;
   email: string;
+  /** Server-side `"user"."emailVerified"` (set by a successful OTP verification). */
+  emailVerified: boolean;
   status: AccountStatus;
   restrictedUntil: string | null;
   stepUpAt: Date | null;
@@ -213,6 +215,7 @@ export class TokenService {
       role: Role;
       twoFactorEnabled: boolean | null;
       email: string;
+      emailVerified: boolean | null;
       createdAt: Date;
       deletedAt: Date | null;
       restriction_kind: 'restricted' | 'suspended' | null;
@@ -220,7 +223,7 @@ export class TokenService {
     }>(
       `SELECT f.revoked_at, f.absolute_expires_at, f.idle_expires_at, f.step_up_at,
               (s."id" IS NOT NULL AND s."expiresAt" > now()) AS has_session,
-              u."role", u."twoFactorEnabled", u."email", u."createdAt", u."deletedAt",
+              u."role", u."twoFactorEnabled", u."email", u."emailVerified", u."createdAt", u."deletedAt",
               restriction.kind AS restriction_kind, restriction.expires_at AS restriction_until
          FROM refresh_token_families f
          JOIN "user" u ON u."id" = f.user_id
@@ -244,6 +247,7 @@ export class TokenService {
       role: row.role,
       twoFactorEnabled: row.twoFactorEnabled === true,
       email: row.email,
+      emailVerified: row.emailVerified === true,
       status: row.restriction_kind ?? 'active',
       restrictedUntil: row.restriction_until ? row.restriction_until.toISOString() : null,
       stepUpAt: row.step_up_at,

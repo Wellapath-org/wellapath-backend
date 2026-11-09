@@ -94,6 +94,7 @@ export const registerEnabledCommunity = async (
     limiter,
     idempotency: new IdempotencyStore(pool),
     clientIp: options.clientIp,
+    warn: (fields, message): void => server.log.warn(fields, message),
   });
 
   // Route registry (method + URL of every auth/community route) for the contract test, which
