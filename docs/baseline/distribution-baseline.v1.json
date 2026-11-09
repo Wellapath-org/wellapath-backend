@@ -1,5 +1,5 @@
 {
-  "baseline_version": "1.1.0",
+  "baseline_version": "1.1.0-rollback",
   "provenance": {
     "purpose": "I3 Step 1 — frozen record of the artifact-distribution baseline before any manifest-contract work. Evidence classes are separated: repository_baseline is read from source at the recorded commit; deployed_observation is what the live staging service and R2 objects returned on the recorded date; inferred entries are conclusions not directly proven; unavailable_evidence lists what could not be verified from this repository.",
     "repository": "wellapath-org/wellapath-backend",
@@ -22,7 +22,7 @@
       "CORS: origin allowlist plus GET/POST/OPTIONS only when NODE_ENV=production, permissive otherwise",
       "/version reports NODE_ENV as environment; /config payload itself is identical in every environment"
     ],
-    "response_canonical_sha256": "16250ff550c82da57fff09bca7d0eba835f70078c2a5296ee4447cfc7adaa926",
+    "response_canonical_sha256": "adb806d4633ba9a94e091a4f7b6af04215cdcdd9dc210b33127cbf22543f3087",
     "response_canonicalization": "JSON with object keys sorted recursively, no whitespace, UTF-8",
     "response": {
       "version": "1.0",
@@ -50,10 +50,10 @@
           "country": "ng"
         },
         "facilities": {
-          "version": "1.2",
-          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/facilities.ng.v1.2.json",
-          "hash": "sha256:94f162e492fa91f7d9d3cf2ca33fcf0598a031a2510aa900aa717a581bdb7788",
-          "release_date": "2026-09-29",
+          "version": "1.0",
+          "url": "https://pub-8bc2ba0d7e7647799d89662d70f23c45.r2.dev/facilities.ng.v1.0.json",
+          "hash": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e",
+          "release_date": "2026-04-06",
           "country": "ng"
         }
       }
@@ -73,10 +73,10 @@
     ]
   },
   "deployed_observation": {
-    "observed_at": "2026-09-29T11:49:05Z",
+    "observed_at": "2026-09-29T12:09:06Z",
     "service": "wellapath-backend-staging (Render), public host wellapath-backend-staging.onrender.com",
     "config_response_matches_repository": true,
-    "config_response_body_sha256": "bbf8024c04e946d41c22be4b6b858fe0ae83ffa1720ee6802776234272fe2d7b",
+    "config_response_body_sha256": "ee0df0f24ecf401c49d4379da002c96cce1628feb2745c93db74d7e42d81e48b",
     "config_response_headers": {
       "content-type": "application/json; charset=utf-8",
       "cf-cache-status": "DYNAMIC",
@@ -90,7 +90,7 @@
     "health_endpoint": {
       "status": "ok",
       "checks_database": "ok",
-      "note": "database healthy at observation; the 2026-08-28 degraded reading reflected the known Supabase free-tier idle pause"
+      "note": "database healthy at observation"
     },
     "artifact_objects": [
       {
@@ -121,10 +121,10 @@
         "cache_control": null
       },
       {
-        "object_key": "facilities.ng.v1.2.json",
+        "object_key": "facilities.ng.v1.0.json",
         "http_status": 200,
-        "byte_count": 1698125,
-        "sha256_recomputed": "sha256:94f162e492fa91f7d9d3cf2ca33fcf0598a031a2510aa900aa717a581bdb7788",
+        "byte_count": 1695059,
+        "sha256_recomputed": "sha256:1c7b939199ab4465156f4cb336910eea120fcaa70f8b1c0743fc9f7a7c03009e",
         "matches_config_hash": true,
         "content_type": "application/json",
         "cache_control": null
@@ -164,8 +164,8 @@
         "http_status": 200
       }
     ],
-    "deployment_id": "dep-datq9qad0e5s73d4idag",
-    "deployed_commit": "cd72dc5642ba0c9000dd51bb6ef976bbcac0d2cf"
+    "deployment_id": "dep-datqj5flot8c738jcrr0",
+    "deployed_commit": "d51490b72d38b6883d5e5392217ceea7219f34f7"
   },
   "inferred": [
     "mobile consumes artifacts.<name>.version, .url and .hash (documented contract: version for cache comparison, url for download, hash for integrity); release_date and country are informational — inferred from docs/DEPLOYMENT.md and PROGRESS.md, not verified against mobile source, which is not accessible from this repository",
@@ -187,5 +187,5 @@
     "database TLS uses rejectUnauthorized:false (pre-production item)",
     "rollback is a manual code change with no machine-readable last-known-good record"
   ],
-  "decision_reference": "FACILITIES-V1.2-ACTIVATION-2026-09-29"
+  "decision_reference": "FACILITIES-V1.2-ACTIVATION-2026-09-29 (rollback branch — emergency return to v1.0)"
 }
